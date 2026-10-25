@@ -54,7 +54,7 @@ let receiveLink = (url: string, allowFile = false) => {
     let browser = runtime!
     let client = await existingClient()
     // OS-opened links are human navigation, like entering a URL in this client.
-    await browser.execute({ method: 'new-window', args: { session: client.sessionId, client: client.id, url } }, client.id)
+    await browser.openExternalLink(client.id, url)
     await browser.execute({ method: 'activate-client', args: { client: client.id } })
   }).catch(() => { console.error('Could not open external browser link') })
 }
@@ -96,8 +96,8 @@ void app.whenReady().then(async () => {
     { role: 'editMenu' },
     { role: 'windowMenu' },
   ]))
-  runtime = createRuntime(dataDirectory, () => updateMenu?.refresh())
-  localRemote = createLocalRemote(dataDirectory)
+  runtime = createRuntime(dataDirectory, () => { updateMenu?.refresh(); void localRemote?.refreshPreviewSettings().catch(() => undefined) })
+  localRemote = createLocalRemote(dataDirectory, () => runtime!.state().remotePreviews!)
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
   ipcMain.handle('clipboard', (event, text?: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
@@ -121,14 +121,16 @@ void app.whenReady().then(async () => {
   ipcMain.handle('remote-account', async (event, endpoint: string, body?: unknown) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     if (typeof endpoint !== 'string') throw new Error('Invalid account endpoint')
-    if (endpoint === '/local/state') return { enabled: !!remoteHost, ...remoteHost?.status() }
+    if (endpoint === '/local/state') return { enabled: !!remoteHost, name: os.hostname(), ...remoteHost?.status() }
     if (endpoint === '/local/connect' || endpoint === '/local/disconnect') {
       if (enrolling) throw new Error('Connection update in progress')
       enrolling = true
       try {
         if (endpoint === '/local/connect') {
           if (remoteHost) return remoteHost.status()
-          let name = os.hostname().toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0,40).replace(/^-+|-+$/g,'') || 'computer'
+          let requested = (body as { name?: unknown } | undefined)?.name
+          if (requested !== undefined && (typeof requested !== 'string' || !requested.trim() || requested.length > 64 || /[\x00-\x1f\x7f]/.test(requested))) throw new Error('Enter a computer name')
+          let name = (typeof requested === 'string' ? requested : os.hostname()).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0,40).replace(/^-+|-+$/g,'') || 'computer'
           let service = `${name}-${randomUUID().slice(0,8)}`
           let created = await localRemote!.account('/api/services', { service }) as { service: string; key: string }
           let saved = false
@@ -145,7 +147,7 @@ void app.whenReady().then(async () => {
             remoteHost?.close(); remoteHost = undefined; fs.unlinkSync(enrollmentFile)
           }
         }
-        return { enabled: !!remoteHost, ...remoteHost?.status() }
+        return { enabled: !!remoteHost, name: os.hostname(), ...remoteHost?.status() }
       } finally { enrolling = false }
     }
     return localRemote!.account(endpoint,body)
@@ -157,19 +159,26 @@ void app.whenReady().then(async () => {
     if (url.protocol !== 'https:' || !['checkout.stripe.com','billing.stripe.com'].includes(url.hostname) || url.username || url.password) throw new Error('Invalid billing URL')
     return runtime!.openRemotePage(clientId, { key: 'billing', title: 'Billing', url: url.href })
   })
-  ipcMain.handle('remote-session-previews', (event, host: string, session: string) => {
+  ipcMain.handle('remote-session-previews', (event, host: string, session: string, request: 'cache' | 'missing' | 'refresh' = 'missing') => {
+    if (!['cache', 'missing', 'refresh'].includes(request)) throw new Error('Invalid preview request')
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     if (typeof host !== 'string' || typeof session !== 'string') throw new Error('Invalid remote session')
-    return localRemote!.sessionPreviews(host, session)
+    return localRemote!.sessionPreviews(host, session, request)
   })
   ipcMain.handle('remote-close-session', (event, host: string, session: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     if (typeof host !== 'string' || typeof session !== 'string') throw new Error('Invalid remote session')
     return localRemote!.closeSession(host, session)
   })
-  ipcMain.handle('remote-open', async (event, host?: string, session?: string) => {
+  ipcMain.handle('remote-close-page', (event, host: string, session: string, pane: string) => {
+    if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
+    if (typeof host !== 'string' || typeof session !== 'string' || typeof pane !== 'string') throw new Error('Invalid remote page')
+    return localRemote!.closePage(host, session, pane)
+  })
+  ipcMain.handle('remote-open', async (event, host?: string, session?: string, pane?: string) => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')
+    if (pane !== undefined && typeof pane !== 'string') throw new Error('Invalid remote pane')
     if ((host !== undefined && typeof host !== 'string') || (session !== undefined && typeof session !== 'string')) throw new Error('Invalid remote session')
     if (!host && !session) {
       let client = runtime!.model.clients.find(item => item.id === clientId)!
@@ -180,7 +189,7 @@ void app.whenReady().then(async () => {
       await runtime!.openRemotePage(clientId, { key: 'sign-in', title: 'Sign in to remote', url: localRemote!.origin })
       return
     }
-    return localRemote!.open(host, session, page => runtime!.openRemotePage(clientId, page))
+    return localRemote!.open(host, session, page => runtime!.openRemotePage(clientId, page), pane, clientId)
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)

@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { notifyDisconnected } from './peer-disconnect'
 import { createStreamLeases } from './stream-leases'
+import type { RemoteMachine } from '../src/shared/remote-sessions'
 import { createMobileAuth, type LoginContext } from './mobile-auth'
 import type { RemoteCapabilities } from '../src/shared/remote-management'
 import { recordHostAttention } from './attention-records'
@@ -38,8 +39,8 @@ let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
   if (key.kty !== 'OKP' || key.crv !== 'Ed25519' || typeof key.x !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(key.x)) throw new Error('Invalid public key')
   return digest(key.x)
 }
-type ListedSession = { canClose?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
-type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[]; nativeSession?: string; capabilities?: RemoteCapabilities; kind?: string }
+type ListedSession = { canClose?: boolean; canClosePages?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
+type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[]; machine?: RemoteMachine; nativeSession?: string; capabilities?: RemoteCapabilities; kind?: string }
 let peers = new Map<string, Peer>()
 let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number; desktop: boolean; tokenHash: string; nativeSession?: string }>()
 let mobileAuth = createMobileAuth({ pool, origin: publicOrigin, googleClientId: audience, revoked: session => {
@@ -61,7 +62,7 @@ let visibleHosts = async (owner: string) => {
     if (host.role !== 'host') continue
     if (host.kind === 'included' && (!host.capabilities?.management || host.capabilities.sessionCreate || host.capabilities.pageCreate)) continue
     let access = owner === host.owner ? 'control' : accessByService.get(host.service!)
-    if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, key: host.key, permission: access, sessions: host.sessions ?? [], capabilities: host.capabilities ?? {} })
+    if (access) hosts.push({ id: host.id, generation: host.generation, service: host.service, machine: host.machine, key: host.key, permission: access, owner: owner === host.owner, sessions: host.sessions ?? [], capabilities: host.capabilities ?? {} })
   }
   return hosts
 }
@@ -229,6 +230,7 @@ server.on('upgrade', (request, socket, head) => {
       peer = { owner: found.rows[0].owner, id, role: 'host', service: found.rows[0].id, generation, key, alive: true, kind:found.rows[0].kind }
       if (managed && url.searchParams.get('protocol') !== '2') throw new Error('Update this host to connect to managed relay')
       await pool.query("INSERT INTO bmux_host_presence(host,service,generation,instance) VALUES($1,$2,$3,$4) ON CONFLICT(host) DO UPDATE SET service=excluded.service,generation=excluded.generation,instance=excluded.instance,sessions='[]',capabilities='{}',connected=true,seen=now()", [id,peer.service,generation,instance])
+      await pool.query("UPDATE bmux_attention SET status='expired',resolved_at=now(),revision=revision+1 WHERE service=$1 AND host=$2 AND generation<>$3 AND status IN ('pending','verifying')", [peer.service,id,generation])
     } else {
       let ticket = url.searchParams.get('ticket') ?? '', enrollment = tickets.get(ticket)
       tickets.delete(ticket)
@@ -275,7 +277,7 @@ server.on('upgrade', (request, socket, head) => {
             let viewer = current.role === 'viewer' ? current : target
             let access = await permission(viewer.owner, host)
             if (!access) { send(current, { type: 'signal-error', to: target.id, error: 'Access revoked' }); return }
-            if (current.role === 'viewer') send(host, { type: 'authorized', id: viewer.id, key: viewer.key, permission: access })
+            if (current.role === 'viewer') send(host, { type: 'authorized', id: viewer.id, key: viewer.key, permission: access, owner: viewer.owner === host.owner })
             send(target, { type: 'signal', from: current.id, envelope: message.envelope }); return
           }
           if (message.type === 'sessions' && current.role === 'host') {
@@ -287,9 +289,13 @@ server.on('upgrade', (request, socket, head) => {
             if (!Array.isArray(sessions) || sessions.length > 100 || !sessions.every((session: ListedSession) =>
               typeof session.id === 'string' && session.id.length <= 128 && typeof session.name === 'string' && session.name.length <= 256 &&
               (session.canClose === undefined || typeof session.canClose === 'boolean') &&
+              (session.canClosePages === undefined || typeof session.canClosePages === 'boolean') &&
               (session.lastActivityAt === undefined || Number.isFinite(session.lastActivityAt) && session.lastActivityAt >= 0) &&
               Array.isArray(session.panes) && session.panes.length <= 100 && session.panes.every(pane =>
                 typeof pane.id === 'string' && pane.id.length <= 128 && typeof pane.title === 'string' && pane.title.length <= 512))) throw new Error('Invalid sessions')
+            let machine = message.machine
+            if (machine !== undefined && (!machine || typeof machine !== 'object' || Array.isArray(machine) || Object.keys(machine).some(key => !['name', 'platform', 'arch', 'version', 'revision'].includes(key)) || ['name', 'platform', 'arch'].some(key => typeof machine[key] !== 'string' || !machine[key].trim() || machine[key].length > 128 || /[\x00-\x1f\x7f]/.test(machine[key])) || ['version', 'revision'].some(key => machine[key] !== undefined && (typeof machine[key] !== 'string' || machine[key].length > 64 || /[\x00-\x1f\x7f]/.test(machine[key]))))) throw new Error('Invalid machine')
+            current.machine = machine
             current.sessions = sessions
             if (current.kind === 'included' && (sessions.length!==1 || sessions[0].panes.length!==1 || !current.capabilities?.management || current.capabilities.sessionCreate || current.capabilities.pageCreate)) throw new Error('Invalid included browser capabilities')
             await pool.query('UPDATE bmux_host_presence SET sessions=$3,capabilities=$4 WHERE host=$1 AND generation=$2',[current.id,current.generation,JSON.stringify(sessions),JSON.stringify(current.capabilities ?? {})])

@@ -1,5 +1,7 @@
 import type { InternalWindow, WorkspaceSession } from './types'
 
+export let windowActivityTime = (window: Pick<InternalWindow, 'panes'>) => Math.max(0, ...window.panes.map(pane => pane.lastActivityAt ?? 0)) || undefined
+
 export let windowVisitTime = (window: Pick<InternalWindow, 'lastVisitedAt' | 'panes'>) => window.lastVisitedAt ?? (Math.max(0, ...window.panes.map(pane => pane.lastActivityAt ?? 0)) || undefined)
 
 export let sessionActivityTime = (session: Pick<WorkspaceSession, 'lastActivityAt' | 'windows'>) => Math.max(session.lastActivityAt ?? 0, ...session.windows.flatMap(window => [window.lastVisitedAt ?? 0, ...window.panes.map(pane => pane.lastActivityAt ?? 0)])) || undefined

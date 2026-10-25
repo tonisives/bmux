@@ -26,7 +26,7 @@ export let BackButton = ({ back }: { back: PanelBack }) => {
   </button>
 }
 
-export let PanelHeader = ({ children, back, dismiss }: { children: ReactNode; back?: PanelBack | null; dismiss: () => void }) => <header>
+export let PanelHeader = ({ children, back, dismiss, actions }: { children: ReactNode; back?: PanelBack | null; dismiss: () => void; actions?: ReactNode }) => <header>
   <div className={css.heading}>{back && <BackButton back={back} />}{children}</div>
-  {!back && <CloseButton label="Close" onClick={dismiss} />}
+  {actions ? <div className={css.actions}>{actions}{!back && <CloseButton label="Close" onClick={dismiss} />}</div> : !back && <CloseButton label="Close" onClick={dismiss} />}
 </header>

@@ -18,13 +18,17 @@ test('keeps at most three recent commands and expires each after five seconds', 
   try {
     vi.setSystemTime(0)
     let lines: { textContent: string }[] = []
+    let host: EventTarget
+    class CommandEvent extends Event { detail: unknown; constructor(detail: unknown) { super('bmux-agent-commands'); this.detail = detail } }
     let context = createContext({ Date, setTimeout, clearTimeout, document: {
-      getElementById: () => ({ replaceChildren: (...children: typeof lines) => { lines = children } }),
-      createElement: () => ({ textContent: '' })
+      getElementById: () => host,
+      documentElement: { append: (node: EventTarget) => { host = node } },
+      createElement: () => Object.assign(new EventTarget(), { style: {}, setAttribute: () => {}, textContent: '', attachShadow: () => ({ append: () => {} }), replaceChildren: (...children: typeof lines) => { lines = children } })
     } })
     runInContext(agentCommandFeedbackScript, context)
+    let show = (commands: unknown) => host.dispatchEvent(new CommandEvent(commands))
     let commands = Array.from({ length: 4 }, (_, index) => ({ text: `command ${index}`, expiresAt: index * 1000 + AGENT_COMMAND_FEEDBACK_MS }))
-    context.showAgentCommands(commands)
+    show(commands)
     expect(lines.map(line => line.textContent)).toEqual(['command 1', 'command 2', 'command 3'])
     vi.advanceTimersByTime(5999)
     expect(lines).toHaveLength(3)
@@ -32,7 +36,7 @@ test('keeps at most three recent commands and expires each after five seconds', 
     expect(lines.map(line => line.textContent)).toEqual(['command 2', 'command 3'])
     vi.advanceTimersByTime(2000)
     expect(lines).toEqual([])
-    context.showAgentCommands([{ text: '<b>literal text</b>', expiresAt: Date.now() + AGENT_COMMAND_FEEDBACK_MS }])
+    show([{ text: '<b>literal text</b>', expiresAt: Date.now() + AGENT_COMMAND_FEEDBACK_MS }])
     expect(lines[0].textContent).toBe('<b>literal text</b>')
     vi.advanceTimersByTime(AGENT_COMMAND_FEEDBACK_MS)
     expect(lines).toEqual([])

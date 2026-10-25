@@ -81,6 +81,14 @@
 .notificationSiteExclusion .notificationAction { padding: 2px 6px; border: 0; border-left: 1px solid #76565a; }
 .notification .notificationPaneLink { display: inline-flex; align-items: center; gap: 4px; }
 .notificationPaneLink > span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notificationAgent { display: inline-flex; align-items: stretch; flex: 0 0 auto; max-width: 100%; border: 1px solid #76565a; }
+.notification .notificationAgent button { width: 24px; height: 22px; flex: 0 0 24px; border: 0; color: #f2c1bb; }
+.notification .notificationAgent button:hover:not(:disabled) { background: #463137; }
+.notification .notificationAgent button:focus-visible { outline: 2px solid #f2c1bb; outline-offset: 2px; }
+.notification .notificationAgent button:disabled { opacity: .5; cursor: default; }
+.notification .notificationAgent > * + * { border-left: 1px solid #76565a; }
+.notificationAgent svg { width: 14px; height: 14px; }
+.notificationAgentId { max-width: 160px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 22px; user-select: text; }
 .notificationGeneral { min-height: 26px; padding-top: 3px; padding-bottom: 3px; background: #2a2022; border-color: #493638; color: #e6a69c; }
 .notificationGeneral .notificationAction { border-color: #735052; color: #e6a69c; }
 .notificationGeneral svg { width: 14px; height: 14px; }
@@ -192,12 +200,9 @@
 .panel .listRow:is(:disabled, [aria-disabled="true"]) { color: #77818d; cursor: not-allowed; }
 .remoteService { color: #8e98a4; font-size: 11px; white-space: nowrap; }
 .remoteSession[data-active="true"] { background: #252d34; }
-.remoteGroup { display: flex; flex: 1; align-items: center; gap: 8px; padding: 6px 8px; text-align: left; }
-.remoteGroup .remoteService { margin-left: auto; }
-.sessionWorkspace .sessionRow.remoteSessionRow { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr) 34px; }
-.sessionWorkspace .remoteSessionRow .sessionClose { grid-column: 2; }
 .remotePreviewHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .remotePreviewHeading button { flex-shrink: 0; color: #aebca7; }
+.remotePreviewHeading .sessionPreviewTitle { flex: 1; min-width: 0; }
 .remotePreviewPane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .remotePreviewCaption { display: flex; flex-direction: column; padding: 6px 8px; flex-shrink: 0; }
 .remotePreviewCaption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -466,7 +471,7 @@
 
 .sessionsPanel { width: min(1440px, 96vw); display: flex; flex-direction: column; height: 96%; max-height: 96%; overflow: hidden; }
 .sessionsPanel > header { flex-shrink: 0; }
-.sessionsPanel .panelBody { display: flex; flex: 1; min-height: 0; }
+.sessionsPanel .panelBody { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .sessionWorkspace { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; flex: 1; min-width: 0; min-height: 0; }
 .sessionPreview { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .sessionPreviewTitle { height: 32px; flex-shrink: 0; padding: 6px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -537,7 +542,7 @@
 .profilePanel .panelBody { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 28px; }
 .profilePanel .profileInfo { display: flex; flex-direction: column; min-height: 100%; }
 .profilePanel .profileHeading { margin-bottom: 12px; }
-.profilePanel .panelTabs { position: sticky; top: -20px; z-index: 1; background: #191d23; }
+.profilePanel .profileInfo > .panelTabs { position: sticky; top: -20px; z-index: 1; background: #191d23; }
 .profileSections { display: grid; gap: 0; }
 .profileSection { padding: 18px 0; border-bottom: 1px solid #363c45; }
 .profileSection:last-child { border-bottom: 0; }
@@ -551,13 +556,23 @@
 .profileControl input { flex-shrink: 0; }
 .profileToggleState { display: inline-flex; align-items: center; gap: 10px; }
 .profilePanel .antiBotStatus button, .profileSection > button { padding: 6px 10px; border: 1px solid #505a66; color: #eceef2; }
-@media (max-width: 650px) { .profilePanel .panelBody { padding: 14px 16px; } .profilePanel .panelTabs { top: -14px; } .antiBotLimitFields { grid-template-columns: 1fr; gap: 12px; } .antiBotLimitFields label { display: flex; align-items: center; justify-content: space-between; } }
+@media (max-width: 650px) { .profilePanel .panelBody { padding: 14px 16px; } .profilePanel .profileInfo > .panelTabs { top: -14px; } .antiBotLimitFields { grid-template-columns: 1fr; gap: 12px; } .antiBotLimitFields label { display: flex; align-items: center; justify-content: space-between; } }
 
 .app .overlay:has(.profilePanel) { position: absolute; inset: 0; }
 
 .profileSectionHeading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 12px; }
 .profileSectionHeading h2 { margin: 0; }
 .antiBotSections { display: block; }
+.botTabs { margin: 12px 0 18px; }
+.botTabs button { display: inline-flex; align-items: center; gap: 7px; }
+.siteExclusions { padding: 12px 0; }
+.siteExclusionSummary { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: var(--settings-row-width, 560px); }
+.siteExclusionSummary h2 { margin-bottom: 2px; }
+.siteExclusionSummary span { color: #8e98a4; }
+.siteExclusionSummary button { flex-shrink: 0; padding: 6px 10px; border: 1px solid #505a66; color: #eceef2; }
+.siteExclusionEditor { max-width: var(--settings-row-width, 560px); margin-top: 12px; }
+.siteExclusionEditor > input { width: 100%; }
+.siteExclusionList { max-height: 280px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 
 .profilePanel .panelTabs button { display: inline-flex; align-items: center; gap: 7px; }
 .profileTabIcon { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -609,7 +624,21 @@
 .pluginPopup > button:disabled { opacity: .4; }
 .pluginPopup [role="switch"][aria-checked="true"] { color: #b4d49a; }
 
-.remoteConnection { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sessionNavigation { flex: 0 0 auto; display: flex; align-items: center; min-height: 28px; margin-bottom: 12px; }
+.remoteAccountPage { flex: 1; min-width: 0; max-width: 560px; width: 100%; box-sizing: border-box; overflow: auto; padding: 0 4px 16px; }
+.remoteAccountPage > h3 { margin: 0 0 16px; font-size: inherit; }
+.remoteToolbar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-bottom: 8px; }
+.remoteToolbar > button { display: flex; align-items: center; gap: 6px; padding: 4px 8px; }
+.remoteToolbar > button[data-remote-action="relay"] > svg { width: 12px; height: 12px; fill: currentColor; color: #778493; }
+.remoteToolbar > button[data-connected="true"] > svg { color: #a7c88d; }
+.remoteToolbar kbd { color: #8995a3; font: inherit; }
+.remotePreviewSettings { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
+.remotePreviewSettings label { display: flex; align-items: center; gap: 12px; }
+.remotePreviewSettings select { padding: 6px 8px; border: 1px solid #505a66; background: #111318; color: inherit; font: inherit; }
+.remotePreviewSettings p { margin: 0; color: #8995a3; }
+.panel .remoteSettingsButton { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 0; }
+.remoteSettingsButton svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.remoteSettingsButton[aria-pressed="true"] { color: #bdc9b4; }
 
 .extensionsPanel { display: flex; flex-direction: column; width: min(1000px, 92vw); height: min(680px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: hidden; }
 .extensionsPanel > header { flex-shrink: 0; }
@@ -626,3 +655,5 @@
   .extensionWorkspace { grid-template-columns: minmax(0, 1fr); }
   .extensionPlaceholder, .extensionWorkspace[data-details-open="true"] > .extensionList { display: none; }
 }
+
+.remoteProfile { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

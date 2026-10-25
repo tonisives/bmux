@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_FEEDBACK } from '../src/shared/agent-feedback'
 import { expect, test, vi } from 'vitest'
 import { agentAction, agentActionInput, createAgentActions } from '../src/main/agent-actions'
 
@@ -102,4 +103,19 @@ test('paces scroll commands, raw wheel gestures, clicks, keys, typing and naviga
   expect(agentAction('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel' } })).toBe(true)
   expect(agentAction('cdp', { method: 'Input.synthesizeScrollGesture' })).toBe(true)
   expect(agentActionInput('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', button: 'left' } }, 'agent')).toEqual({ owner: 'agent', type: 'up', key: 'mouse:left' })
+})
+
+
+test('uses live action pause limits and permits zero without changing action serialization', async () => {
+  let settings = { ...DEFAULT_AGENT_FEEDBACK, actionDelayMinMs: 100, actionDelayMaxMs: 300 }, waits: number[] = []
+  let actions = createAgentActions(async ms => { waits.push(ms) }, () => .5, () => settings)
+  await actions.run('one', 'profile', () => ['https://example.com/'], async () => {})
+  expect(waits).toEqual([200])
+  settings = { ...settings, actionDelayMinMs: 0, actionDelayMaxMs: 0 }
+  let finish = deferred(), events: string[] = []
+  let first = actions.run('one', 'profile', () => ['https://example.com/'], async () => { events.push('first'); await finish.promise })
+  let second = actions.run('two', 'profile', () => ['https://example.com/'], async () => { events.push('second') })
+  await vi.waitFor(() => expect(events).toEqual(['first']))
+  finish.resolve(); await Promise.all([first, second])
+  expect(events).toEqual(['first', 'second']); expect(waits).toEqual([200])
 })

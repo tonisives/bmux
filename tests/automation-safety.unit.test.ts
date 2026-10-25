@@ -230,7 +230,7 @@ test('hitting the session limit publishes the cooldown without extending its dea
   await policy.before('bot', instagram)
   let previous = changes()
   advance(10 * 60_000)
-  expect(() => policy.assertAvailable('bot', undefined, 'https://www.instagram.com/')).toThrow('Open the UI alert or Profile > Anti-bot')
+  expect(() => policy.assertAvailable('bot', undefined, 'https://www.instagram.com/')).toThrow('Open the UI alert or Profile > Bot')
   expect(changes()).toBe(previous + 1)
   expect(policy.status().profiles[0].retryAfter).toBe('2026-10-01T00:30:00.000Z')
 })

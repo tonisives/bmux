@@ -1,3 +1,5 @@
+import type { Client, Profile, WorkspaceSession } from './types'
+
 export type RemoteIdentity = { hostId: string; generation: string; service: string }
 export type RemoteUsage = { sequence: number; started: number; succeeded: number; failed: number; active: number; browserMs: number }
 export type RemoteEnvelope = { version: 1; from: string; to: string; generation: string; nonce: string; expires: number; payload: string; signature: string }
@@ -27,6 +29,7 @@ export let createControlLeases = (now = Date.now) => {
 
 export type RemoteView = {
   hostId: string
+  generation?: string
   sessionId: string
   name: string
   service: string
@@ -35,8 +38,16 @@ export type RemoteView = {
   controlling: boolean
   occupied: boolean
   pane?: string
-  panes: { id: string; title: string; url: string }[]
+  panes: { id: string; title: string; url: string; lastActivityAt?: number }[]
+  workspace?: RemoteWorkspaceSnapshot
+  preview?: boolean
+  profileName?: string
   error?: string
+}
+export type RemoteWorkspaceSnapshot = {
+  session: WorkspaceSession
+  profiles: Pick<Profile, 'id' | 'name'>[]
+  selection?: Pick<Client, 'windowId' | 'paneId' | 'zoomedPaneId'>
 }
 export type RemoteViewUpdate = Omit<RemoteView, 'hostId' | 'sessionId' | 'service' | 'canControl'>
 export type RemoteViewAction = { type: 'acquire' | 'release' } | { type: 'switch'; pane: string } | { type: 'command'; method: string; args: Record<string, unknown> }

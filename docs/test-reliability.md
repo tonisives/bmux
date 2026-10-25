@@ -1,5 +1,54 @@
 # Focused test verification
 
+## Proxy guidance in failed panes
+
+Failed network loads in proxied panes show connection guidance beside Reload.
+The pane's retained connection determines the note, even after the profile's
+new-pane default changes. Loopback and private IPs are recognized directly;
+custom hostnames use the browser host's system resolver, including hosts-file
+entries. Unresolved, public, and mixed DNS answers keep the wording conditional.
+Late DNS results cannot restore a note after navigation or pane disposal.
+
+The local proxy fixture checks a failed tunnel, conditional hostname guidance,
+floating-pane rendering, successful recovery, and a direct pane without proxy
+help. Keep the existing pane-proxy, navigation-error, HTTP/2 Reload, and floating
+pane cases in focused verification.
+
+## Remote capture and control interruptions
+
+The Capterra host log recorded invalid `CopyOutputResultSender` messages, three
+GPU process exits, and fatal browser shutdown while a viewer was connected.
+Live polling, stream startup, connection refresh, and cached previews previously
+used independent compositor captures. These callers now share one pending native
+capture per page, including across viewer reconnects, and keep hidden pages hidden.
+Empty captures during navigation leave the previous video frame intact.
+
+The capture fixture supplies empty startup and live frames while still requiring
+decoded video, changing page pixels, an open data channel, and stable visibility.
+The native host flow also checks that a new stream event preserves control and
+viewport dimensions. Viewer unit regressions fail on the original implementation:
+brief connection interruptions immediately disconnected the viewer, and overlapping
+failure notifications scheduled reconnect more than once. Recovery now has a
+five-second window; failed connections still disconnect immediately.
+
+## HTTP/2 navigation recovery
+
+A failed HTTP/2 navigation can finish Chromium's internal error document after
+reporting its failure. Clearing the failure on that completion hid the error and
+left a blank pane. An active stream in another pane can also keep a rejecting
+HTTP/2 connection pooled, so an ordinary reload reuses the failed connection.
+
+The error now survives the internal document. Reload replaces that profile's
+connections after `ERR_HTTP2_PROTOCOL_ERROR`, preserving cookies and storage.
+Page context menus use the same reload path. A replacement navigation or closed
+pane cancels the pending recovery before it can load an outdated destination.
+
+The isolated HTTP/2 fixture holds a streaming response, rejects requests on the
+initial connection, waits for the error document to finish, then clicks Reload.
+It requires a fresh connection, a visible native page, and a retained cookie.
+Keep the existing restored streaming-page reload, navigation failure/commit,
+abort, TLS, and renderer crash recovery cases in focused verification.
+
 ## Agent activity after pane ID reuse
 
 A queued agent command could outlive its closed pane and run on a newly opened

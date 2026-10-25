@@ -3618,17 +3618,17 @@ test('restores cached favicons for inactive windows and sessions without loading
   await cli('detach-client', { client: client.id })
 })
 
-test('window last visits survive startup and background loads and update on real visits', async () => {
+test('window activity ignores viewing while visits and real input stay separate', async () => {
   let sharedDirectory = directory
   await closeTestApplication(application)
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-window-visits-'))
-  let oldVisit = Date.now() - 2 * 86400000, legacyVisit = oldVisit - 2 * 86400000
+  let oldVisit = Date.now() - 2 * 86400000, legacyVisit = oldVisit - 2 * 86400000, recentAction = Date.now() - 13 * 60000
   let model = initialModel(), session = model.sessions[0], window = session.windows[0]
   let secondPane = newPane(window.panes[0].profileId)
   window.panes.push(secondPane)
   window.layout = { kind: 'split', id: 'visit-split', axis: 'horizontal', ratio: .5, first: window.layout!, second: { kind: 'pane', paneId: secondPane.id } }
   window.lastVisitedAt = oldVisit
-  window.panes.forEach((pane, index) => { pane.url = `${url}/visits-${index}`; pane.lastActivityAt = legacyVisit + index * 60000 })
+  window.panes.forEach((pane, index) => { pane.url = `${url}/visits-${index}`; pane.lastActivityAt = recentAction })
   let legacy = newWindow('Legacy visit', window.panes[0].profileId)
   legacy.panes[0].url = `${url}/visits-legacy`; legacy.panes[0].lastActivityAt = legacyVisit
   session.windows.push(legacy)
@@ -3646,18 +3646,17 @@ test('window last visits survive startup and background loads and update on real
     let client = await cli('attach-session', { session: session.id })
     let chrome = await rendererForClient(client.id)
     await cli('activate-client', { client: client.id })
-    await cli('navigate', { tab: secondPane.id, url: `${url}/visits-background` })
-    await cli('eval', { tab: secondPane.id, expression: 'document.title = "Background title update"' })
-    await cli('reload', { tab: legacy.panes[0].id })
-    await cli('wait', { tab: legacy.panes[0].id, selector: '#inc' })
+    await cli('dom', { tab: secondPane.id })
+    await cli('eval', { tab: secondPane.id, expression: 'document.title' })
+    await cli('screenshot', { tab: legacy.panes[0].id, output: test.info().outputPath('inspection.png') })
     expect((await savedWindow()).lastVisitedAt).toBe(oldVisit)
     expect((await savedWindow(legacy.id)).panes[0].lastActivityAt).toBe(legacyVisit)
     let status = chrome.locator('[data-window-list]')
     let statusAge = (id: string) => status.locator(`[data-window-id="${id}"] time`)
-    await expect(statusAge(window.id)).toHaveText('2d')
+    await expect(statusAge(window.id)).toHaveText('13m')
     await expect(statusAge(legacy.id)).toHaveText('4d')
-    await expect(statusAge(window.id)).toHaveAttribute('data-age', 'old')
-    await expect(statusAge(window.id)).toHaveCSS('color', 'rgb(232, 139, 139)')
+    await expect(statusAge(window.id)).toHaveAttribute('data-age', 'recent')
+    await expect(statusAge(window.id)).toHaveCSS('color', 'rgb(167, 200, 141)')
     for (let position of ['bottom', 'top']) {
       await fs.writeFile(path.join(directory, 'config.yaml'), `statusBar: ${position}\nkeyboard: {}\nbrowser:\n  autoUpdateFilters: false\nmemory:\n  lazyRestore: false\n`)
       await expect(chrome.locator('[data-status-bar]')).toHaveAttribute('data-status-bar', position)
@@ -3678,9 +3677,29 @@ test('window last visits survive startup and background loads and update on real
     await picker.locator(`[data-window-row="${legacy.id}"]`).click()
     await expect(picker).toHaveCount(0)
     await expect.poll(async () => (await savedWindow(legacy.id)).lastVisitedAt).toBeGreaterThan(oldVisit)
-    await expect(statusAge(legacy.id)).toHaveText('jn')
-    await expect(statusAge(legacy.id)).toHaveAttribute('data-age', 'recent')
-    await expect(statusAge(legacy.id)).toHaveCSS('color', 'rgb(167, 200, 141)')
+    await expect(statusAge(legacy.id)).toHaveText('4d')
+    expect((await savedWindow(legacy.id)).panes[0].lastActivityAt).toBe(legacyVisit)
+    let input = async (type: 'mouseMove' | 'mouseDown' | 'mouseWheel') => application.evaluate(({ webContents }, { target, type }) => {
+      let page = webContents.getAllWebContents().find(contents => contents.getURL() === target)!
+      if (type === 'mouseWheel') page.sendInputEvent({ type, x: 200, y: 200, deltaY: 40, deltaX: 0 })
+      else page.sendInputEvent({ type, x: 200, y: 200, movementX: type === 'mouseMove' ? 10 : 0, movementY: 0, button: 'left' })
+      if (type === 'mouseDown') page.sendInputEvent({ type: 'mouseUp', x: 200, y: 200, button: 'left' })
+    }, { target: legacy.panes[0].url, type })
+    for (let type of ['mouseMove', 'mouseDown', 'mouseWheel'] as const) {
+      let previous = (await savedWindow(legacy.id)).panes[0].lastActivityAt
+      await expect.poll(async () => { await input(type); return (await savedWindow(legacy.id)).panes[0].lastActivityAt }, { message: `${type} refreshes the activity timestamp` }).toBeGreaterThan(previous)
+      await expect(statusAge(legacy.id)).toHaveText('jn')
+    }
+    await cli('navigate', { tab: secondPane.id, url: `${url}/visits-background` })
+    await cli('wait', { tab: secondPane.id, selector: '#inc' })
+    await cli('click', { pane: secondPane.id, selector: '#inc', agentId: 'timestamp-agent' })
+    await expect.poll(async () => (await savedWindow()).panes[1].lastActivityAt).toBeGreaterThan(recentAction)
+    await expect(statusAge(window.id)).toHaveText('jn')
+    expect((await savedWindow()).lastVisitedAt).toBe(oldVisit)
+    let agentActionAt = (await savedWindow()).panes[1].lastActivityAt
+    await cli('dom', { tab: secondPane.id })
+    await cli('eval', { tab: secondPane.id, expression: 'document.title' })
+    expect((await savedWindow()).panes[1].lastActivityAt).toBe(agentActionAt)
     await cli('select-window', { client: client.id, window: window.id })
     await cli('focus-page', { client: client.id })
     let page = application.context().pages().find(page => page.url() === window.panes[0].url)!

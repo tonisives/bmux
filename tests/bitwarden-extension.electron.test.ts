@@ -22,6 +22,7 @@ for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${releas
     expect(installed.version).toBe(release)
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-inline-new-item-existing-popout-check')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-passkey-unlock-preflight')
+    expect(await fs.readFile(path.join(installed.path, 'content', 'fido2-page-script.js'), 'utf8')).toContain('bmux-conditional-passkeys-no-native-probe')
     expect(await fs.readFile(path.join(installed.path, 'background.js'), 'utf8')).toContain('bmux-bounded-inline-targeting-rules')
     expect(await fs.readFile(path.join(installed.path, 'popup', 'main.js'), 'utf8')).toContain('bmux-reconnecting-memory-port-v2')
     let other = await rpc('profile.create', { name: 'bot (Brave)' })

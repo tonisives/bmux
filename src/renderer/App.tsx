@@ -1,16 +1,27 @@
+import { remoteWorkspaceShortcut } from '../shared/remote-workspace'
+import { RemotePaneControls } from './RemotePaneControls'
+import { PROFILE_COLORS, profileHash, profileColor } from '../shared/profile-color'
 import type { RemoteView } from '../shared/remote'
+import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
+import type { RemotePreviewSettings } from '../shared/remote-preview-settings'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
+import { NavigationFailure } from './NavigationFailure'
+import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
+import type { FeedbackSection } from './AgentFeedbackSettings'
+import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 import { RemoteAccount } from './RemoteAccount'
+import { RemoteMachineDetails, RemoteMachineHeading, remoteMachineName, useRemoteMachines } from './RemoteMachine'
 import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
 import { VimCursor } from './VimCursor'
 import { usePanelStack } from './usePanelStack'
-import { PanelBackContext, PanelHeader } from './PanelHeader'
+import { BackButton, PanelBackContext, PanelHeader, usePanelBack } from './PanelHeader'
 import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
-import { activityAge, activityLabel, compactActivityLabel, windowVisitTime } from '../shared/pane-activity'
+import { activityAge, activityLabel, compactActivityLabel, windowActivityTime, windowVisitTime } from '../shared/pane-activity'
 import { paneAgents } from '../shared/pane-agents'
+import { agentIdentifier } from '../shared/agent-info'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
@@ -22,9 +33,10 @@ import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
+import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
-import type { RemoteHost, RemoteSession } from '../shared/remote-sessions'
+import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
+import type { RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
 import iphoneFrame from './device-frames/iphone-15-pro.png'
 import pixelFrame from './device-frames/pixel-8.png'
@@ -85,7 +97,7 @@ export let App = () => {
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`, removedWindow = !!previous.current && !next.model.sessions.some(session => session.windows.some(window => window.id === previous.current.split(':')[0]))
     if (previous.current && previous.current !== target) { setPanelHistory([]); setControl(current => current === 'sessions' && removedWindow ? current : null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
-    if (client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
+    if (!selection(next).session?.remote && client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
       setControl(current => current === 'sessions' && removedWindow ? current : 'address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
@@ -352,13 +364,10 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
   return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost) }))
 })
 
-const AVATAR_COLORS = ['#89a8c7', '#b891c7', '#c9907b', '#87ad91', '#c4a96a', '#789fb0']
-
-let profileHash = (value: string) => [...value].reduce((hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261)
 let profileDeviceLabel = (pane: { device?: { preset: DevicePreset; platform: DevicePlatform } }) => !pane.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: pane.device.platform === 'android' ? 'Android' : 'iOS' })[pane.device.preset]
 
 let ProfileAvatar = ({ id, name }: { id: string; name: string }) => {
-  let hash = profileHash(id), background = AVATAR_COLORS[hash % AVATAR_COLORS.length], foreground = AVATAR_COLORS[(hash >>> 5) % AVATAR_COLORS.length]
+  let hash = profileHash(id), background = profileColor(id), foreground = PROFILE_COLORS[(hash >>> 5) % PROFILE_COLORS.length]
   let left = 3 + (hash % 5), top = 3 + ((hash >>> 3) % 5), radius = 4 + ((hash >>> 6) % 3)
   return <svg className={css.profileAvatar} viewBox="0 0 20 20" aria-hidden="true" data-profile-avatar={id}>
     <rect width="20" height="20" fill={background} />
@@ -436,6 +445,22 @@ let PaneAgentButton = ({ paneId }: { paneId: string }) => {
   return actor ? <AgentButton agents={[actor]} paneId={paneId} /> : null
 }
 
+let NotificationAgent = ({ actor }: { actor: AutomationActor }) => {
+  let { state, run } = useUI()
+  let [focusing, setFocusing] = useState(false)
+  let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
+  let identifier = agentIdentifier(actor, definition)
+  let focus = async () => {
+    setFocusing(true)
+    try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId, agentOrigin: actor.agentOrigin }) } finally { setFocusing(false) }
+  }
+  return <span className={css.notificationAgent} role="group" aria-label={`Agent ${identifier.value}`}>
+    <AgentButton agents={[actor]} />
+    <span className={css.notificationAgentId} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>
+    {definition?.focusCommand && <button type="button" aria-label="Focus agent" title={`Focus agent ${identifier.value}`} disabled={focusing} onClick={() => { void focus() }}><FocusAgentIcon /></button>}
+  </span>
+}
+
 let Notifications = ({ notices }: { notices: Notification[] }) => {
   let { state, run, show } = useUI()
   let [resetting, setResetting] = useState(false)
@@ -451,14 +476,14 @@ let Notifications = ({ notices }: { notices: Notification[] }) => {
       {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
       <span className={css.notificationText}>{notice.text}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
-      {!!notice.agents?.length && <AgentButton agents={notice.agents} />}
+      {notice.agents?.map(actor => <NotificationAgent key={`${actor.paneId}:${actor.agentId}`} actor={actor} />)}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
       {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
     </div>)}
-    {automation.length > 0 && <div className={`${css.notification} ${css.notificationGeneral}`} role="group" aria-label="General anti-bot settings">
-      <span className={css.notificationText}>General anti-bot · all agents and profiles</span>
-      {state.automationSafety?.profiles.some(profile => profile.retryAfter) && <button type="button" className={css.notificationAction} disabled={resetting} onClick={resetAll}>Reset all anti bot sessions</button>}
-      <button type="button" className={css.notificationSettings} onClick={openSettings} aria-label="Anti-bot settings" title="General anti-bot settings"><SettingsIcon /></button>
+    {automation.length > 0 && <div className={`${css.notification} ${css.notificationGeneral}`} role="group" aria-label="Bot settings">
+      <span className={css.notificationText}>Bots · all agents and profiles</span>
+      {state.automationSafety?.profiles.some(profile => profile.retryAfter) && <button type="button" className={css.notificationAction} disabled={resetting} onClick={resetAll}>Reset all bot sessions</button>}
+      <button type="button" className={css.notificationSettings} onClick={openSettings} aria-label="Bot settings" title="Bot settings"><SettingsIcon /></button>
     </div>}
   </div>
 }
@@ -569,35 +594,8 @@ let useWindowDrag = () => {
   return { windows, startWindowDrag, overWindow, dropWindow, finishWindowDrag }
 }
 
-let Status = () => {
-  let { state } = useUI()
-  let { client } = selection(state)
-  let remote = client?.paneId ? state.remoteViews?.[client.paneId] : undefined
-  return remote ? <RemoteStatus remote={remote} paneId={client!.paneId!} /> : <LocalStatus />
-}
-let RemoteStatus = ({ remote, paneId }: { remote: RemoteView; paneId: string }) => {
-  let { show, run } = useUI()
-  let closing = useRemoteSessionClosing(remote.hostId, remote.sessionId)
-  useEffect(() => { rememberRemoteSession(remote.hostId, remote.sessionId) }, [remote.hostId, remote.sessionId])
-  let sessions = () => show('sessions')
-  let control = () => { void run('remote.action', { pane: paneId, action: remote.controlling ? 'release' : 'acquire' }) }
-  let disconnect = () => { void run('kill-pane', { pane: paneId, confirm: true }) }
-  return <>
-    <button onClick={sessions} aria-label="Sessions" title={`${remote.name} on ${remote.service}`} className={css.session}>{remote.name}</button>
-    <div className={css.windows} data-remote-window-list>{remote.panes.map((pane, index) => <RemoteStatusPane key={pane.id} pane={pane} index={index + 1} selected={pane.id === remote.pane} viewerPane={paneId} />)}</div>
-    <span className={css.drag} />
-    <span className={css.remoteConnection} role="status" title={remote.error || remote.service}>{remote.error || (!remote.connected ? 'Connecting' : remote.controlling ? 'Controlling' : 'Watching')}</span>
-    {remote.canControl && <button onClick={control} disabled={!remote.connected}>{remote.controlling ? 'Release control' : remote.occupied ? 'Take over' : 'Take control'}</button>}
-    {remote.canControl && (closing.confirming ? <RemoteSessionConfirmation name={remote.name} closing={closing} /> : <button ref={closing.row} onClick={closing.ask}>Close session</button>)}
-    <button onClick={disconnect}>Disconnect</button>
-  </>
-}
-let RemoteStatusPane = ({ pane, index, selected, viewerPane }: { pane: RemoteView['panes'][number]; index: number; selected: boolean; viewerPane: string }) => {
-  let { run } = useUI()
-  let choose = () => { void run('remote.action', { pane: viewerPane, action: 'switch', target: pane.id }) }
-  return <div className={css.windowTab} data-selected={selected}><button className={css.windowSelect} onClick={choose} aria-pressed={selected} title={pane.url}><span className={css.windowLabel}>{index}:{pane.title || pane.url || 'Blank page'}</span></button></div>
-}
-let LocalStatus = () => {
+let Status = () => <SessionStatus />
+let SessionStatus = () => {
   let { state, show, run, control, dismiss, acknowledgedDownloads } = useUI()
   let [now, setNow] = useState(Date.now)
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
@@ -609,7 +607,7 @@ let LocalStatus = () => {
   let activity = () => show('activity')
   let downloads = () => show('downloads')
   let newTab = () => { void run('new-window', { session: session!.id, client: state.clientId }) }
-  let unhandledDownloads = state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
+  let unhandledDownloads = session?.remote ? [] : state.downloads.filter(item => item.profileId === profile?.id && !acknowledgedDownloads.has(item.id))
   let progressingDownloads = unhandledDownloads.filter(item => item.active && item.state === 'progressing' && !item.paused)
   let progressTotal = progressingDownloads.reduce((total, item) => total + item.total, 0)
   let downloadProgress = progressingDownloads.length > 0 && progressingDownloads.every(item => item.total > 0)
@@ -647,7 +645,7 @@ let LocalStatus = () => {
   let reclaim = () => { void run('remote.reclaim') }
   return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={window.number ?? index + 1} active={window.id === client!.windowId} now={now} />)}</div>
-    <button type="button" onClick={newTab} className={css.newTab} aria-label="New tab" title="New tab"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
+    <button type="button" onClick={newTab} className={css.newTab} disabled={!!session?.remote} aria-label="New tab" title="New tab"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
     <span className={css.drag} />
     {state.remoteControl?.[session!.id] && <button onClick={reclaim}>Reclaim control</button>}
     {state.permissions.length > 0 && <button onClick={activity} aria-label="Activity">permission:{state.permissions.length}</button>}
@@ -664,12 +662,13 @@ let PageIcon = ({ paneId }: { paneId?: string }) => {
 let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; index: number; active: boolean; now: number }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
+  let remote = !!selection(state).session?.remote
   let pane = window.panes.find(pane => active && pane.id === client?.paneId) ?? window.panes[0]
   let tabId = pane?.id
   let characters = Array.from(window.name)
   let name = window.automaticName && characters.length > 18 ? `${characters.slice(0, 17).join('')}…` : window.name
   let label = `${index}:${name}${active ? '*' : ''}`
-  let visitedAt = windowVisitTime(window)
+  let visitedAt = windowActivityTime(window)
   let playing = window.panes.filter(pane => state.audio[pane.id]?.playing)
   let muted = playing.length > 0 && playing.every(pane => state.audio[pane.id].muted)
   let tooltipTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -691,15 +690,15 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
   let select = () => { hideTooltip(); void run('select-window', { client: state.clientId, window: window.id }) }
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
-  let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('window.menu', { window: window.id }) }
+  let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); if (!remote) void run('window.menu', { window: window.id }) }
   return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
-    <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable>
+    <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable={!remote}>
       <PageIcon paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
-      {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
+      {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last activity ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
     </button>
     {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
-    {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
+    {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} disabled={remote} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
   </span>
 }
 
@@ -728,7 +727,7 @@ let CommandPrompt = () => {
   let [text, setText] = useState(''), [index, setIndex] = useState(0), [selected, setSelected] = useState(false), [busy, setBusy] = useState(false)
   let input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null), mounted = useRef(true), currentText = useRef('')
   let historyIndex = useRef(commandHistory.length), draft = useRef('')
-  let entries = commandEntries(state.keyboard ?? DEFAULT_KEYBOARD, state.plugins)
+  let entries = commandEntries(state.keyboard ?? DEFAULT_KEYBOARD, state.plugins).filter(entry => !selection(state).session?.remote || !remoteWorkspaceShortcut(entry.action ?? entry.command.trim().split(' ')[0]))
   let literal = literalCommand(text), argumentsStarted = literal && /\S\s/.test(text.trimStart())
   let targets = commandTargetSuggestions(text, state)
   let query = targets?.query ?? (argumentsStarted ? text.trim().split(/\s+/)[0] : text)
@@ -1159,7 +1158,7 @@ let PaneAddress = ({ paneId }: { paneId?: string }) => {
   return remote ? <RemoteAddress paneId={paneId!} remote={remote} /> : <LocalPaneAddress paneId={paneId} />
 }
 let RemoteAddress = ({ paneId, remote }: { paneId: string; remote: RemoteView }) => {
-  let { run, show, control } = useUI()
+  let { state, run, show, control, onMessage } = useUI()
   let url = remote.panes.find(pane => pane.id === remote.pane)?.url ?? ''
   let open = () => show('address', paneId)
   let { beginSelection, editSelection, takeAddressSelection } = useDisplayedAddressSelection(open)
@@ -1175,8 +1174,10 @@ let RemoteAddress = ({ paneId, remote }: { paneId: string; remote: RemoteView })
       <button className={css.navigationButton} aria-label="Forward" title="Forward" disabled={!remote.controlling} onClick={forward}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5 10 8l-4.5 4.5" /></svg></button>
       <button className={css.navigationButton} aria-label="Refresh" title="Refresh" disabled={!remote.controlling} onClick={reload}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7.5a5 5 0 1 0-.9 3.3M13 3.5v4h-4" /></svg></button>
     </div>
-    <div className={css.urlBar}>{control === 'address' ? <AddressPrompt key={remote.pane ?? paneId} takeSelection={takeAddressSelection} /> : <input className={css.location} aria-label="Address" role="button" value={url} title={url} placeholder="Remote page" readOnly onClick={editFromClick} onKeyDown={editFromKeyboard} onMouseDown={selectAddress} onPointerDown={beginSelection} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} />}</div>
+    <div className={css.urlBar}>{control === 'address' && selection(state).client?.paneId === paneId ? <AddressPrompt key={remote.pane ?? paneId} takeSelection={takeAddressSelection} /> : <input className={css.location} aria-label="Address" role="button" value={url} title={url} placeholder="Remote page" readOnly onClick={editFromClick} onKeyDown={editFromKeyboard} onMouseDown={selectAddress} onPointerDown={beginSelection} onPointerUp={editSelection} onPointerCancel={editSelection} onLostPointerCapture={editSelection} />}</div>
+    <span className={css.remoteProfile} title={remote.profileName}>{remote.profileName}</span>
     <PaneAgentButton paneId={paneId} />
+    <RemotePaneControls remote={remote} paneId={paneId} focused={selection(state).client?.paneId === paneId} run={run} onError={onMessage} />
   </div>
 }
 let LocalPaneAddress = ({ paneId }: { paneId?: string }) => {
@@ -1272,7 +1273,7 @@ let Branch = ({ node }: { node: Layout }) => {
   let ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => { if (node.kind === 'split') ref.current?.style.setProperty('--ratio', String(node.ratio)) }, [node])
   let startDrag = (event: PointerEvent<HTMLDivElement>) => {
-    if (node.kind !== 'split' || !ref.current) return
+    if (selection(state).session?.remote || node.kind !== 'split' || !ref.current) return
     event.preventDefault()
     let { client } = selection(state)
     let bounds = ref.current.getBoundingClientRect(), ratio = node.ratio, gutter = event.currentTarget
@@ -1286,7 +1287,7 @@ let Branch = ({ node }: { node: Layout }) => {
     gutter.addEventListener('pointermove', move); gutter.addEventListener('pointerup', end); gutter.addEventListener('pointercancel', end)
   }
   if (node.kind === 'pane') return <BrowserPane paneId={node.paneId} />
-  return <div ref={ref} className={css.branch} data-axis={node.axis}><div className={css.first}><Branch node={node.first} /></div><div className={css.gutter} role="separator" aria-label="Resize split" onPointerDown={startDrag} /><div className={css.second}><Branch node={node.second} /></div></div>
+  return <div ref={ref} className={css.branch} data-axis={node.axis}><div className={css.first}><Branch node={node.first} /></div><div className={css.gutter} role="separator" aria-disabled={!!selection(state).session?.remote} aria-label="Resize split" onPointerDown={startDrag} /><div className={css.second}><Branch node={node.second} /></div></div>
 }
 let FloatingPreview = ({ paneId }: { paneId: string }) => {
   let { state } = useUI()
@@ -1307,6 +1308,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let { client } = selection(state)
   let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)!
   let tab = pane
+  let remote = state.remoteViews?.[paneId]
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
   let remoteSize = state.remoteSizes?.[paneId]
@@ -1343,10 +1345,10 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
     return () => observer.disconnect()
   }, [pane.device])
   let focus = () => { if (client!.paneId !== pane.id) void run('select-pane', { client: client!.id, pane: pane.id }) }
-  let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); void run('pane.menu', { pane: pane.id }) }
+  let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); if (!remote) void run('pane.menu', { pane: pane.id }) }
   let reload = () => { void run('reload', { tab: tab.id }) }
   let snapshot = state.snapshots[tab.id]
-  let fallback = state.crashes[tab.id] ? <div className={css.empty}><span>{state.crashes[tab.id]}</span><button onClick={reload}>Reload</button></div> : tab.url === 'about:blank' ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
+  let fallback = state.crashes[tab.id] ? <NavigationFailure error={state.crashes[tab.id]} hint={state.navigationProxyHints?.[tab.id]} reload={reload} /> : tab.url === 'about:blank' && !remote ? <EmptyPane paneId={pane.id} /> : !pane.device && snapshot ? <img className={css.preview} src={snapshot.image} alt="Page preview" /> : <div className={css.empty} />
   return <section className={css.pane} data-pane-id={pane.id} data-focused-pane={client!.paneId === pane.id} onContextMenu={menu}><PaneAddress paneId={pane.id} /><div className={`${css.content} ${remoteSize ? css.remoteViewport : ''}`} ref={ref} data-remote-viewport={remoteSize ? true : undefined} data-live-page={tab.url !== 'about:blank' && !state.crashes[tab.id] || undefined} data-pane-content data-browser-content={!remoteSize && pane.device ? undefined : true} data-content-pane-id={!remoteSize && pane.device ? undefined : pane.id} onMouseDown={focus}>
     {control === 'command' && client!.paneId === pane.id && <CommandPrompt key={`${client!.windowId}:${pane.id}`} />}
     {remoteSize ? <div className={css.remoteCanvas}>{fallback}</div> : pane.device && frame ? <div className={css.deviceFrame} data-platform={pane.device.platform} data-preset={pane.device.preset} data-orientation={pane.device.orientation} style={{ width: frame.width, height: frame.height }}><img className={css.deviceFrameImage} src={frameAsset(pane.device).image} alt="" draggable={false} style={{ width: pane.device.orientation === 'portrait' ? frame.width : frame.height, height: pane.device.orientation === 'portrait' ? frame.height : frame.width, transform: `translate(-50%, -50%)${pane.device.orientation === 'landscape' ? ' rotate(90deg)' : ''}` }} /><div className={css.deviceScreen} data-browser-content data-content-pane-id={pane.id} style={{ left: frame.screenLeft, top: frame.screenTop, width: deviceSize.width, height: deviceSize.height, borderRadius: deviceScreenShape(pane.device, deviceSize).radius }}>{fallback}</div></div> : fallback}
@@ -1425,8 +1427,12 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
   useEffect(() => { if (!hidden && !['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type, hidden])
   if (type === 'adblock-popup' || type === 'dark-mode-popup') return <PluginQuickSettings hidden={hidden} back={panelBack} feature={type === 'adblock-popup' ? 'adblock' : 'dark-mode'} />
   let cycleTabs = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (sessionPicker && detailBack) return
     if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
-    let tabs = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]:not(:disabled)') ?? [])].filter(tab => tab.getClientRects().length)
+    let target = event.target as HTMLElement
+    if (target.closest('form[aria-label="Cursor and timing"]') && !target.closest('[role="tablist"]')) return
+    let group = target.closest('[role="tablist"]') ?? ref.current?.querySelector('[role="tablist"][aria-label="Bot sections"]') ?? ref.current
+    let tabs = [...(group?.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)') ?? [])].filter(tab => tab.getClientRects().length)
     if (tabs.length < 2) return
     let selected = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true')
     let next = tabs[(selected + (event.shiftKey ? -1 : 1) + tabs.length) % tabs.length]
@@ -1434,23 +1440,24 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     next.click(); next.focus()
   }
   let sessionPicker = type === 'sessions'
-  let title = sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'General anti-bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) leave() }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
   }
   let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
-    <PanelHeader back={closeToParent ? null : navigation} dismiss={closeToParent ? leave : dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
-      <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Sessions</button>
-      <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote sessions</button>
+    <PanelHeader back={sessionPicker || closeToParent ? null : navigation} dismiss={closeToParent ? leave : dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
+      <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Local</button>
+      <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote</button>
     </div> : <strong>{title}</strong>}</PanelHeader>
     <div className={css.panelBody}>
+      {sessionPicker && navigation && !closeToParent && <div className={css.sessionNavigation} data-session-navigation><BackButton back={navigation} /></div>}
       {type === 'help' && <HelpContent />}
       {type === 'plugins' && <PluginList />}
       {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
       {type === 'site-info' && <SiteInformation />}
       {type === 'agent-info' && <AgentInformation />}
-      {type === 'anti-bot-settings' && <GeneralAntiBotSettings />}
+      {type === 'anti-bot-settings' && <GeneralBotSettings />}
       {type === 'settings' && <SettingsContent />}
       {sessionPicker && (sessionTab === 'remote' ? <RemoteSessionPicker /> : <SessionPicker />)}
       {type === 'profiles' && <ProfileInfo />}
@@ -1495,7 +1502,7 @@ let AgentInformation = () => {
         <button className={css.agentAction} type="button" disabled={busy !== null} onClick={toggleVisibility}><AgentCursorIcon hidden={hidden} />{hidden ? 'Show agent cursor' : 'Hide agent cursor'}</button>
       </div>
     </section>
-  })}<div className={`${css.agentActions} ${css.agentSettings}`}><button className={css.agentAction} type="button" onClick={settings}><SettingsIcon />Agent settings</button></div></div>
+  })}<div className={`${css.agentActions} ${css.agentSettings}`}><button className={css.agentAction} type="button" onClick={settings}><SettingsIcon />Bot settings</button></div></div>
 }
 
 let FocusAgentIcon = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg>
@@ -1514,20 +1521,23 @@ let AgentRequirementSwitch = ({ setting, label }: { setting: 'requireId' | 'requ
   return <label className={css.settingsRow}><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={required} disabled={busy} onChange={changeIdentity} /></label>
 }
 
-let GeneralAntiBotSettings = () => {
-  let { state } = useUI()
-  let stack = usePanelStack(null, 'Back to general anti-bot settings')
+let GeneralBotSettings = () => {
+  let { state, run } = useUI()
+  let { profile: selectedProfile } = selection(state)
+  let stack = usePanelStack(null, 'Back to Bot settings')
+  if (stack.selected === 'cursor') return <AgentFeedbackSettings profileId={selectedProfile?.id} value={state.agentFeedback ?? DEFAULT_AGENT_FEEDBACK} save={value => run('settings.set', { key: 'agentFeedback', value })} />
   let profile = state.model.profiles.find(profile => profile.id === stack.selected)
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
   let pane = profile && (panes.find(pane => pane.id === selection(state).pane?.id && pane.profileId === profile.id) ?? panes.find(pane => pane.profileId === profile.id))
-  if (profile) return <section aria-label={`${profile.name} anti-bot settings`}><h2>{profile.name}</h2><ProfileAntiBotSettings key={profile.id} profile={profile} pane={pane || undefined} /></section>
+  if (profile) return <section aria-label={`${profile.name} bot settings`}><h2>{profile.name}</h2><ProfileBotSettings key={profile.id} profile={profile} pane={pane || undefined} /></section>
   return <div className={css.agentInformation}>
     <AgentRequirementSwitch setting="requireId" label="Require agent ID" />
     <AgentRequirementSwitch setting="requireType" label="Require agent type" />
-    <section ref={stack.list} aria-label="Profile limits" tabIndex={-1}>
+    <section ref={stack.list} tabIndex={-1}><button type="button" className={css.listRow} data-details="cursor" onClick={stack.open}>Cursor and timing</button>
+    <section aria-label="Profile limits">
       <h2>Profile limits</h2><p>Choose a profile to edit its limits. Each website has its own session timer.</p>
       {state.model.profiles.map(profile => <button key={profile.id} type="button" className={css.listRow} data-details={profile.id} onClick={stack.open}>{profile.name}</button>)}
-    </section>
+    </section></section>
   </div>
 }
 
@@ -1882,7 +1892,7 @@ let useSessionNavigation = (toggleSort: () => void) => {
     if ((!editing && event.key === 'x') || (event.ctrlKey && event.key === 'x')) {
       event.preventDefault(); setCount('')
       let row = editing ? rows[0] : target
-      row?.closest('[data-session-target]')?.querySelector<HTMLButtonElement>('button[aria-label^="Close "]')?.click()
+      row?.closest('[data-session-target], [data-page-target]')?.querySelector<HTMLButtonElement>('button[aria-label^="Close "]')?.click()
       return
     }
     if (!editing && !event.ctrlKey && ['i', 'a', '/'].includes(event.key)) {
@@ -1916,10 +1926,11 @@ let SessionPicker = () => {
   let [now, setNow] = useState(Date.now)
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
   let client = selection(state).client
-  let previousSession = state.model.sessions.find(session => session.id === client?.sessionHistory?.find(id => id !== client.sessionId))
+  let previousSession = state.model.sessions.find(session => !session.ephemeral && session.id === client?.sessionHistory?.find(id => id !== client.sessionId && state.model.sessions.some(session => session.id === id && !session.ephemeral)))
   let backSession = previousSession && fuzzyMatch(query, `go back ${previousSession.name}`) ? previousSession : undefined
   let backFirst = !!backSession && !!query.trim() && (!!fuzzyMatch(query, 'back') || query.trim().toLowerCase() === 'go back')
-  let sessions = searchSessions(state.model.sessions, query)
+  let localSessions = state.model.sessions.filter(session => !session.ephemeral)
+  let sessions = searchSessions(localSessions, query)
   if (reordering) sessions.sort((a, b) => state.model.sessions.indexOf(a.session) - state.model.sessions.indexOf(b.session))
   let dragPosition = (event: DragEvent<HTMLElement>): SessionDrop['position'] => event.clientY < event.currentTarget.getBoundingClientRect().top + event.currentTarget.getBoundingClientRect().height / 2 ? 'before' : 'after'
   let dragOver = (event: DragEvent<HTMLElement>, id: string) => {
@@ -1933,7 +1944,7 @@ let SessionPicker = () => {
     void run('session.move', { session: dragSource.current, target: id, position: dragPosition(event) })
     endDrag()
   }
-  let windows = recent ? searchRecentWindows(state.model.sessions, query, client) : []
+  let windows = recent ? searchRecentWindows(localSessions, query, client) : []
   let previewWindow = state.model.sessions.flatMap(session => session.windows).find(window => window.id === previewId)
   let previewRow = (target: Element) => {
     let row = target.closest<HTMLElement>('[data-preview-window], [data-preview-session]')
@@ -1953,7 +1964,7 @@ let SessionPicker = () => {
   let create = async (privateSession: boolean) => {
     if (busy) return
     setBusy(true)
-    await run('new-session', { client: state.clientId, private: privateSession })
+    await run('new-session', { client: state.clientId, private: privateSession, workspace: 'local' })
     setBusy(false)
   }
   let createRegular = () => { void create(false) }
@@ -1990,14 +2001,14 @@ let SessionPreview = ({ window }: { window?: InternalWindow }) => <aside classNa
   <div className={css.sessionPreviewTitle} title={window?.name}>{window?.name}</div>
   <div className={css.sessionPreviewPages}>{window?.layout && <SessionPreviewLayout node={window.layout} window={window} />}{window?.floating?.map(item => <SessionPreviewPage key={item.paneId} paneId={item.paneId} window={window} />)}</div>
 </aside>
-let SessionPreviewLayout = ({ node, window }: { node: Layout; window: InternalWindow }) => {
-  if (node.kind === 'pane') return <SessionPreviewPage paneId={node.paneId} window={window} />
+let SessionPreviewLayout = ({ node, window, snapshots }: { node: Layout; window: InternalWindow; snapshots?: Record<string, Snapshot> }) => {
+  if (node.kind === 'pane') return <SessionPreviewPage paneId={node.paneId} window={window} snapshots={snapshots} />
   let tracks = `minmax(0, ${node.ratio}fr) minmax(0, ${1 - node.ratio}fr)`
-  return <div className={css.sessionPreviewSplit} style={node.axis === 'horizontal' ? { gridTemplateColumns: tracks } : { gridTemplateRows: tracks }}><SessionPreviewLayout node={node.first} window={window} /><SessionPreviewLayout node={node.second} window={window} /></div>
+  return <div className={css.sessionPreviewSplit} style={node.axis === 'horizontal' ? { gridTemplateColumns: tracks } : { gridTemplateRows: tracks }}><SessionPreviewLayout node={node.first} window={window} snapshots={snapshots} /><SessionPreviewLayout node={node.second} window={window} snapshots={snapshots} /></div>
 }
-let SessionPreviewPage = ({ paneId, window }: { paneId: string; window: InternalWindow }) => {
+let SessionPreviewPage = ({ paneId, window, snapshots }: { paneId: string; window: InternalWindow; snapshots?: Record<string, Snapshot> }) => {
   let { state } = useUI()
-  let snapshot = state.snapshots[paneId], pane = window.panes.find(pane => pane.id === paneId), title = pane?.title || pane?.url
+  let snapshot = (snapshots ?? state.snapshots)[paneId], pane = window.panes.find(pane => pane.id === paneId), title = pane?.title || pane?.url
   return <div className={css.sessionPreviewPage} data-preview-pane={paneId} title={title}>{snapshot && <img src={snapshot.image} alt={`Preview of ${title}`} />}</div>
 }
 let NewSessionProfile = ({ onCreate }: { onCreate: () => void }) => {
@@ -2008,35 +2019,30 @@ let NewSessionProfile = ({ onCreate }: { onCreate: () => void }) => {
 }
 let SessionTree = ({ result: { session, windows, matched }, now, query }: { result: ReturnType<typeof searchSessions>[number]; now: number; query: string }) => {
   let order = useContext(SessionOrderContext)!
-  let [expanded, setExpanded] = useState(true)
-  let ref = useRef<HTMLDivElement>(null)
+  let dragOver = (event: DragEvent<HTMLDivElement>) => order.over(event, session.id)
+  let drop = (event: DragEvent<HTMLDivElement>) => order.drop(event, session.id)
+  return <SessionTreeView id={session.id} name={session.name} query={query} heading={matched ? <SessionRow id={session.id} name={session.name} privateSession={session.private === true} /> : <div className={css.sessionSearchParent}>{session.name}</div>} handle={order.enabled && <SessionDragHandle id={session.id} name={session.name} />} headingProps={{ 'data-drop-position': order.target?.id === session.id ? order.target.position : undefined, onDragOver: dragOver, onDrop: drop } as HTMLAttributes<HTMLDivElement>}>
+    {windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />)}
+  </SessionTreeView>
+}
+let SessionTreeView = ({ id, name, query, heading, handle, headingProps, remote, children }: { id: string; name: string; query: string; heading: ReactNode; handle?: ReactNode; headingProps?: HTMLAttributes<HTMLDivElement>; remote?: boolean; children: ReactNode }) => {
+  let [expanded, setExpanded] = useState(true), ref = useRef<HTMLDivElement>(null)
   useEffect(() => setExpanded(true), [query])
-  let changeExpanded = (value: boolean) => {
-    if (!value && ref.current?.querySelector('[data-session-windows]')?.contains(document.activeElement)) ref.current.querySelector<HTMLButtonElement>('[data-session-row], [data-session-toggle]')?.focus({ preventScroll: true })
-    setExpanded(value)
+  let changeExpanded = (next: boolean) => {
+    if (!next && ref.current?.querySelector('[data-session-windows]')?.contains(document.activeElement)) ref.current.querySelector<HTMLButtonElement>('[data-session-row]')?.focus({ preventScroll: true })
+    setExpanded(next)
   }
   let toggle = () => { changeExpanded(!expanded); ref.current?.querySelector<HTMLButtonElement>('[data-session-row]')?.focus({ preventScroll: true }) }
   let toggleMouse = (event: MouseEvent<HTMLDivElement>) => { if (event.target instanceof HTMLElement && event.target.closest('[role="alertdialog"]')) return; event.preventDefault(); toggle() }
-  let treeKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey || !(event.target instanceof HTMLElement) || event.target.closest('[role="alertdialog"], input, [data-picker-action]:not([data-session-toggle])')) return
-    if (!['ArrowRight', 'ArrowLeft', 'h', 'l'].includes(event.key)) return
-    event.preventDefault()
-    changeExpanded(event.key === 'ArrowRight' ? !expanded : event.key === 'l')
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.metaKey || event.altKey || event.ctrlKey || !(event.target instanceof HTMLElement) || event.target.closest('input, [role="alertdialog"], [data-picker-action]:not([data-session-toggle])') || !['h', 'l', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
+    event.preventDefault(); changeExpanded(event.key === 'ArrowRight' ? !expanded : event.key === 'l')
   }
-  let dragOver = (event: DragEvent<HTMLDivElement>) => order.over(event, session.id)
-  let drop = (event: DragEvent<HTMLDivElement>) => order.drop(event, session.id)
-  let chevron = <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
-  return <div ref={ref} data-session-tree={session.id} onKeyDown={treeKeys} onContextMenu={toggleMouse}>
-    <div className={css.sessionTreeHeading} data-session-heading={session.id} data-drop-position={order.target?.id === session.id ? order.target.position : undefined} onDragOver={dragOver} onDrop={drop}>
-    {order.enabled && <SessionDragHandle id={session.id} name={session.name} />}
-    <div className={css.sessionTreeHeader}>
-      {matched ? <SessionRow id={session.id} name={session.name} privateSession={session.private === true} /> : <div className={css.sessionSearchParent}>{session.name}</div>}
-      <button className={css.sessionToggle} data-picker-action data-session-toggle onClick={toggle} aria-label={`${expanded ? 'Collapse' : 'Expand'} windows in ${session.name}`} aria-expanded={expanded}>{chevron}</button>
-    </div>
-    </div>
-    {expanded && <div className={css.sessionWindows} data-session-windows role="group" aria-label={`Windows in ${session.name}`}>
-      {windows.map(window => <SessionWindowRow key={window.id} window={window} now={now} />)}
-    </div>}
+  return <div ref={ref} data-session-tree={id} data-remote-tree={remote ? id : undefined} onKeyDown={keys} onContextMenu={toggleMouse}>
+    <div className={css.sessionTreeHeading} data-session-heading={id} {...headingProps}>{handle}<div className={css.sessionTreeHeader}>
+      {heading}<button type="button" className={css.sessionToggle} data-picker-action data-session-toggle aria-label={`${expanded ? 'Collapse' : 'Expand'} windows in ${name}`} aria-expanded={expanded} onClick={toggle}><SessionTreeChevron /></button>
+    </div></div>
+    {expanded && <div className={css.sessionWindows} data-session-windows data-remote-pages={remote || undefined} role="group" aria-label={`Windows in ${name}`}>{children}</div>}
   </div>
 }
 let SessionDragHandle = ({ id, name }: { id: string; name: string }) => {
@@ -2049,54 +2055,109 @@ let SessionDragHandle = ({ id, name }: { id: string; name: string }) => {
   }
   return <button type="button" data-picker-action className={css.bookmarkDragHandle} draggable onDragStart={start} onDragEnd={order.end} onKeyDown={keys} aria-label={`Drag session ${name} to reorder`} title="Drag to reorder; Option+Up/Down also moves one place"><svg viewBox="0 0 12 16" aria-hidden="true"><circle cx="3" cy="3" r="1" /><circle cx="9" cy="3" r="1" /><circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" /><circle cx="3" cy="13" r="1" /><circle cx="9" cy="13" r="1" /></svg></button>
 }
-let RemoteSessionPicker = () => {
-  let [accountView, setAccountView] = useState<'account' | 'boxes' | null>(null)
-  let connectRelay = () => setAccountView('account'), addBox = () => setAccountView('boxes'), backToSessions = () => setAccountView(null)
-  if (accountView) return <div className={css.settingsContent}><button onClick={backToSessions}>Back to sessions</button><DesktopRemoteAccount rent={accountView === 'boxes'} /></div>
-  return <><RemoteSessionLibrary /><div className={css.settingsFooter}><button onClick={connectRelay}>Connect relay</button><button onClick={addBox}>Add box</button></div></>
+let RemotePreviewSettings = () => {
+  let { state, run } = useUI(), settings = state.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS
+  let updateMode = (event: ChangeEvent<HTMLSelectElement>) => { void run('settings.set', { key: 'remotePreviews.updates', value: event.target.value }) }
+  let save = (event: ChangeEvent<HTMLInputElement>) => { void run('settings.set', { key: 'remotePreviews.saveLocally', value: event.target.checked }) }
+  return <div className={css.remotePreviewSettings} role="group" aria-label="Remote preview settings"><label>Fetch previews<select aria-label="Fetch remote previews" value={settings.updates} onChange={updateMode}><option value="missing">When missing locally</option><option value="open">Refresh while open</option><option value="manual">Manually</option></select></label><label><input type="checkbox" checked={settings.saveLocally} onChange={save} />Save previews on this device</label><p>Private session previews stay in memory.</p></div>
 }
-let RemoteSessionLibrary = () => {
-  let { dismiss, onMessage } = useUI()
+let RemoteSessionPicker = () => {
+  let [view, setView] = useState<'relay' | 'boxes' | 'settings' | null>(null)
+  let origin = useRef<'relay' | 'boxes' | 'settings' | null>(null)
+  let backToSessions = useCallback(() => setView(null), [])
+  let back = useMemo(() => view ? { label: 'Back to remote sessions', run: backToSessions } : null, [view, backToSessions])
+  usePanelBack(back)
+  let open = (next: 'relay' | 'boxes' | 'settings') => { origin.current = next; setView(next) }
+  if (view) return <div className={css.remoteAccountPage}>{view === 'settings' ? <><h3>Remote settings</h3><RemotePreviewSettings /></> : <DesktopRemoteAccount view={view} rent={view === 'boxes'} />}</div>
+  return <RemoteSessionLibrary open={open} returnFocus={origin.current} />
+}
+let useRemotePreviewImages = (all: { host: RemoteHost; session: RemoteSession }[], settings: RemotePreviewSettings) => {
+  let [images, setImages] = useState<Record<string, Record<string, Snapshot>>>({})
+  let [refreshing, setRefreshing] = useState(false)
+  let listingKey = JSON.stringify(all.map(({ host, session }) => [host.id, session.id, session.panes.map(pane => pane.id)]))
+  useEffect(() => {
+    let active = true, busy = false
+    let save = (id: string, value: Record<string, Snapshot>) => { if (active) setImages(current => ({ ...current, [id]: value })) }
+    let refresh = async () => {
+      if (busy) return
+      busy = true
+      try {
+        for (let { host, session } of all) {
+          if (!active) return
+          let cached = await bridge.remoteSessionPreviews(host.id, session.id, 'cache')
+          save(`${host.id}:${session.id}`, cached)
+        }
+        if (settings.updates === 'manual') return
+        for (let { host, session } of all) {
+          if (!active) return
+          let snapshots = await bridge.remoteSessionPreviews(host.id, session.id, settings.updates === 'open' ? 'refresh' : 'missing')
+          save(`${host.id}:${session.id}`, snapshots)
+        }
+      } catch { /* Retain saved images when the connection is unavailable. */ }
+      finally { busy = false }
+    }
+    void refresh()
+    let timer = settings.updates === 'open' ? setInterval(() => { void refresh() }, 15000) : undefined
+    return () => { active = false; clearInterval(timer) }
+  }, [listingKey, settings.updates, settings.saveLocally])
+  let refreshPreview = (host: string, session: string) => {
+    if (refreshing) return
+    setRefreshing(true)
+    void bridge.remoteSessionPreviews(host, session, 'refresh').then(value => setImages(current => ({ ...current, [`${host}:${session}`]: value }))).catch(() => undefined).finally(() => setRefreshing(false))
+  }
+  return { images, refreshing, refreshPreview }
+}
+let useRemoteSessions = () => {
   let [remote, setRemote] = useState<RemoteSessionListing>()
+  let refresh = () => bridge.remoteSessions().then(setRemote)
+  useEffect(() => {
+    let active = true
+    let load = () => { void bridge.remoteSessions().then(listing => { if (active) setRemote(listing) }).catch(() => { if (active) setRemote(undefined) }) }
+    load()
+    let timer = setInterval(load, 2000)
+    return () => { active = false; clearInterval(timer) }
+  }, [])
+  return { remote, refresh }
+}
+let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'boxes' | 'settings') => void; returnFocus: 'relay' | 'boxes' | 'settings' | null }) => {
+  let { state, dismiss, onMessage } = useUI()
+  let settings = state.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS
+  let { remote, refresh } = useRemoteSessions()
   let [openingSignIn, setOpeningSignIn] = useState(false)
   let [recent, setRecent] = useState(() => localStorage.getItem('remote-session-sort-recent') === 'true')
   let [reordering, setReordering] = useState(false)
   let [order, setOrder] = useState<string[]>(() => { try { let value = JSON.parse(localStorage.getItem('remote-session-order') ?? '[]'); return Array.isArray(value) ? value.filter(id => typeof id === 'string') : [] } catch { return [] } })
   let [collapsed, setCollapsed] = useState<string[]>([])
-  let [previewId, setPreviewId] = useState(() => localStorage.getItem('remote-session-last-active'))
+  let [previewId, setPreviewId] = useState(() => localStorage.getItem('remote-session-last-active')), [previewWindowId, setPreviewWindowId] = useState<string>()
   let dragSource = useRef<string | null>(null)
   let [dropTarget, setDropTarget] = useState<SessionDrop | null>(null)
   let endDrag = () => { dragSource.current = null; setDropTarget(null) }
   let toggleSort = () => { endDrag(); setReordering(false); setRecent(!recent); localStorage.setItem('remote-session-sort-recent', String(!recent)) }
   let toggleReordering = () => { endDrag(); setReordering(!reordering); setRecent(false); localStorage.setItem('remote-session-sort-recent', 'false') }
   let { ref, input, query, change, sessionKeys, focusMode, mode, count } = useSessionNavigation(toggleSort)
+  let machineView = useRemoteMachines(remote?.hosts ?? [], ref), machine = machineView.selected
+  useEffect(() => { if (returnFocus) ref.current?.querySelector<HTMLButtonElement>(`[data-remote-action="${returnFocus}"]`)?.focus({ preventScroll: true }) }, [])
   let [lastActive, setLastActive] = useState(() => localStorage.getItem('remote-session-last-active'))
   let [now, setNow] = useState(Date.now)
   let restored = useRef(false)
-  let refresh = () => bridge.remoteSessions().then(setRemote)
-  useEffect(() => {
-    let active = true
-    let refresh = () => { void bridge.remoteSessions().then(listing => { if (active) setRemote(listing) }).catch(() => { if (active) setRemote(undefined) }) }
-    refresh()
-    let timer = setInterval(refresh, 2000)
-    return () => { active = false; clearInterval(timer) }
-  }, [])
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
   useLayoutEffect(() => {
     if (!remote || restored.current) return
     restored.current = true
     let row = ref.current?.querySelector<HTMLButtonElement>('[data-active="true"]')
-    if (row && document.activeElement === input.current) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest' }) }
+    if (!returnFocus && row && document.activeElement === input.current) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest' }) }
   }, [remote])
   let all = remote?.hosts.flatMap(host => host.sessions.map(session => ({ host, session }))) ?? []
-  let sessions = all.filter(({ host, session }) => fuzzyMatch(query, `${session.name} ${host.service} ${session.panes.map(pane => `${pane.title} ${pane.agentName ?? ''} ${pane.agentId ?? ''} ${pane.agentType ?? ''} ${pane.agentPurpose ?? ''} ${Object.values(pane.agentData ?? {}).join(' ')}`).join(' ')}`))
+  let { images, refreshing, refreshPreview } = useRemotePreviewImages(all, settings)
+  let sessions = all.filter(({ host, session }) => fuzzyMatch(query, `${session.name} ${host.service} ${host.machine?.name ?? ''} ${session.panes.map(pane => `${pane.title} ${pane.agentName ?? ''} ${pane.agentId ?? ''} ${pane.agentType ?? ''} ${pane.agentPurpose ?? ''} ${Object.values(pane.agentData ?? {}).join(' ')}`).join(' ')}`))
   let sessionKey = (host: string, session: string) => JSON.stringify(['session', host, session])
-  let serviceKey = (service: string) => JSON.stringify(['service', service])
+  let machineKey = (host: RemoteHost) => JSON.stringify(['machine', host.id])
   let rank = (key: string) => order.indexOf(key) < 0 ? order.length : order.indexOf(key)
   sessions.sort((a, b) => rank(sessionKey(a.host.id, a.session.id)) - rank(sessionKey(b.host.id, b.session.id)))
   let visited = (session: { lastActivityAt?: number }) => session.lastActivityAt
   if (recent) sessions.sort((a, b) => (visited(b.session) ?? 0) - (visited(a.session) ?? 0))
-  let services = [...new Set(sessions.map(item => item.host.service))].sort((a, b) => rank(serviceKey(a)) - rank(serviceKey(b)))
+  let machineRank = (host: RemoteHost) => rank(order.includes(machineKey(host)) ? machineKey(host) : JSON.stringify(['service', host.service]))
+  let machines = (remote?.hosts ?? []).filter(host => !query || sessions.some(item => item.host.id === host.id)).sort((a, b) => machineRank(a) - machineRank(b))
   let preview = all.find(({ host, session }) => `${host.id}:${session.id}` === previewId) ?? sessions[0]
   let move = (source: string, target: string, position: SessionDrop['position'], siblings: string[]) => {
     if (!siblings.includes(source) || source === target) return
@@ -2112,40 +2173,40 @@ let RemoteSessionLibrary = () => {
     onDrop: (event: DragEvent<HTMLElement>) => { if (!dragSource.current || !siblings.includes(dragSource.current)) return; event.preventDefault(); event.stopPropagation(); move(dragSource.current, id, dragPosition(event), siblings) },
   })
   let handle = (id: string, name: string, siblings: string[]) => reordering && <RemoteOrderHandle id={id} name={name} start={value => { dragSource.current = value }} end={endDrag} move={direction => { let target = siblings[siblings.indexOf(id) + direction]; if (target) move(id, target, direction < 0 ? 'before' : 'after', siblings) }} />
-  let previewRow = (target: Element) => { let row = target.closest<HTMLElement>('[data-remote-session]'); if (row) setPreviewId(row.dataset.remoteSession!) }
+  let previewRow = (target: Element) => { let row = target.closest<HTMLElement>('[data-remote-session]'); if (row) { machineView.select(undefined); setPreviewId(row.dataset.remoteSession!); setPreviewWindowId(row.dataset.previewWindow) } }
   let previewFocus = (event: FocusEvent<HTMLDivElement>) => { focusMode(event); if (!event.target.closest('[data-picker-action]')) previewRow(event.target) }
   let previewHover = (event: MouseEvent<HTMLDivElement>) => { if (event.target instanceof Element && !event.target.closest('[data-picker-action]')) previewRow(event.target) }
-  useLayoutEffect(() => { if (document.activeElement === input.current) setPreviewId(sessions[0] ? `${sessions[0].host.id}:${sessions[0].session.id}` : null) }, [query, recent])
-  let openRemote = (host: string, session: string) => { void bridge.openRemote(host, session).then(() => { rememberRemoteSession(host, session); setLastActive(`${host}:${session}`); dismiss() }).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
+  useLayoutEffect(() => { if (document.activeElement === input.current) { machineView.select(undefined); setPreviewId(sessions[0] ? `${sessions[0].host.id}:${sessions[0].session.id}` : null) } }, [query, recent])
+  let openRemote = (host: string, session: string, pane?: string) => { void bridge.openRemote(host, session, pane).then(() => { rememberRemoteSession(host, session, pane); setLastActive(`${host}:${session}`); dismiss() }).catch(error => onMessage(error instanceof Error ? error.message : String(error))) }
   let signIn = () => {
     if (openingSignIn) return
     setOpeningSignIn(true)
     void bridge.openRemote().then(dismiss).catch(error => onMessage(error instanceof Error ? error.message : String(error))).finally(() => setOpeningSignIn(false))
   }
   let remoteKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!event.nativeEvent.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && event.key === 'g' && event.target instanceof HTMLElement && !event.target.closest('input, select, [role="alertdialog"]')) { event.preventDefault(); open('relay'); return }
     if (event.key === 'Escape' && event.target === input.current && !query && !sessions.length) { event.preventDefault(); event.stopPropagation(); dismiss(); return }
-    if (!event.altKey && !event.ctrlKey && !event.metaKey && event.target instanceof HTMLElement && !event.target.closest('input, [role="alertdialog"]') && ['h', 'l', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
-      let group = event.target.closest<HTMLElement>('[data-remote-service]'), service = group?.dataset.remoteService
-      if (service) { event.preventDefault(); let close = event.key === 'h' || event.key === 'ArrowLeft'; if (close) group?.querySelector<HTMLButtonElement>('[data-service-toggle]')?.focus(); setCollapsed(values => close ? [...new Set([...values, service])] : values.filter(value => value !== service)); return }
+    if (!event.defaultPrevented && !event.altKey && !event.ctrlKey && !event.metaKey && event.target instanceof HTMLElement && !event.target.closest('input, [role="alertdialog"]') && ['h', 'l', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      let group = event.target.closest<HTMLElement>('[data-remote-machine]'), host = group?.dataset.remoteMachine
+      if (host) { event.preventDefault(); let close = event.key === 'h' || event.key === 'ArrowLeft'; if (close) group?.querySelector<HTMLButtonElement>('[data-machine-toggle]')?.focus(); setCollapsed(values => close ? [...new Set([...values, host])] : values.filter(value => value !== host)); return }
     }
     sessionKeys(event)
   }
   let picker = <div ref={ref} data-picker className={css.sessionPicker} onKeyDown={remoteKeys} onFocusCapture={previewFocus} onMouseOver={previewHover} role="group" aria-label="Choose remote session">
+    <RemoteSessionActions open={open} />
     <div className={css.sessionSearch}><span className={css.sessionMode} data-session-mode aria-label="Navigation mode">{mode}{count && ` ${count}`}&gt;</span><SearchInput ref={input} aria-label="Search remote sessions" value={query} onChange={change} /><button type="button" data-picker-action className={css.bookmarkReorder} aria-label="Reorder remote sessions" title="Reorder remote sessions" aria-pressed={reordering} onClick={toggleReordering}><BookmarkReorderIcon /></button><button className={css.sessionSort} data-picker-action aria-label="Sort by recently visited" aria-pressed={recent} title="Sort by recently visited (s)" onClick={toggleSort}>Recent <kbd>s</kbd></button></div>
     <div className={css.sessionList} data-session-list>
-    {services.map(service => {
-      let children = sessions.filter(item => item.host.service === service), expanded = !!query || !collapsed.includes(service)
+    {machines.map(host => {
+      let children = sessions.filter(item => item.host.id === host.id), expanded = !!query || !collapsed.includes(host.id), name = remoteMachineName(host, remote?.hosts ?? [])
       let siblings = children.map(({ host, session }) => sessionKey(host.id, session.id))
-      let toggle = () => setCollapsed(values => expanded ? [...values, service] : values.filter(value => value !== service))
-      return <div key={service} data-remote-service={service}>
-        <div className={css.sessionTreeHeading} {...dragProps(serviceKey(service), services.map(serviceKey))}>
-          {handle(serviceKey(service), `service ${service}`, services.map(serviceKey))}
-          <RemoteServiceHeading service={service} expanded={expanded} count={children.length} toggle={toggle} />
+      let toggle = () => setCollapsed(values => expanded ? [...values, host.id] : values.filter(value => value !== host.id))
+      let details = () => machineView.select(host.id), chevron = <SessionTreeChevron />
+      return <div key={host.id} data-remote-machine={host.id} data-remote-service={host.service}>
+        <div className={css.sessionTreeHeading} {...dragProps(machineKey(host), machines.map(machineKey))}>
+          {handle(machineKey(host), `machine ${name}`, machines.map(machineKey))}
+          <RemoteMachineHeading host={host} name={name} color={machineView.color(host.id)} expanded={expanded} toggle={toggle} details={details} chevron={chevron} />
         </div>
-        {expanded && children.map(({ host, session }) => <div key={`${host.id}:${session.id}`} className={css.sessionTreeHeading} {...dragProps(sessionKey(host.id, session.id), siblings)}>
-          {handle(sessionKey(host.id, session.id), session.name, siblings)}
-          <RemoteSessionRow host={host.id} service={host.service} session={session.id} name={session.name} canClose={host.permission === 'control'} active={lastActive === `${host.id}:${session.id}`} visitedAt={visited(session)} now={now} onSelect={openRemote} onClosed={refresh} />
-        </div>)}
+        {expanded && <div role="group" aria-label={`Sessions on ${name}`}>{children.map(({ host, session }) => <RemoteSessionTree key={`${host.id}:${session.id}`} host={host} session={session} active={lastActive === `${host.id}:${session.id}`} now={now} query={query} onSelect={openRemote} onClosed={refresh} dragProps={dragProps(sessionKey(host.id, session.id), siblings)} handle={handle(sessionKey(host.id, session.id), session.name, siblings)} />)}</div>}
       </div>
     })}
     {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>sign in to remote</button>}
@@ -2153,31 +2214,66 @@ let RemoteSessionLibrary = () => {
     {remote?.authenticated && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
     </div>
   </div>
-  return <div className={css.sessionWorkspace}>{picker}<RemoteSessionPreview host={preview?.host} session={preview?.session} /></div>
+
+  let changeMachineColor = (color: string) => { if (machine) machineView.save(machine.id, color) }
+  let previewPanel = machine ? <aside className={css.sessionPreview} aria-label="Remote machine details"><RemoteMachineDetails host={machine} name={remoteMachineName(machine, remote?.hosts ?? [])} color={machineView.color(machine.id)} changeColor={changeMachineColor} back={machineView.back} /></aside> : <RemoteSessionPreview session={preview?.session} windowId={previewWindowId} snapshots={preview ? images[`${preview.host.id}:${preview.session.id}`] ?? {} : {}} refreshing={refreshing} refresh={() => { if (preview) refreshPreview(preview.host.id, preview.session.id) }} />
+  return <div className={css.sessionWorkspace}>{picker}{previewPanel}</div>
 }
-let accountSignIn = () => { void bridge.openRemote() }
-let DesktopRemoteAccount = ({ rent = false }: { rent?: boolean }) => <RemoteAccount api={bridge.remoteAccount} visit={bridge.openRemoteBilling} signIn={accountSignIn} rent={rent} local />
-let RemoteServiceHeading = ({ service, expanded, count, toggle }: { service: string; expanded: boolean; count: number; toggle: () => void }) => <button type="button" data-picker-action data-service-toggle className={css.remoteGroup} aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} remote service ${service}`} onClick={toggle}><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{service}<span className={css.remoteService}>{count}</span></button>
+let DesktopRemoteAccount = ({ rent = false, view = 'account' }: { rent?: boolean; view?: 'account' | 'relay' | 'boxes' }) => {
+  let { dismiss } = useUI()
+  let signIn = async () => { await bridge.openRemote(); dismiss() }
+  let visit = async (url: string) => { await bridge.openRemoteBilling(url); dismiss() }
+  let openBox = async (service: string) => {
+    let listing = await bridge.remoteSessions(), host = listing.hosts.find(host => host.service === service), session = host?.sessions.find(session => session.panes.length)
+    if (!host || !session) throw new Error('Box is connecting. Try again shortly.')
+    await bridge.openRemote(host.id, session.id); rememberRemoteSession(host.id, session.id); dismiss()
+  }
+  return <RemoteAccount api={bridge.remoteAccount} visit={visit} signIn={signIn} openBox={openBox} rent={rent} view={view} local />
+}
+let RemoteSessionActions = ({ open }: { open: (view: 'relay' | 'boxes' | 'settings') => void }) => {
+  let [computer, setComputer] = useState<RemoteComputer>()
+  useEffect(() => {
+    let active = true
+    let load = () => { void bridge.remoteAccount<RemoteComputer>('/local/state').then(value => { if (active) setComputer(value) }).catch(() => { if (active) setComputer(undefined) }) }
+    load()
+    let timer = setInterval(load, 2000)
+    return () => { active = false; clearInterval(timer) }
+  }, [])
+  let relay = () => open('relay'), boxes = () => open('boxes'), settings = () => open('settings')
+  return <div className={css.remoteToolbar} role="group" aria-label="Remote actions"><button type="button" data-picker-action data-remote-action="relay" data-connected={!!computer?.connected} aria-label="Relay" title={computer?.connected ? 'Connected to relay (g)' : 'Relay (g)'} onClick={relay}><svg viewBox="0 0 16 16" role="img" aria-label={computer?.connected ? 'Connected to relay' : 'Relay disconnected'}><circle cx="8" cy="8" r="4" /></svg>Relay <kbd>g</kbd></button><button type="button" data-picker-action data-remote-action="boxes" onClick={boxes}>Add box</button><button type="button" data-picker-action data-remote-action="settings" className={css.remoteSettingsButton} aria-label="Remote session settings" title="Remote session settings" onClick={settings}><SettingsIcon /></button></div>
+}
 let RemoteOrderHandle = ({ id, name, start, end, move }: { id: string; name: string; start: (id: string) => void; end: () => void; move: (direction: number) => void }) => {
   let drag = (event: DragEvent<HTMLButtonElement>) => { event.stopPropagation(); start(id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id) }
   let keys = (event: KeyboardEvent<HTMLButtonElement>) => { if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); event.stopPropagation(); move(event.key === 'ArrowUp' ? -1 : 1) } }
   return <button type="button" data-picker-action className={css.bookmarkDragHandle} draggable onDragStart={drag} onDragEnd={end} onKeyDown={keys} aria-label={`Drag remote ${name} to reorder`} title="Drag to reorder; Option+Up/Down also moves one place"><svg viewBox="0 0 12 16" aria-hidden="true"><circle cx="3" cy="3" r="1" /><circle cx="9" cy="3" r="1" /><circle cx="3" cy="8" r="1" /><circle cx="9" cy="8" r="1" /><circle cx="3" cy="13" r="1" /><circle cx="9" cy="13" r="1" /></svg></button>
 }
-let RemoteSessionPreview = ({ host, session }: { host?: RemoteHost; session?: RemoteSession }) => {
-  let [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({})
+let remoteWindowModel = (window: RemoteWindow): InternalWindow => ({ ...window, panes: window.panes.map(pane => ({ ...pane, url: '', profileId: '', zoom: 1 })) })
+let RemoteSessionTree = ({ host, session, active, now, query, onSelect, onClosed, dragProps, handle }: { host: RemoteHost; session: RemoteSession; active: boolean; now: number; query: string; onSelect: (host: string, session: string, pane?: string) => void; onClosed: () => Promise<unknown>; dragProps: HTMLAttributes<HTMLDivElement>; handle: ReactNode }) => <SessionTreeView id={`${host.id}:${session.id}`} name={session.name} query={query} remote headingProps={dragProps} handle={handle} heading={<RemoteSessionRow host={host.id} service={host.service} session={session.id} name={session.name} canClose={host.permission === 'control'} active={active} visitedAt={session.lastActivityAt} now={now} onSelect={onSelect} onClosed={onClosed} />}>
+  {session.windows ? session.windows.map(window => <SessionWindowRow key={window.id} window={remoteWindowModel(window)} now={now} remote={{ host: host.id, session: session.id, active, select: onSelect }} />) : session.panes.map(pane => <RemotePageRow key={pane.id} host={host.id} session={session.id} pane={pane} active={active && localStorage.getItem('remote-session-last-pane') === pane.id} now={now} select={onSelect} canClose={host.permission === 'control'} onClosed={onClosed} />)}
+</SessionTreeView>
+let SessionTreeChevron = () => <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+let RemotePageRow = ({ host, session, pane, active, now, select, canClose, onClosed }: { host: string; session: string; pane: RemoteSession['panes'][number]; active: boolean; now: number; select: (host: string, session: string, pane: string) => void; canClose: boolean; onClosed: () => Promise<unknown> }) => {
+  let open = () => select(host, session, pane.id)
+  let closing = useRemoteSessionClosing(host, session, onClosed, pane.id), name = pane.title || 'Blank page'
+  return <div className={css.sessionRow} data-page-target data-remote-session={`${host}:${session}`} data-remote-pane={pane.id}>
+    {closing.confirming ? <RemoteSessionConfirmation name={name} closing={closing} kind="page" /> : <><button ref={closing.row} type="button" className={`${css.listRow} ${css.remoteSession}`} data-session-row data-active={active} aria-current={active || undefined} onClick={open} title={pane.agentPurpose ?? pane.title}><SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon /><span className={css.sessionWindowName}>{name}</span>{pane.lastActivityAt && <time className={css.sessionWindowActivity} data-age={activityAge(pane.lastActivityAt, now)} dateTime={new Date(pane.lastActivityAt).toISOString()} title={`Last used ${new Date(pane.lastActivityAt).toLocaleString()}`}>{activityLabel(pane.lastActivityAt, now)}</time>}</button>{canClose && <button className={css.sessionClose} data-picker-action onClick={closing.ask} aria-label={`Close remote page ${name}`}>x</button>}</>}
+  </div>
+}
+let RefreshIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 7a6.5 6.5 0 1 0 .5 5M16 3v5h-5" /></svg>
+let RemoteSessionPreview = ({ session, windowId, snapshots, refreshing, refresh }: { session?: RemoteSession; windowId?: string; snapshots: Record<string, Snapshot>; refreshing: boolean; refresh: () => void }) => {
+  let window = session?.windows?.find(window => window.id === windowId) ?? session?.windows?.[0]
+  let previewWindow = window && remoteWindowModel(window)
   let [details, setDetails] = useState(false)
-  useEffect(() => {
-    setSnapshots({})
-    if (!host || !session) return
-    let active = true
-    let refresh = () => { void bridge.remoteSessionPreviews(host.id, session.id).then(value => { if (active) setSnapshots(value) }).catch(() => undefined) }
-    let initial = setTimeout(refresh, 180), timer = setInterval(refresh, 15000)
-    return () => { active = false; clearTimeout(initial); clearInterval(timer) }
-  }, [host?.id, session?.id])
-  let actors = session?.panes.filter(pane => pane.agentId || pane.agentName || pane.agentPurpose || pane.agentType) ?? []
-  return <aside className={css.sessionPreview} aria-label="Remote session preview" data-preview-session={session?.id}>
-    <div className={css.remotePreviewHeading}><span className={css.sessionPreviewTitle}>{session?.name}</span>{!!actors.length && <button type="button" aria-label="Show remote agent details" aria-pressed={details} onClick={() => setDetails(!details)}>Agent info</button>}</div>
-    {details && !!actors.length ? <div className={`${css.agentInformation} ${css.remoteAgentDetails}`}>{actors.map(pane => <RemoteAgentDetails key={pane.id} pane={pane} />)}</div> : <div className={css.sessionPreviewPages}>{session?.panes.map(pane => <RemotePreviewPane key={pane.id} pane={pane} snapshot={snapshots[pane.id]} />)}</div>}
+  let info = useRef<HTMLButtonElement>(null)
+  let openDetails = () => setDetails(true)
+  let closeDetails = useCallback(() => { setDetails(false); requestAnimationFrame(() => info.current?.focus({ preventScroll: true })) }, [])
+  let back = useMemo(() => ({ label: 'Back to preview', run: closeDetails }), [closeDetails])
+  useEffect(() => setDetails(false), [session?.id])
+  let actors = session?.panes.filter(pane => pane.agentId || pane.agentName || pane.agentPurpose || pane.agentType || Object.keys(pane.agentData ?? {}).length) ?? []
+  let keys = (event: KeyboardEvent<HTMLElement>) => { if (details && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeDetails() } }
+  return <aside className={css.sessionPreview} aria-label="Remote session preview" data-preview-session={session?.id} onKeyDown={keys}>
+    <div className={css.remotePreviewHeading}>{details && <BackButton back={back} />}<span className={css.sessionPreviewTitle}>{details ? 'Agent info' : session?.name}</span>{!details && <><button type="button" className={css.remoteSettingsButton} aria-label="Refresh remote previews" title="Refresh remote previews" disabled={!session || refreshing} onClick={refresh}><RefreshIcon /></button>{!!actors.length && <button ref={info} type="button" aria-label="Show remote agent details" onClick={openDetails}>Agent info</button>}</>}</div>
+    {details && !!actors.length ? <div className={`${css.agentInformation} ${css.remoteAgentDetails}`}>{actors.map(pane => <RemoteAgentDetails key={pane.id} pane={pane} />)}</div> : <div className={css.sessionPreviewPages}>{previewWindow ? <>{previewWindow.layout && <SessionPreviewLayout node={previewWindow.layout} window={previewWindow} snapshots={snapshots} />}{previewWindow.floating?.map(item => <SessionPreviewPage key={item.paneId} paneId={item.paneId} window={previewWindow} snapshots={snapshots} />)}</> : session?.panes.map(pane => <RemotePreviewPane key={pane.id} pane={pane} snapshot={snapshots[pane.id]} />)}</div>}
   </aside>
 }
 let RemoteAgentDetails = ({ pane }: { pane: RemoteSession['panes'][number] }) => <section aria-label={`Agent for ${pane.title}`}><strong>{pane.title}</strong><dl>{[['Name', pane.agentName], ['Agent ID', pane.agentId], ['Type', pane.agentType], ['Purpose', pane.agentPurpose], ...Object.entries(pane.agentData ?? {}).map(([key, value]) => [pane.agentFields?.[key] ?? key, value])].filter(([, value]) => value).map(([label, value]) => <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}</dl></section>
@@ -2185,10 +2281,11 @@ let RemotePreviewPane = ({ pane, snapshot }: { pane: RemoteSession['panes'][numb
   <div className={css.remotePreviewCaption} title={pane.agentPurpose}><span>{pane.title}</span>{(pane.agentName || pane.agentId) && <span className={css.remoteService}>{pane.agentName ?? pane.agentId}{pane.agentType && ` · ${pane.agentType}`}</span>}{pane.agentPurpose && <span>{pane.agentPurpose}</span>}</div>
   <div className={css.sessionPreviewPage}>{snapshot && <img src={snapshot.image} alt={`Preview of ${pane.title}`} title={`Captured ${new Date(snapshot.capturedAt).toLocaleString()}`} />}</div>
 </div>
-let rememberRemoteSession = (host: string, session: string) => {
+let rememberRemoteSession = (host: string, session: string, pane?: string) => {
+  if (pane) localStorage.setItem('remote-session-last-pane', pane)
   localStorage.setItem('remote-session-last-active', `${host}:${session}`)
 }
-let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => Promise<unknown>) => {
+let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => Promise<unknown>, pane?: string) => {
   let { onMessage } = useUI()
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let row = useRef<HTMLButtonElement>(null), confirmButton = useRef<HTMLButtonElement>(null), restoreRow = useRef(false)
@@ -2197,24 +2294,24 @@ let useRemoteSessionClosing = (host: string, session: string, onClosed?: () => P
     else if (restoreRow.current) { restoreRow.current = false; row.current?.focus({ preventScroll: true }) }
   }, [confirming])
   let restore = useRef<() => void>(() => {})
-  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-session-target]')); setConfirming(true) }
+  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest(pane ? '[data-remote-pane]' : '[data-remote-tree]') ?? row.current?.closest('[data-session-target]')); setConfirming(true) }
   let cancel = () => { restoreRow.current = true; setConfirming(false) }
   let close = async () => {
     if (busy) return
     setBusy(true)
-    try { await bridge.closeRemoteSession(host, session); await onClosed?.(); setConfirming(false); restore.current() }
+    try { if (pane) await bridge.closeRemotePage(host, session, pane); else await bridge.closeRemoteSession(host, session); await onClosed?.(); setConfirming(false); restore.current() }
     catch (error) { onMessage((error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')); cancel() }
     finally { setBusy(false) }
   }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
   return { confirming, busy, row, confirmButton, ask, cancel, close, confirmKeys }
 }
-let RemoteSessionConfirmation = ({ name, closing }: { name: string; closing: ReturnType<typeof useRemoteSessionClosing> }) => <div className={css.sessionConfirm} onKeyDown={closing.confirmKeys} role="alertdialog" aria-label={`Close remote session ${name}?`}><span>Close remote session "{name}"?</span><button ref={closing.confirmButton} data-picker-action onClick={closing.close} disabled={closing.busy}>yes</button><button data-picker-action onClick={closing.cancel} disabled={closing.busy}>no</button></div>
-let RemoteSessionRow = ({ host, service, session, name, active, canClose, visitedAt, now, onSelect, onClosed }: { host: string; service: string; session: string; name: string; active: boolean; canClose: boolean; visitedAt?: number; now: number; onSelect: (host: string, session: string) => void; onClosed: () => Promise<unknown> }) => {
+let RemoteSessionConfirmation = ({ name, closing, kind = 'session' }: { name: string; closing: ReturnType<typeof useRemoteSessionClosing>; kind?: 'session' | 'page' }) => <div className={css.sessionConfirm} onKeyDown={closing.confirmKeys} role="alertdialog" aria-label={`Close remote ${kind} ${name}?`}><span>Close remote {kind} "{name}"?</span><button ref={closing.confirmButton} data-picker-action onClick={closing.close} disabled={closing.busy}>yes</button><button data-picker-action onClick={closing.cancel} disabled={closing.busy}>no</button></div>
+let RemoteSessionRow = ({ host, service, session, name, active, canClose, visitedAt, now, onSelect, onClosed }: { host: string; service: string; session: string; name: string; active: boolean; canClose: boolean; visitedAt?: number; now: number; onSelect: (host: string, session: string, pane?: string) => void; onClosed: () => Promise<unknown> }) => {
   let select = () => onSelect(host, session)
   let closing = useRemoteSessionClosing(host, session, onClosed)
-  return <div className={`${css.sessionRow} ${css.remoteSessionRow}`} data-session-target data-remote-session={`${host}:${session}`}>
-    {closing.confirming ? <RemoteSessionConfirmation name={name} closing={closing} /> : <><button ref={closing.row} className={`${css.listRow} ${css.remoteSession}`} data-session-row data-active={active} aria-current={active || undefined} onClick={select} title={`${name} on ${service}${active ? ' · Last active' : ''}`}><SessionNumber /><span className={css.sessionWindowName}>{name}</span><span className={css.remoteService}>{service} · remote</span>{visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last used ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}</button>
+  return <div className={`${css.sessionRow} ${css.remoteSessionRow}`} data-session-target data-preview-session={session} data-remote-session={`${host}:${session}`}>
+    {closing.confirming ? <RemoteSessionConfirmation name={name} closing={closing} /> : <><button ref={closing.row} className={`${css.listRow} ${css.sessionLabelRow} ${css.remoteSession}`} data-session-row data-active={active} aria-current={active || undefined} onClick={select} title={`${name} on ${service}${active ? ' · Last active' : ''}`}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionWindowName}>{name}</span>{visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last used ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}</button>
     {canClose && <button className={css.sessionClose} data-picker-action onClick={closing.ask} aria-label={`Close remote session ${name}`}>x</button>}
     </>}
   </div>
@@ -2264,27 +2361,28 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
   let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target data-preview-session={id}>{confirming ? confirmation : <><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><SessionAudio sessionId={id} /><SessionAgent sessionId={id} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></>}</div>
 }
-let SessionWindowRow = ({ window, now }: { window: InternalWindow; now: number }) => {
+let SessionWindowRow = ({ window, now, remote }: { window: InternalWindow; now: number; remote?: { host: string; session: string; active: boolean; select: (host: string, session: string, pane: string) => void } }) => {
   let { state, run, dismiss } = useUI()
   let visitedAt = windowVisitTime(window)
-  let pane = window.panes.find(pane => pane.id === selection(state).client?.paneId) ?? window.panes[0]
+  let pane = window.panes.find(pane => pane.id === (remote ? localStorage.getItem('remote-session-last-pane') : selection(state).client?.paneId)) ?? window.panes[0]
+  let active = remote ? remote.active && window.panes.some(pane => pane.id === localStorage.getItem('remote-session-last-pane')) : selection(state).client?.windowId === window.id
   let name = window.automaticName === true ? pane?.title || pane?.url || window.name : window.name.trim() || pane?.title || pane?.url || 'Blank page'
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let row = useRef<HTMLButtonElement>(null)
   let confirmButton = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => { if (confirming) confirmButton.current?.focus() }, [confirming])
-  let select = async () => { if (await run('select-window', { client: state.clientId, window: window.id })) dismiss() }
+  let select = async () => { if (remote && pane) { remote.select(remote.host, remote.session, pane.id); return }; if (await run('select-window', { client: state.clientId, window: window.id })) dismiss() }
   let restore = useRef<() => void>(() => {})
-  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-session-target]')); setConfirming(true) }
+  let ask = () => { restore.current = pickerRemovalFocus(row.current, row.current?.closest('[data-remote-tree]') ?? row.current?.closest('[data-session-target]')); setConfirming(true) }
   let cancel = () => { setConfirming(false); requestAnimationFrame(() => row.current?.focus()) }
   let close = async () => { if (busy) return; setBusy(true); let result = await run('kill-window', { window: window.id, confirm: true }) as { closed?: string } | undefined; setBusy(false); setConfirming(false); if (!result?.closed) cancel(); else restore.current() }
   let confirmKeys = (event: KeyboardEvent<HTMLDivElement>) => { event.stopPropagation(); if (event.key === 'Escape' || event.key === 'n') { event.preventDefault(); cancel() } else if (event.key === 'y') { event.preventDefault(); void close() } }
   let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow} data-session-target data-preview-window={window.id}>{confirming ? confirmation : <>
-    <button ref={row} className={css.listRow} data-window-row={window.id} data-active={selection(state).client?.windowId === window.id} aria-current={selection(state).client?.windowId === window.id ? 'true' : undefined} onClick={select}>
+  return <div className={css.sessionRow} data-session-target data-preview-window={window.id} data-remote-session={remote && `${remote.host}:${remote.session}`} data-remote-pane={remote && pane?.id}>{confirming ? confirmation : <>
+    <button ref={row} className={css.listRow} data-window-row={window.id} data-session-row={remote || undefined} data-active={active} aria-current={active || undefined} onClick={select}>
       <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
-    </button><SessionAudio window={window} /><SessionAgent window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button>
+    </button>{!remote && <><SessionAudio window={window} /><SessionAgent window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button></>}
   </>}</div>
 }
 type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }
@@ -2602,13 +2700,13 @@ let ExcludeWebsiteSelect = ({ profileId, host }: { profileId: string; host: stri
     setBusy(true)
     try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
   }
-  return <label className={css.notificationSiteExclusion}><span>{host}</span><select className={css.notificationAction} onChange={exclude} value="" disabled={busy} aria-label={`Disable anti-bot for ${host}`}><option value="" disabled>Disable anti-bot</option><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></select></label>
+  return <label className={css.notificationSiteExclusion}><span>{host}</span><select className={css.notificationAction} onChange={exclude} value="" disabled={busy} aria-label={`Disable Bot protection for ${host}`}><option value="" disabled>Disable Bot protection</option><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></select></label>
 }
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
   let { run } = useUI(), [busy, setBusy] = useState(false)
   let temporary = exclusion.expiresAt !== null
-  let status = temporary ? automationExclusionActive(exclusion) ? `Temporary · Until ${new Date(exclusion.expiresAt!).toLocaleString()}` : 'Expired · Anti-bot is on' : undefined
+  let status = temporary ? automationExclusionActive(exclusion) ? `Temporary · Until ${new Date(exclusion.expiresAt!).toLocaleString()}` : 'Expired · Bot protection is on' : undefined
   let remove = async () => {
     setBusy(true)
     try { await run('profile.anti-bot.site.remove', { profile: profileId, host }) } finally { setBusy(false) }
@@ -2620,16 +2718,29 @@ let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; hos
   return <div className={css.siteExclusion} role="group" aria-label={host}><span>{host}{status && <small>{status}</small>}</span>{temporary && <button type="button" onClick={keep} disabled={busy} aria-label={`Keep ${host} excluded`}>Keep excluded</button>}<button type="button" onClick={remove} disabled={busy} aria-label={`Remove exclusion for ${host}`}>Remove</button></div>
 }
 
-type AntiBotProfileProps = { profile: Profile; pane?: ReturnType<typeof selection>['pane'] }
+type BotProfileProps = { profile: Profile; pane?: ReturnType<typeof selection>['pane'] }
 
-let ProfileExcludedWebsites = ({ profile, pane }: AntiBotProfileProps) => {
+let profileSiteExclusions = (state: PublicState, profileId: string) => Object.entries(state.automationSafety?.limits.sites?.[profileId] ?? {}).flatMap(([host, entry]) => {
+  let exclusion = automationSiteExclusion(entry)
+  return exclusion?.enabled ? [{ host, exclusion }] : []
+})
+
+let ProfileExcludedWebsites = ({ profile, pane }: BotProfileProps) => {
   let { state, run } = useUI()
   let [website, setWebsite] = useSettingsState(`profile:${profile?.id}:excluded-website`, () => automationWebsiteHost(pane?.url) ?? '', false), [busy, setBusy] = useState(false)
+  let [expanded, setExpanded] = useState(false), [query, setQuery] = useState('')
+  let toggleButton = useRef<HTMLButtonElement>(null), editorId = useId()
   if (!profile) return null
-  let exclusions = Object.entries(state.automationSafety?.limits.sites?.[profile.id] ?? {}).flatMap(([host, entry]) => {
-    let exclusion = automationSiteExclusion(entry)
-    return exclusion?.enabled ? [{ host, exclusion }] : []
-  })
+  let exclusions = profileSiteExclusions(state, profile.id)
+  let matching = exclusions.filter(({ host }) => host.toLowerCase().includes(query.trim().toLowerCase()))
+  let toggle = () => { setExpanded(value => !value); setQuery('') }
+  let search = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  let keys = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' || !expanded) return
+    event.preventDefault(); event.stopPropagation()
+    if (query) setQuery('')
+    else { setExpanded(false); toggleButton.current?.focus() }
+  }
   let change = (event: ChangeEvent<HTMLInputElement>) => { setWebsite(event.target.value); event.target.setCustomValidity('') }
   let add = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2639,11 +2750,22 @@ let ProfileExcludedWebsites = ({ profile, pane }: AntiBotProfileProps) => {
     setBusy(true)
     try { if (await run('profile.anti-bot.site.set', { profile: profile.id, host, enabled: false })) setWebsite('') } finally { setBusy(false) }
   }
-  return <ProfileSection title="Excluded websites">
-    <p>Anti-bot is off for these websites in this profile.</p>
+  let editor = <div id={editorId} className={css.siteExclusionEditor}>
+    <p>Bot protection is off for these websites in this profile.</p>
     <form className={css.siteExclusionAdd} onSubmit={add}><label>Website<input className={css.pluginInput} name="website" value={website} onChange={change} placeholder="example.com" disabled={busy} required /></label><button type="submit" disabled={busy || !website.trim()}>Add</button></form>
-    {exclusions.length ? exclusions.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />) : <p>No excluded websites.</p>}
-  </ProfileSection>
+    {(exclusions.length > 5 || query) && <SearchInput aria-label="Search excluded websites" value={query} onChange={search} />}
+    <div className={css.siteExclusionList} role="group" aria-label="Excluded website list" tabIndex={0}>
+      {matching.map(({ host, exclusion }) => <SiteExclusionRow key={host} profileId={profile.id} host={host} exclusion={exclusion} />)}
+      {!matching.length && <p role="status">{query ? 'No matching websites.' : 'No excluded websites.'}</p>}
+    </div>
+  </div>
+  return <section className={`${css.profileSection} ${css.siteExclusions}`} aria-label="Excluded websites" onKeyDown={keys}>
+    <div className={css.siteExclusionSummary}>
+      <div><h2>Excluded websites</h2><span>{exclusions.length ? `${exclusions.length} ${exclusions.length === 1 ? 'website' : 'websites'}` : 'No excluded websites'}</span></div>
+      <button ref={toggleButton} type="button" onClick={toggle} aria-expanded={expanded} aria-controls={editorId}>{expanded ? 'Show less' : 'Show all'}</button>
+    </div>
+    {expanded && editor}
+  </section>
 }
 
 let AutomationLimitInput = ({ profileId, setting, label, description, value, scale = 1, maximum }: { profileId: string; setting: AutomationSafetyLimitKey; label: string; description: string; value: number; scale?: number; maximum: number }) => {
@@ -2680,9 +2802,11 @@ let AutomationLimitsEditor = ({ profile }: { profile: Profile }) => {
   </div><label className={css.profileControl}><span>Simulate mouse movement<small>Move a virtual pointer between clicks</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Simulate mouse movement" checked={limits.simulateMouseMovement !== false} onChange={toggleMouse} disabled={busy} /></label></ProfileSection>
 }
 
-let ProfileAntiBotSettings = ({ profile, pane }: AntiBotProfileProps) => {
+let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
   let { state, run } = useUI()
   let [busy, setBusy] = useState(false)
+  let [tab, setTab] = useState<'protection' | FeedbackSection>('protection')
+  let changeTab = (event: MouseEvent<HTMLButtonElement>) => setTab(event.currentTarget.dataset.botTab as typeof tab)
   let safety = state.automationSafety, limits = safety?.limits ?? DEFAULT_AUTOMATION.safety
   let savedEnabled = profile ? automationSafetyEnabled(limits, profile.id) : true
   let savedPaneEnabled = !!pane && automationSafetyEnabled(limits, pane.profileId, pane.id)
@@ -2717,19 +2841,25 @@ let ProfileAntiBotSettings = ({ profile, pane }: AntiBotProfileProps) => {
     setPaneEnabled(next); setBusy(true)
     try { if (!await run('pane.anti-bot.set', { pane: pane.id, enabled: next })) setPaneEnabled(savedPaneEnabled) } finally { setBusy(false) }
   }
-  return <div className={css.antiBotSections} role="tabpanel" aria-label="Anti-bot settings">
+  let protection = <>
     {paused && <ProfileSection title="Paused automation">
       <div className={css.antiBotStatus} role="status"><span>{status}</span>{paneEnabled && cooldown && <button type="button" onClick={resetSession} disabled={busy}>Reset session</button>}{paneEnabled && warning && <button type="button" onClick={resume} disabled={busy}>Resume automation</button>}</div>
       {paneEnabled && cooldown && <p>Reset starts a new session for this website.</p>}
       {paneEnabled && warning && <p>Resolve the warning on the website, then resume automation.</p>}
     </ProfileSection>}
-    <ProfileSection title="Enable Anti-bot">
+    <ProfileSection title="Enable Bot protection">
       <p>Applies to automation on public websites. Files and local addresses are excluded.</p>
-      <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
-      {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Anti-bot for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
+      <label className={css.profileControl}><span>This profile<small>{profile.name} · all panes</small></span><span className={css.profileToggleState}><span aria-hidden="true">{enabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Bot protection for this profile" checked={enabled} onChange={toggle} disabled={busy} /></span></label>
+      {pane && <label className={css.profileControl}><span>This pane<small>{permissionPaneLabel(state.model, pane.id)}{pane.agentId ? ` · Agent ${pane.agentId}` : ''}</small></span><span className={css.profileToggleState}><span aria-hidden="true">{paneEnabled ? 'On' : 'Off'}</span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Enable Bot protection for this pane" checked={paneEnabled} onChange={togglePane} disabled={busy || !enabled} /></span></label>}
     </ProfileSection>
     <AutomationLimitsEditor key={`limits:${profile.id}`} profile={profile} />
     <ProfileExcludedWebsites key={`exclusions:${profile.id}`} profile={profile} pane={pane} />
+  </>
+  return <div className={css.antiBotSections} role="tabpanel" aria-label="Bot settings">
+    <div className={`${css.panelTabs} ${css.botTabs}`} role="tablist" aria-label="Bot sections">
+      {(['protection', 'appearance', 'timing'] as const).map(item => <button key={item} type="button" role="tab" data-bot-tab={item} aria-selected={tab === item} onClick={changeTab}><FeedbackTabIcon tab={item} />{item.charAt(0).toUpperCase() + item.slice(1)}</button>)}
+    </div>
+    {tab === 'protection' ? protection : <AgentFeedbackSettings section={tab} profileId={profile.id} value={state.agentFeedback ?? DEFAULT_AGENT_FEEDBACK} save={value => run('settings.set', { key: 'agentFeedback', value })} />}
   </div>
 }
 
@@ -2867,12 +2997,12 @@ let ProfileInfo = () => {
     </ProfileSection></div>
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
     <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><ProfileNameEditor key={profile.id} /></div>
-    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}><ProfileTabIcon tab="overview" />Overview</button><button type="button" role="tab" aria-selected={tab === 'pane'} onClick={paneTab}><ProfileTabIcon tab="pane" />Pane</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}><ProfileTabIcon tab="device" />Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}><ProfileTabIcon tab="connection" />Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}><ProfileTabIcon tab="anti-bot" />Anti-bot</button></div>
+    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}><ProfileTabIcon tab="overview" />Overview</button><button type="button" role="tab" aria-selected={tab === 'pane'} onClick={paneTab}><ProfileTabIcon tab="pane" />Pane</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}><ProfileTabIcon tab="device" />Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}><ProfileTabIcon tab="connection" />Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}><ProfileTabIcon tab="anti-bot" />Bot</button></div>
     {tab === 'overview' && overviewContent}
     {tab === 'pane' && <ProfilePaneSettings key={pane?.id} />}
     {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
     {tab === 'connection' && <div className={css.profileSections} role="tabpanel" aria-label="Connection settings"><ProfileSection title="Current pane connection"><p>{currentProxy ? `${currentProxy.protocol}://${currentProxy.host}:${currentProxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
-    {tab === 'anti-bot' && <ProfileAntiBotSettings profile={profile} pane={pane} />}
+    {tab === 'anti-bot' && <ProfileBotSettings key={profile.id} profile={profile} pane={pane} />}
   </section>
 }
 type BookmarkFolderOption = { id: string; label: string }

@@ -28,7 +28,7 @@ export type Layout = { kind: 'pane'; paneId: string } | { kind: 'split'; id: str
 export type FloatingPane = { paneId: string; x: number; y: number; width: number; height: number; dock?: { siblingIds: string[]; axis: 'horizontal' | 'vertical'; ratio: number; before: boolean } }
 export type FloatingMemory = { x: number; y: number; width: number; height: number; workspaceWidth: number; workspaceHeight: number }
 export type InternalWindow = { id: string; number?: number; name: string; lastVisitedAt?: number; automaticName?: boolean; pinned?: boolean; layout: Layout | null; panes: Pane[]; floating?: FloatingPane[]; lastFloating?: FloatingMemory }
-export type WorkspaceSession = { lastActivityAt?: number; id: string; name: string; defaultProfileId: string; device?: DevicePersona; private?: boolean; ephemeral?: boolean; profileExplicit?: boolean; windows: InternalWindow[] }
+export type WorkspaceSession = { remote?: { clientId: string; hostId: string; sessionId: string; generation: string }; lastActivityAt?: number; id: string; name: string; defaultProfileId: string; device?: DevicePersona; private?: boolean; ephemeral?: boolean; profileExplicit?: boolean; windows: InternalWindow[] }
 export type Client = { id: string; sessionId: string; sessionHistory?: string[]; windowId: string; windowHistory?: string[]; paneId: string | null; zoomedPaneId?: string | null; width: number; height: number }
 export type SavedLayout = { name: string; window: InternalWindow }
 export type Model = { version: 2; profiles: Profile[]; sessions: WorkspaceSession[]; clients: Client[]; lastFocusedClientId?: string; layouts: SavedLayout[]; closedSessionProfiles?: Record<string, string>; newSessionProfileId?: string; remoteOperations?: { owner: string; request: string; hash: string; at: number; result: unknown }[] }
@@ -37,16 +37,18 @@ export type Download = { id: string; profileId: string; name: string; path: stri
 export type ProfileCacheState = { bytes: number; limit: number; checkedAt: number }
 export type ProfileProxyTestState = { ip: string; region?: string; checkedAt: number }
 export type ProfileProxyFailureState = { error: string; failedAt: number; retrying?: boolean }
+export type NavigationProxyHint = { hostname: string; local: boolean; required: boolean }
 export type Snapshot = { image: string; capturedAt: number }
 export type FindResult = { requestId: number; text: string; matches: number; activeMatchOrdinal: number; finalUpdate: boolean }
 export type NavigationStack = { activeIndex: number; entries: { title: string; url: string }[] }
 export type MessageDialogOptions = { message: string; detail?: string; buttons?: string[]; defaultId?: number; cancelId?: number }
 export type DialogPrompt = { id: string; message: string; detail?: string; buttons: string[]; defaultId: number; cancelId: number }
-export type PublicState = { lockedAgentPanes?: string[]; hiddenAgentCursors?: string[]; automationAgents?: AgentSettings; activeAgents?: (AgentInfo & { paneId: string; lastUsed: number })[]; remoteViews?: Record<string, RemoteView>; remoteSizes?: Record<string, { width: number; height: number }>; bookmarkPlugins?: BookmarkPluginSettings; bookmarkPluginErrors?: Record<string, string>; dialogPrompt?: DialogPrompt; dismissedPermissions?: string[]; automationSafety?: AutomationSafetyState; remoteControl?: Record<string, { owner: string; expires: number; generation: number } | undefined>; searchApps?: SearchApps; memory?: MemorySettings; security?: Record<string, SiteSecurity>; findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; clickModeState?: ClickModeState; statusBar?: StatusBarPosition; showBuildId?: boolean; buildInfo?: BuildInfo; showTabCloseButtons?: boolean; showDarkModeButton?: boolean; vimEditing?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; loading: Record<string, boolean>; audio: Record<string, { playing: boolean; muted: boolean }>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
+export type PublicState = { remotePreviews?: RemotePreviewSettings; agentFeedback?: AgentFeedbackSettings; lockedAgentPanes?: string[]; hiddenAgentCursors?: string[]; automationAgents?: AgentSettings; activeAgents?: (AgentInfo & { paneId: string; lastUsed: number })[]; remoteViews?: Record<string, RemoteView>; remoteSizes?: Record<string, { width: number; height: number }>; bookmarkPlugins?: BookmarkPluginSettings; bookmarkPluginErrors?: Record<string, string>; dialogPrompt?: DialogPrompt; dismissedPermissions?: string[]; automationSafety?: AutomationSafetyState; remoteControl?: Record<string, { owner: string; expires: number; generation: number } | undefined>; searchApps?: SearchApps; memory?: MemorySettings; security?: Record<string, SiteSecurity>; findResults?: Record<string, FindResult>; browserTools?: BrowserToolsState; plugins?: PluginInfo[]; pluginRuns?: PluginRun[]; pluginPrompt?: PluginPrompt; bookmarkParameters?: BookmarkParameterSettings; accessibility?: boolean; clickMode?: ClickModeSettings; clickModeState?: ClickModeState; statusBar?: StatusBarPosition; showBuildId?: boolean; buildInfo?: BuildInfo; showTabCloseButtons?: boolean; showDarkModeButton?: boolean; vimEditing?: boolean; keyboard?: KeyboardConfig; configPath?: string; configError?: string | null; startupNotice?: string; model: Model; clientId: string; focusedClientId: string | null; snapshots: Record<string, Snapshot>; crashes: Record<string, string>; navigationProxyHints?: Record<string, NavigationProxyHint>; loading: Record<string, boolean>; audio: Record<string, { playing: boolean; muted: boolean }>; favicons: Record<string, string>; pendingUrls: Record<string, string>; navigation: Record<string, NavigationStack>; permissions: Permission[]; downloads: Download[]; profileCaches: Record<string, ProfileCacheState>; profileProxyTests: Record<string, ProfileProxyTestState>; profileProxyFailures: Record<string, ProfileProxyFailureState> }
 export type Command = { method: string; args?: Record<string, unknown> }
 export type Bounds = { scrollX?: number; scrollY?: number; paneBounds?: { x: number; y: number; width: number; height: number }; paneId: string; x: number; y: number; width: number; height: number }
 export type { RemoteSessionListing } from './remote-sessions'
 import type { RemoteSessionListing } from './remote-sessions'
+import type { RemotePreviewSettings, RemotePreviewRequest } from './remote-preview-settings'
 export type Bridge = {
   clipboard: (text?: string) => Promise<string>
   controls: (listener: (control: string, paneId?: string) => void) => () => void
@@ -54,11 +56,13 @@ export type Bridge = {
   state: () => Promise<PublicState>
   command: (command: Command) => Promise<unknown>
   remoteSessions: () => Promise<RemoteSessionListing>
-  remoteSessionPreviews: (host: string, session: string) => Promise<Record<string, Snapshot>>
+  remoteSessionPreviews: (host: string, session: string, request?: RemotePreviewRequest) => Promise<Record<string, Snapshot>>
   closeRemoteSession: (host: string, session: string) => Promise<void>
-  openRemote: (host?: string, session?: string) => Promise<void>
+  closeRemotePage: (host: string, session: string, pane: string) => Promise<void>
+  openRemote: (host?: string, session?: string, pane?: string) => Promise<void>
   remoteAccount: <T>(path: string, body?: unknown) => Promise<T>
   openRemoteBilling: (url: string) => Promise<void>
   bounds: (bounds: Bounds[]) => void
   subscribe: (listener: (state: PublicState) => void) => () => void
 }
+import type { AgentFeedbackSettings } from './agent-feedback'

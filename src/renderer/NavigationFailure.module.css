@@ -1,0 +1,6 @@
+.failure { display: flex; width: 100%; height: 100%; min-height: 0; padding: 24px; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; gap: 16px; overflow: auto; background: #111318; color: #a7b0bd; text-align: center; font-size: 13px; }
+.failure p { margin: 0; overflow-wrap: anywhere; }
+.hint { max-width: 48ch; line-height: 1.5; }
+.hint p + p { margin-top: 12px; }
+.failure button { flex-shrink: 0; padding: 6px 12px; border: 1px solid #3b4653; background: #262c35; color: #e7ecf2; cursor: pointer; }
+.failure button:hover { background: #3b4653; }

@@ -1,5 +1,10 @@
 .git
 node_modules
+**/node_modules
+remote-app/ios
+remote-app/android
+remote-app/dist
+remote-app/.expo
 out
 release
 build

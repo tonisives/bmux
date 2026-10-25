@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 
 type Input = { owner: string; type: 'down' | 'up' | 'continue'; key?: string }
 type Lease = { owner: string; keys: Set<string>; release: () => Promise<void>; timer: ReturnType<typeof setTimeout> }
@@ -22,7 +23,7 @@ export let agentActionInput = (method: string, args: Record<string, unknown>, ow
   if (args.method === 'Input.insertText') return { owner, type: 'continue' }
 }
 
-export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random) => {
+export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), random = Math.random, settings = () => DEFAULT_AGENT_FEEDBACK) => {
   let scope = new AsyncLocalStorage<string>(), tails = new Map<string, Promise<void>>(), inputs = new Map<string, Lease>()
   let keysFor = (pane: string, profileId: string, urls: string[]) => [...new Set([`pane:${pane}`, ...urls.flatMap(value => {
     try { let url = new URL(value); return /^https?:$/.test(url.protocol) ? [`domain:${JSON.stringify([profileId, url.hostname.toLowerCase().replace(/^www\./, '').replace(/\.$/, '')])}`] : [] } catch { return [] }
@@ -35,7 +36,10 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
     await previous
     return release
   }
-  let cooldown = async (release: () => void) => { try { await sleep(800 + random() * 400) } finally { release() } }
+  let cooldown = async (release: () => void) => {
+    let { actionDelayMinMs: minimum, actionDelayMaxMs: maximum } = settings()
+    try { if (maximum) await sleep(minimum + random() * (maximum - minimum)) } finally { release() }
+  }
   let finishInput = async (pane: string, lease: Lease) => {
     if (inputs.get(pane) !== lease) return
     inputs.delete(pane); clearTimeout(lease.timer)

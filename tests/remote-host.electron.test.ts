@@ -17,6 +17,7 @@ import { requestRemoteSessionPreviews } from '../src/main/remote-request'
 import { remoteIdentity } from '../src/main/remote-identity'
 
 test('discovers a host, watches its live page, coordinates control, and revokes a viewer', async () => {
+  test.setTimeout(180000)
   test.skip(!process.env.BMUX_TEST_DATABASE_URL, 'Requires a disposable local PostgreSQL fixture')
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-remote-test-'))
   let pool = new Pool({ connectionString: process.env.BMUX_TEST_DATABASE_URL, max: 2, connectionTimeoutMillis: 5000, query_timeout: 5000 })
@@ -32,7 +33,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let savedModel = initialModel(), previousUse = Date.now() - 86400000
   savedModel.sessions[0].lastActivityAt = previousUse
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(savedModel))
-  await fs.writeFile(path.join(directory,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory,'config.yaml'),'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let server = spawn(process.execPath,['--import','tsx','remote/server.ts'],{env:{...process.env,DATABASE_URL:process.env.BMUX_TEST_DATABASE_URL,PORT:'18889',BMUX_PUBLIC_ORIGIN:origin,BMUX_GOOGLE_CLIENT_ID:'fixture',BMUX_TURN_SECRET:'fixture',BMUX_TURN_URLS:'turn:127.0.0.1:3478'},stdio:'ignore'})
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let applicationProcess: ChildProcess | undefined
@@ -124,6 +125,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let hosts = await fetch(`${origin}/api/hosts`, { headers: { Cookie: `bmux_session=${cookie}` } }).then(response => response.json())
       return hosts.flatMap((host: { sessions: { id: string; lastActivityAt?: number; canClose?: boolean }[] }) => host.sessions).find((session: { id: string }) => session.id === status.model.sessions[0].id)
     }, { timeout: 10000 }).toMatchObject({ lastActivityAt: lastUse, canClose: true })
+    let advertised = await fetch(`${origin}/api/hosts`, { headers: { Cookie: `bmux_session=${cookie}` } }).then(response => response.json())
+    expect(advertised.find((host: { sessions: { id: string }[] }) => host.sessions.some(session => session.id === status.model.sessions[0].id)).machine).toMatchObject({ name: os.hostname(), platform: process.platform, arch: process.arch })
     await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).sessions[0].lastActivityAt).toBe(lastUse)
     await test.step('Capture hidden agent actions at most every 15 seconds and fetch cached previews while idle', async () => {
       let identity = remoteIdentity(path.join(directory, 'preview-test.pem'))
@@ -300,6 +303,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     }, { timeout: 30000 })
     let remoteTab = await command('rpc', 'new-window', JSON.stringify({ session: status.model.sessions[0].id, url: `${fixtureUrl}/?remote-tab=2` }))
     await command('wait', '-t', remoteTab.panes[0].id, '--selector', 'input')
+    let desktopOwner: string | undefined
     let attachedClient = await test.step('Attach and focus the desktop session',async()=>{
       let client = await command('attach-session','-t',status.model.sessions[0].id)
       await command('rpc','activate-client',JSON.stringify({client:client.id}))
@@ -319,17 +323,20 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     },{timeout:15000})
     await test.step('Open a remote session from the desktop and decode video',async()=>{
       let remotePicker = local.getByRole('dialog',{name:'Sessions'})
-      await remotePicker.getByRole('tab',{name:'Remote sessions'}).click()
-      await expect(remotePicker.getByRole('button',{name:/main.*remote/})).toBeVisible()
-      await remotePicker.getByRole('button',{name:/main.*remote/}).hover()
+      await remotePicker.getByRole('tab',{name:'Remote'}).click()
+      await expect(remotePicker.getByRole('button',{name:/^main(?: |$)/})).toBeVisible()
+      await remotePicker.getByRole('button',{name:/^main(?: |$)/}).hover()
       // This desktop has never watched a frame; the preview comes from the host.
       await expect(local.getByRole('complementary', { name: 'Remote session preview' }).locator(`[data-preview-pane="${pane}"] img`)).toBeVisible()
       let windows = (await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)
-      await remotePicker.getByRole('button',{name:/main.*remote/}).click()
+      await remotePicker.locator(`[data-remote-pane="${pane}"] [data-session-row]`).click()
       await expect.poll(() => application!.context().pages().some(page=>page.url().endsWith('/remote-client.html'))).toBe(true)
-      let attached = application!.context().pages().find(page=>page.url().endsWith('/remote-client.html'))!
+      await expect.poll(async () => (await Promise.all(application!.context().pages().filter(page => page.url().endsWith('/remote-client.html')).map(async page => ({ page, selection: await page.evaluate(() => (window as any).remoteClient.selection()) })))).some(item => !item.selection.metadata)).toBe(true)
+      let attached = (await Promise.all(application!.context().pages().filter(page => page.url().endsWith('/remote-client.html')).map(async page => ({ page, selection: await page.evaluate(() => (window as any).remoteClient.selection()) })))).find(item => !item.selection.metadata)!.page
       // The video element mounts before the attached viewer finishes signaling.
-      await expect(local.locator('[data-remote-window-list] button')).not.toHaveCount(0, { timeout: 25000 })
+      await expect(local.locator('[data-window-list] button')).not.toHaveCount(0, { timeout: 25000 })
+      await expect(local.locator('[data-window-list] [data-window-id]')).toHaveCount(2)
+      await expect(local.getByRole('contentinfo', { name: 'Browser status' }).getByRole('group', { name: 'Remote session controls' })).toHaveCount(0)
       await expect(attached.locator('header, form, button')).toHaveCount(0)
       await expect(local.locator('[data-remote-address]')).toHaveCount(1)
       await expect.poll(async () => {
@@ -346,7 +353,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect.poll(async () => local.evaluate(async ({ host, session }) => Object.keys(await (window as any).bmux.remoteSessionPreviews(host, session)), { host: (await command('remote', 'status')).hostId, session: status.model.sessions[0].id })).toContain(pane)
       await expect(local.getByRole('button',{name:'Take control'})).toBeVisible()
       let current = await command('status')
-      expect(current.model.sessions.find((session: { ephemeral?: boolean }) => session.ephemeral)).toMatchObject({ name: 'remote', ephemeral: true })
+      expect(current.model.sessions.find((session: { ephemeral?: boolean }) => session.ephemeral)).toMatchObject({ name: 'main', ephemeral: true, remote: { sessionId: status.model.sessions[0].id, clientId: attachedClient.id } })
       expect((await command('rpc','diagnostics','{}')).windows.map((window: { nativeId: number }) => window.nativeId)).toEqual(windows)
       let nativeId = (await command('rpc','diagnostics','{}')).windows.find((window: { id: string }) => window.id === attachedClient.id).nativeId
       let originalSize = await application!.evaluate(({ BaseWindow }, id) => {
@@ -358,6 +365,22 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect.poll(() => viewport.evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      await test.step('A stream update preserves control and the desktop viewport', async () => {
+        let geometry = await attached.getByLabel('Remote browser').evaluate(video => ({ width: video.getAttribute('width'), height: video.getAttribute('height'), mediaWidth: (video as HTMLVideoElement).videoWidth, mediaHeight: (video as HTMLVideoElement).videoHeight }))
+        expect(geometry.mediaWidth).toBeGreaterThan(0)
+        await application!.evaluate(({ ipcMain }) => {
+          ;(globalThis as any).remoteViewerUpdates = []
+          ipcMain.on('remote-client-update', (_event, state) => (globalThis as any).remoteViewerUpdates.push({ connected: state.connected, controlling: state.controlling }))
+        })
+        await attached.evaluate(async () => {
+          let peer = (window as any).bmuxTestRemotePeers.at(-1) as RTCPeerConnection
+          peer.ontrack!({ streams: [document.querySelector('video')!.srcObject] } as unknown as RTCTrackEvent)
+          await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+        })
+        expect(await application!.evaluate(() => (globalThis as any).remoteViewerUpdates)).not.toContainEqual({ connected: false, controlling: false })
+        expect(await attached.getByLabel('Remote browser').evaluate(video => ({ width: video.getAttribute('width'), height: video.getAttribute('height'), mediaWidth: (video as HTMLVideoElement).videoWidth, mediaHeight: (video as HTMLVideoElement).videoHeight }))).toEqual(geometry)
+        await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      })
       await viewport.evaluate(element => { element.scrollLeft = 64; element.scrollTop = 64 })
       await expect.poll(() => viewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 64, y: 64 })
       let frame = (await viewport.boundingBox())!
@@ -375,7 +398,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await local.evaluate(() => (window as any).bmux.command({ method: 'cycle-window', args: { direction: 1 } }))
       await expect(local.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${fixtureUrl}/?remote-tab=2`)
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
-      await local.locator('[data-remote-window-list] button').first().click()
+      await local.locator('[data-window-list] button').first().click()
       await expect(local.getByRole('button', { name: 'Address', exact: true })).not.toHaveValue(`${fixtureUrl}/?remote-tab=2`)
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       await local.getByRole('button', { name: 'Release control', exact: true }).click()
@@ -383,22 +406,43 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await application!.evaluate(({ BaseWindow }, { id, size }) => {
         setImmediate(() => BaseWindow.fromId(id)?.setContentSize(size.width, size.height))
       }, { id: nativeId, size: originalSize })
-      // Close destroys this viewer; observe closure instead of waiting in its renderer.
-      await local.getByRole('button',{name:'Disconnect',exact:true}).click()
+      await local.getByRole('button', { name: 'Take control', exact: true }).click()
+      await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      let hostPaneIds = (await command('status')).model.sessions.find((session: { id: string }) => session.id === status.model.sessions[0].id).windows.flatMap((window: { panes: { id: string }[] }) => window.panes.map(pane => pane.id))
+      await expect.poll(async () => (await command('status')).remoteControl[status.model.sessions[0].id]?.owner).toBeTruthy()
+      desktopOwner = (await command('status')).remoteControl[status.model.sessions[0].id].owner
+      await test.step('OS Open URL leaves the remote host running and opens a normal local window', async () => {
+        await application!.evaluate(({ app }, url) => app.emit('open-url', { preventDefault() {} }, url), `${fixtureUrl}/?external-local=1`)
+        await expect.poll(async () => (await command('status')).model.clients.find((client: { id: string }) => client.id === attachedClient.id).sessionId).toBe(status.model.sessions[0].id)
+        await expect.poll(() => application!.context().pages().some(page => page.url() === `${fixtureUrl}/?external-local=1`)).toBe(true)
+        let next = await command('status'), host = next.model.sessions.find((session: { id: string }) => session.id === status.model.sessions[0].id)
+        expect(host.windows.flatMap((window: { panes: { id: string }[] }) => window.panes.map(pane => pane.id))).toEqual(expect.arrayContaining(hostPaneIds))
+        await expect.poll(async () => (await command('status')).remoteControl[host.id]).toBeUndefined()
+      })
       await expect.poll(() => attached.isClosed()).toBe(true)
       await expect.poll(async () => (await command('status')).model.sessions.some((session: { ephemeral?: boolean }) => session.ephemeral)).toBe(false)
       expect((await command('status')).model.clients.find((client: { id: string }) => client.id === attachedClient.id).sessionId).toBe(status.model.sessions[0].id)
     },{timeout:40000})
-    await test.step('Close hosted sessions from the desktop list and native status bar', async () => {
+    await test.step('Close hosted sessions from the desktop list and pane header', async () => {
+      let focusControls = () => test.step('Focus the native controls after attaching the remote view', async () => {
+        let id = (await command('rpc', 'diagnostics', '{}')).windows.find((window: { id: string }) => window.id === attachedClient.id).nativeId
+        await focusWindow(id, 'remote session controls')
+        let contents = await application!.evaluate(({ BaseWindow }, { id, url }) => {
+          let view = BaseWindow.fromId(id)!.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url) as Electron.WebContentsView
+          setImmediate(() => view.webContents.focus())
+          return view.webContents.id
+        }, { id, url: local.url() })
+        await expect.poll(() => application!.evaluate(({ webContents }, id) => webContents.fromId(id)?.isFocused(), contents)).toBe(true)
+      })
       await focusWindow((await command('rpc', 'diagnostics', '{}')).windows.find((window: { id: string }) => window.id === attachedClient.id).nativeId, 'desktop session list')
       await local.getByRole('button', { name: 'Sessions', exact: true }).click()
       let picker = local.getByRole('group', { name: 'Choose remote session', exact: true })
-      let lastActive = picker.locator('[data-session-row][aria-current="true"]')
+      let lastActive = picker.locator('[data-session-target]:not([data-preview-window]) [data-session-row][aria-current="true"]')
       await expect(lastActive).toContainText('main')
       await expect(lastActive).toBeFocused()
       await expect(lastActive.locator('time')).toBeVisible()
       await expect(local.getByRole('complementary', { name: 'Remote session preview' }).locator(`[data-preview-pane="${pane}"] img`)).toBeVisible()
-      await expect(picker.getByRole('button', { name: /uncontrolled.*remote/ })).toBeVisible()
+      await expect(picker.getByRole('button', { name: /^uncontrolled(?: |$)/ })).toBeVisible()
       await picker.getByRole('button', { name: 'Close remote session uncontrolled', exact: true }).click()
       let confirmation = picker.getByRole('alertdialog', { name: 'Close remote session uncontrolled?' })
       await expect(confirmation.getByRole('button', { name: 'yes', exact: true })).toBeFocused()
@@ -408,16 +452,34 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await local.keyboard.press('x')
       await expect(confirmation).toBeVisible()
       await local.keyboard.press('y')
-      await expect(picker.getByRole('button', { name: /uncontrolled.*remote/ })).toHaveCount(0)
+      await expect(picker.getByRole('button', { name: /^uncontrolled(?: |$)/ })).toHaveCount(0)
       await expect.poll(async () => (await command('status')).model.sessions.some((session: { id: string }) => session.id === other.id)).toBe(false)
-      await expect(lastActive).toBeFocused()
+      await expect(picker.locator('[data-remote-tree]:has([data-session-target] [aria-current="true"]) [data-session-row]:focus')).toHaveCount(1)
       await local.keyboard.press('Escape')
       let disposable = await command('new-session', '-s', 'close-from-viewer')
+      await command('rpc', 'new-window', JSON.stringify({ session: disposable.id, url: `${fixtureUrl}/?remaining-page=1` }))
+      let disposablePane = disposable.windows[0].panes[0].id
       await local.getByRole('button', { name: 'Sessions', exact: true }).click()
-      let disposableRow = picker.getByRole('button', { name: /close-from-viewer.*remote/ })
+      let disposableRow = picker.getByRole('button', { name: /^close-from-viewer(?: |$)/ })
       await expect(disposableRow).toBeVisible({ timeout: 10000 })
       await disposableRow.click()
       await expect(local.getByRole('button', { name: 'Take control', exact: true })).toBeEnabled({ timeout: 25000 })
+      await focusControls()
+      await local.getByRole('button', { name: 'Take control', exact: true }).click()
+      await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      await local.getByRole('button', { name: 'Release control', exact: true }).click()
+      await expect(local.getByRole('button', { name: 'Take control', exact: true })).toBeVisible()
+      await local.getByRole('button', { name: 'Sessions', exact: true }).click()
+      let remoteWindow = picker.locator(`[data-remote-pane="${disposablePane}"]`)
+      await expect(remoteWindow.getByRole('button', { name: /^Close remote page / })).toHaveCount(0)
+      // Host-side topology changes appear without creating a local remote wrapper.
+      await command('rpc', 'kill-pane', JSON.stringify({ pane: disposablePane, confirm: true }))
+      await expect(remoteWindow).toHaveCount(0, { timeout: 15000 })
+      await expect(disposableRow).toBeVisible()
+      await local.keyboard.press('Escape')
+      await expect(local.getByRole('button', { name: 'Address', exact: true })).toHaveValue(`${fixtureUrl}/?remaining-page=1`, { timeout: 15000 })
+      await expect(local.getByRole('button', { name: 'Take control', exact: true })).toBeEnabled({ timeout: 15000 })
+      await focusControls()
       await local.getByRole('button', { name: 'Take control', exact: true }).click()
       await expect(local.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
       await local.getByRole('button', { name: 'Close session', exact: true }).click()
@@ -427,6 +489,42 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(local.locator('[data-remote-address]')).toHaveCount(0)
       await expect.poll(async () => (await command('status')).model.sessions.some((session: { ephemeral?: boolean }) => session.ephemeral)).toBe(false)
     }, { timeout: 60000 })
+    await test.step('One desktop workspace streams two panes and reassigns its own slot without releasing control', async () => {
+      let hosted = await command('new-session', '-s', 'workspace-streams')
+      let first = hosted.windows[0].panes[0].id
+      await command('navigate', '-t', first, `${fixtureUrl}/?stream=1`)
+      let second = await command('rpc', 'split-window', JSON.stringify({ pane: first, axis: 'horizontal', url: `${fixtureUrl}/?stream=2` }))
+      let third = await command('rpc', 'split-window', JSON.stringify({ pane: second.id, axis: 'vertical', url: `${fixtureUrl}/?stream=3` }))
+      for (let pane of [first, second.id, third.id]) await command('wait', '-t', pane, '--selector', 'input')
+      await expect.poll(() => local.evaluate(async id => (await (window as any).bmux.remoteSessions()).hosts.flatMap((host: { sessions: { id: string; panes: unknown[] }[] }) => host.sessions).find((session: { id: string }) => session.id === id)?.panes.length, hosted.id), { timeout: 10000 }).toBe(3)
+      await local.evaluate(async ({ host, session }) => (window as any).bmux.openRemote(host, session), { host: (await command('remote', 'status')).hostId, session: hosted.id })
+      await expect(local.locator('[data-pane-id]')).toHaveCount(3)
+      let selected = local.locator('[data-pane-id][data-focused-pane="true"]')
+      await expect(selected.getByRole('button', { name: 'Take control', exact: true })).toBeEnabled({ timeout: 15000 })
+      await selected.getByRole('button', { name: 'Take control', exact: true }).click()
+      await expect.poll(async () => (await command('status')).remoteControl[hosted.id]?.owner).toBe(desktopOwner)
+      await expect(selected.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      let lease = (await command('status')).remoteControl[hosted.id]
+      expect(lease.owner).toBe(desktopOwner)
+      let slots = async () => Number((await pool.query('SELECT count(*) FROM bmux_stream_leases WHERE viewer=$1 AND expires>now()', [lease.owner])).rows[0].count)
+      await expect.poll(slots).toBe(2)
+      let pane = `remote:${attachedClient.id}:pane:${third.id}`
+      await local.evaluate(pane => (window as any).bmux.command({ method: 'select-pane', args: { pane } }), pane)
+      await expect(selected).toHaveAttribute('data-pane-id', pane)
+      await expect(selected.getByRole('button', { name: 'Release control', exact: true })).toBeVisible()
+      await expect.poll(slots).toBe(2)
+      await expect.poll(async () => {
+        let views = application!.context().pages().filter(page => page.url().endsWith('/remote-client.html'))
+        let decoded = await Promise.all(views.map(page => page.evaluate(() => { let video = document.querySelector('video'); return !!video && video.getVideoPlaybackQuality().totalVideoFrames > 0 }).catch(() => false)))
+        return decoded.filter(Boolean).length
+      }, { timeout: 15000 }).toBe(2)
+      expect((await command('status')).remoteControl[hosted.id].owner).toBe(lease.owner)
+      await selected.getByRole('button', { name: 'Disconnect', exact: true }).click()
+      await expect.poll(slots).toBe(0)
+      let persisted = (await command('status')).model.sessions.find((session: { id: string }) => session.id === hosted.id)
+      expect(persisted.windows[0].panes).toHaveLength(3)
+      await command('rpc', 'kill-session', JSON.stringify({ session: hosted.id, confirm: true }))
+    }, { timeout: 45000 })
     await test.step('Record successful remote usage once',async()=>{
       await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one'}))
       await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))

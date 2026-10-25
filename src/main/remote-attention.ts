@@ -52,7 +52,10 @@ export let createAttentionRequests = (file: string) => {
     let active = requests.find(item => item.pane === pane && !item.resolvedAt)
     if (active && episode && active.episode !== episode) throw new Error('The help request changed. Refresh before resuming.')
     if (active?.originator) throw new Error('The originating task must verify this help request')
-    if (active) commit(() => { active.resolvedAt = Date.now(); active.status = 'resolved'; active.revision++ })
+    if (active) {
+      let acknowledgement = acknowledge(pane, active.episode, active.revision, randomUUID())
+      verify(pane, active.episode, acknowledgement.attemptId, undefined, 'verified')
+    }
   }
   let receipt = (pane: string, episode: string, requestId: string): RemoteResumeAcknowledgement | undefined => {
     if (unreadable) throw new Error('Attention ledger unreadable')

@@ -9,7 +9,9 @@ import type { Bridge, FloatingPane as Placement, PublicState } from '../shared/t
 import { clampFloat } from '../shared/floating'
 import css from './FloatingPane.module.css'
 import { CloseButton } from './CloseButton'
+import { NavigationFailure } from './NavigationFailure'
 import { captureAddressPointer, useAddressSelection } from './useAddressSelection'
+import { RemotePaneControls } from './RemotePaneControls'
 
 export let FloatingPane = () => {
   let [state, setState] = useState<PublicState | null>(null)
@@ -22,6 +24,7 @@ export let FloatingPane = () => {
   let windowState = state?.model.sessions.flatMap(session => session.windows).find(window => window.panes.some(pane => pane.id === paneId))
   let pane = windowState?.panes.find(pane => pane.id === paneId)
   let tab = pane
+  let remote = state?.remoteViews?.[paneId]
   let placement = windowState?.floating?.find(item => item.paneId === paneId)
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args: { client: state?.clientId, pane: paneId, ...args } }) }
@@ -43,7 +46,7 @@ export let FloatingPane = () => {
   }), [vim.enabled])
   useEffect(() => { if (!editing.current) setAddress(tab?.url === 'about:blank' ? '' : tab?.url ?? '') }, [tab?.url, tab?.id])
   useEffect(() => {
-    if (tab?.url === 'about:blank' && state?.focusedClientId === state?.clientId && state?.model.clients.find(client => client.id === state.clientId)?.paneId === paneId) input.current?.focus()
+    if (!remote && tab?.url === 'about:blank' && state?.focusedClientId === state?.clientId && state?.model.clients.find(client => client.id === state.clientId)?.paneId === paneId) input.current?.focus()
   }, [tab?.id])
   let focus = () => {
     editing.current = true
@@ -61,7 +64,7 @@ export let FloatingPane = () => {
     await run('focus-page')
   }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => { vim.keys(event) }
-  let menu = (event: MouseEvent) => { event.preventDefault(); void run('pane.menu') }
+  let menu = (event: MouseEvent) => { event.preventDefault(); if (!remote) void run('pane.menu') }
   let close = () => { void run('pane.close') }
   let back = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('back', { tab: tab.id, newWindow: event.metaKey }) }
   let forward = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('forward', { tab: tab.id, newWindow: event.metaKey }) }
@@ -72,23 +75,23 @@ export let FloatingPane = () => {
   let client = state?.model.clients.find(client => client.id === state.clientId)
   return <section className={css.frame} data-floating-pane={paneId} data-focused={client?.paneId === paneId}>
     <form className={css.address} onSubmit={submit} onContextMenu={menu}>
-      <button className={css.knob} type="button" onPointerDown={drag} data-drag-handle aria-label="Move floating pane" />
-      <button type="button" onClick={back} aria-label="Back" disabled={!navigation || navigation.activeIndex <= 0}>←</button>
-      <button type="button" onClick={forward} aria-label="Forward" disabled={!navigation || navigation.activeIndex >= navigation.entries.length - 1}>→</button>
-      <button type="button" onClick={reload} aria-label="Reload">↻</button>
+      <button className={css.knob} type="button" disabled={!!remote} onPointerDown={drag} data-drag-handle aria-label="Move floating pane" />
+      <button type="button" onClick={back} aria-label="Back" disabled={remote ? !remote.controlling : !navigation || navigation.activeIndex <= 0}>←</button>
+      <button type="button" onClick={forward} aria-label="Forward" disabled={remote ? !remote.controlling : !navigation || navigation.activeIndex >= navigation.entries.length - 1}>→</button>
+      <button type="button" onClick={reload} aria-label="Reload" disabled={remote && !remote.controlling}>↻</button>
       <div className={css.urlBar}>
-        {tab && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
-        {vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={vimCss.field}><input ref={input} data-vim-mode={vim.mode} value={address} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} onMouseUp={vim.select} aria-label="Address" placeholder="Enter URL" spellCheck={false} /><VimCursor input={input} mode={vim.mode} value={address} /></div>
-        <span className={css.paneId} title={`Pane ID: ${paneId}`}>{paneId}</span>
+        {tab && !remote && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
+        {vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={vimCss.field}><input ref={input} data-vim-mode={vim.mode} value={address} readOnly={!!remote && !remote.controlling} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} onMouseUp={vim.select} aria-label="Address" placeholder="Enter URL" spellCheck={false} /><VimCursor input={input} mode={vim.mode} value={address} /></div>
+        <span className={css.paneId} title={`Pane ID: ${remote?.pane ?? paneId}`}>{remote?.pane ?? paneId}</span>
       </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />
       <div className={css.dragAbove} onPointerDown={drag} data-drag-above aria-hidden="true" />
-      <CloseButton label="Close floating pane" onClick={close} />
+      {remote ? <RemotePaneControls remote={remote} paneId={paneId} focused={client?.paneId === paneId} run={run} onError={setError} /> : <CloseButton label="Close floating pane" onClick={close} />}
     </form>
     <div className={css.content} onMouseDown={focusPage} onContextMenu={menu}>
-      {error || (tab && state?.crashes[tab.id]) ? <p role="alert">{error || state?.crashes[tab!.id]}<button onClick={reload}>Reload</button></p> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : tab?.url === 'about:blank' && <span>Enter a URL above</span>}
+      {error || (tab && state?.crashes[tab.id]) ? <NavigationFailure error={error || state!.crashes[tab!.id]} hint={error ? undefined : state?.navigationProxyHints?.[tab!.id]} reload={reload} /> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : tab?.url === 'about:blank' && <span>Enter a URL above</span>}
     </div>
-    {edges.map(edge => <div key={edge} className={css.edge} data-edge={edge} onPointerDown={drag} role="separator" aria-label={`Resize floating pane ${edge}`} />)}
+    {!remote && edges.map(edge => <div key={edge} className={css.edge} data-edge={edge} onPointerDown={drag} role="separator" aria-label={`Resize floating pane ${edge}`} />)}
   </section>
 }
 
@@ -101,6 +104,7 @@ let useFloatingDrag = (placement: Placement | undefined, state: PublicState | nu
   useEffect(() => () => cleanup.current?.(), [])
   useEffect(() => { if (!placement) cleanup.current?.() }, [placement])
   return (event: PointerEvent<HTMLElement>) => {
+    if (state?.remoteViews?.[paneId]) return
     let target = event.target as HTMLElement
     if (event.button !== 0 || !placement || !state || (target.closest('button,input') && !target.closest('[data-drag-handle]'))) return
     cleanup.current?.()

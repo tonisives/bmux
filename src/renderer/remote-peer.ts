@@ -1,7 +1,7 @@
 import { publishIceOffer } from '../shared/remote-ice'
 import { remoteStreamQuality, type RemoteStreamQuality } from '../shared/remote-management'
 
-type TransportMessage = { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; iceServers?: RTCIceServer[]; data?: string; width?: number; height?: number; relayOnly?: boolean; trickle?: boolean; media?: boolean; request?: string; quality?: RemoteStreamQuality }
+type TransportMessage = { type: string; media?: boolean; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; iceServers?: RTCIceServer[]; data?: string; width?: number; height?: number; relayOnly?: boolean; trickle?: boolean; request?: string; quality?: RemoteStreamQuality }
 let bridge = (window as unknown as { remoteBridge: { receive: (listener: (message: TransportMessage) => void) => void; send: (message: unknown) => void } }).remoteBridge
 let canvas = document.querySelector('canvas')!
 let context = canvas.getContext('2d')!
@@ -46,7 +46,7 @@ bridge.receive(message => {
       peer = new RTCPeerConnection({ iceServers: message.iceServers, iceTransportPolicy: message.relayOnly ? 'relay' : 'all' })
       canvas.width = message.width ?? 1280; canvas.height = message.height ?? 800
       if (message.media !== false) {
-        let stream = canvas.captureStream(0)
+        let stream = canvas.captureStream(10)
         track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
         peer.addTrack(track, stream)
       }

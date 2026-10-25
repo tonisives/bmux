@@ -9,6 +9,7 @@ export let createAgentRegistry = (initial: AgentInfo[]) => {
     updateAgentInfo(actor, structuredClone(value)); agents.set(value.agentId, actor)
   }
   return {
+    get: (agentId: string) => structuredClone(agents.get(agentId)),
     resolve: (value: AgentInfo, settings: AgentSettings, required: boolean) => {
       validateAgentInfo(value)
       let actor = structuredClone(value.agentId ? agents.get(value.agentId) ?? {} : {})

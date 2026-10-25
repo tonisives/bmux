@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { bitwardenPasskeyPreflight, bitwardenTargetingRules, installBitwardenExtension, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
+import { bitwardenPasskeyPreflight, bitwardenTargetingRules, installBitwardenExtension, patchBitwardenConditionalAutofill, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
 
 let source = 'before;const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})};after'
 
@@ -20,6 +20,7 @@ describe('Bitwarden inline New item compatibility', () => {
 })
 
 let passkeySource = 'try{return yield i(n,t,e)}finally{null!=t.id&&(yield YO.focusTab(t.id)),null!=t.windowId&&(yield YO.focusWindow(t.windowId))}'
+let conditionalSource = 'const response = yield Promise.race([bitwardenResponse(internalAbortControllers[0]),browserResponse(internalAbortControllers[1]),]);'
 let passkeyFixture = (status = 1) => ({
   request: {} as { mediation?: string }, tab: { id: 8, windowId: 0 }, unlockedStatus: 2,
   authStatus: vi.fn(async () => status), resolveTab: vi.fn(async () => ({ id: 8, windowId: 4 })), openUnlock: vi.fn(async () => undefined),
@@ -85,13 +86,17 @@ describe('Bitwarden passkey startup', () => {
         await fs.writeFile(path.join(location, 'background.js'), `${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
         await fs.mkdir(path.join(location, 'popup'))
         await fs.writeFile(path.join(location, 'popup', 'main.js'), '/* bmux-reconnecting-memory-port-v2 */')
+        await fs.mkdir(path.join(location, 'content'))
+        await fs.writeFile(path.join(location, 'content', 'fido2-page-script.js'), conditionalSource)
         await prepareBitwardenPackage(directory, location)
       }
       let upgraded = await fs.readFile(path.join(managed, 'background.js'), 'utf8')
       expect(upgraded).toContain('bmux-passkey-unlock-preflight')
+      expect(await fs.readFile(path.join(managed, 'content', 'fido2-page-script.js'), 'utf8')).toContain('bmux-conditional-passkeys-no-native-probe')
       await prepareBitwardenPackage(directory, managed)
       expect(await fs.readFile(path.join(managed, 'background.js'), 'utf8')).toBe(upgraded)
       expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).toBe(`${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
+      expect(await fs.readFile(path.join(unpacked, 'content', 'fido2-page-script.js'), 'utf8')).toBe(conditionalSource)
     } finally { await fs.rm(directory, { recursive: true, force: true }) }
   })
 
@@ -131,6 +136,29 @@ describe('Bitwarden passkey startup', () => {
 
   it('rejects an unknown pinned bundle instead of silently missing the patch', () => {
     expect(() => patchBitwardenPasskeys('changed bundle')).toThrow('passkey compatibility target was not found')
+  })
+})
+
+describe('conditional passkey autofill', () => {
+  it.each([null, { id: 'vault-passkey' }])('keeps automatic requests in Bitwarden: %j', async result => {
+    let bitwardenResponse = vi.fn(async () => result), browserResponse = vi.fn(async () => 'native-touch')
+    let patched = patchBitwardenConditionalAutofill(`if (conditional) { ${conditionalSource} return response } return yield browserResponse()`)
+    let get = vm.runInNewContext(`(function* (conditional) { ${patched} })`, { bitwardenResponse, browserResponse, internalAbortControllers: [1, 2] })
+    let run = async (conditional: boolean) => {
+      let iterator = get(conditional), step = iterator.next()
+      while (!step.done) step = iterator.next(await step.value)
+      return step.value
+    }
+    expect(await run(true)).toEqual(result)
+    expect(bitwardenResponse).toHaveBeenCalledOnce()
+    expect(browserResponse).not.toHaveBeenCalled()
+    expect(await run(false)).toBe('native-touch')
+    expect(browserResponse).toHaveBeenCalledOnce()
+    expect(patchBitwardenConditionalAutofill(patched)).toBe(patched)
+  })
+
+  it('requires the pinned conditional branch', () => {
+    expect(() => patchBitwardenConditionalAutofill('changed upstream script')).toThrow('conditional autofill compatibility target was not found')
   })
 })
 

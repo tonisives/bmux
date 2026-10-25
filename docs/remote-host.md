@@ -6,9 +6,12 @@ Chromium headless-shell engine or claim a smaller browser bundle.
 
 ## Managed relay and rented boxes
 
-Open **Sessions > Remote sessions > Connect relay**, or **Settings > Account**.
+Open **Sessions > Remote > Relay**, or **Settings > Account**.
 Sign in and activate relay for **$10 USD per account per month**. Connect the
-running computer from the Account view; its sessions keep running throughout.
+running computer with a recognizable name; its sessions keep running throughout.
+The Relay button above the session list turns green while this computer is
+connected. Press **g** in the remote list to open Relay. The chevron returns to
+the list and restores focus to the button you opened.
 You can also manage the same account at <https://remote.bmux.cc/?view=account>.
 
 Relay includes two simultaneous live pane views across the account, including
@@ -23,6 +26,46 @@ includes the provider's server and required IPv4 cost plus a 20% service fee,
 rounded up to a cent. Tax is added at checkout. The accepted price stays fixed
 for that subscription; a later exchange-rate or catalog change does not change
 its renewal price.
+
+Add box starts with three recommendations near your time zone. **All sizes and
+regions** exposes the complete catalog and optional SSH public keys. Checkout
+opens in the same bmux window. Retries retain the order ID; changing the name,
+size or keys starts a new order. Pending boxes offer **Resume checkout** and
+show installation progress. A ready box offers **Open box** to watch its first
+available session. Live purchases follow the service's billing availability.
+
+Remote uses the same session/window rows, branch lines and chevrons as Local.
+Each colored machine row identifies one running bmux host, followed by its
+sessions and numbered windows. A relay service can contain several machines. Click a
+machine to see its service, host identity, platform, version and access, or
+choose an icon color saved on this device. Older hosts use their service name
+until they advertise machine details.
+Relay, Add box and preview settings sit above the left list. Their back chevron
+sits below Local/Remote, and account forms use the normal settings width.
+Machine and agent information open beside the list; their chevron or Escape
+returns to the preview. j/k visits session rows as well as window rows.
+
+Opening a remote session shows its host window numbers, tiled splits and floating
+panes in the normal bmux layout and status bar. Each desktop client starts at the
+host selection and then navigates independently. Connection, control, close-session
+and disconnect actions sit in each pane header. Pane profile names come from the
+host. Desktop remote views require a host advertising workspace support; older
+mobile and web viewers retain their single-pane protocol.
+
+Up to two visible panes per desktop workspace are live, within the account's
+existing allowance. Other panes show previews. Selecting a preview promotes it
+and releases the least recently selected live pane in that workspace. Views in
+other clients keep their slots. Window and pane creation, duplication, reopening,
+closing and layout editing are unavailable in the desktop remote workspace.
+Host-side changes appear automatically. Session closing remains an explicit pane
+header action.
+
+OS-opened HTTP, HTTPS and HTML-file links switch the receiving native client to
+its latest local session and create a normal local window there. If no local
+session survives, bmux creates one. Leaving the remote workspace releases its
+streams and control lease while the host session continues running. Remote views
+stay out of the Local picker and saved local sessions; restarting restores the
+client's previous local session.
 
 Each box has its own subscription, separate from relay. Canceling relay keeps
 boxes running and billed. Cancel a box at period end to keep access until then;
@@ -174,21 +217,23 @@ Watch reports a host rejection or timeout instead of showing an idle video area.
 
 ## Attach from the desktop app
 
-Open the **Sessions** popup, then select **Remote sessions** in its title bar. The
+Open the **Sessions** popup, then select **Remote** in its title bar. The
 popup remembers the selected tab. Sign-in and remote viewing reuse the current
-bmux window. Selecting a remote session replaces its tab strip and address bar
-with the remote pages and URL. The status bar offers **Take control**, **Release
-control**, **Close session**, and **Disconnect**. Navigation buttons, URL entry, and tab switching
-operate on the remote session; switching its tabs keeps your control lease.
+bmux window. Selecting a remote session shows its host windows, splits and floating
+panes with the same status bar as Local. Each pane header offers **Take control**,
+**Release control**, **Close session**, and **Disconnect**. Navigation buttons and
+URL entry operate on the remote pane; switching windows keeps your control lease.
 
 The remote list shows session and service names with the host's last used
 time. Hosts persist agent browser use and remote input, and advertise the latest
 of that activity and local window visits. Watching, listing sessions, and lease
 renewal leave the timestamp unchanged. Returning to the list highlights and focuses the last opened session,
 including after restarting the app. Use the local Sessions navigation: j/k,
-counts, gg/G, / to search, and x to close. The close button and x ask for yes/no
-confirmation. Control access can close a hosted session from the list without
-opening its video, or from the viewer's status bar. Closing ends that hosted
+counts, G, / to search, and x to close. Press g to open Relay. The close button and x ask for yes/no
+confirmation. Workspace window rows select host windows without editing their
+structure. Legacy hosts retain their page rows and page-close confirmation.
+Control access can close a hosted session from the list without
+opening its video, or from a pane header. Closing ends that hosted
 session and its control lease; Disconnect keeps it running. Hosts must run a
 version supporting remote session closing and activity metadata. An older host
 returns an update-required message before a close request is sent. The list uses
@@ -202,7 +247,18 @@ Fetching a preview only reads that cache and leaves selection, control,
 and last-used timestamps unchanged. Unloaded pages keep their last saved preview
 until they run again. Clients retain the host's capture time and fall back to
 their last viewed frame for older hosts or unavailable previews. Private-session
-previews stay in memory. The selected preview refreshes while the popup is open.
+previews stay in memory. Saved previews appear immediately in the Remote tab. By default, opening that tab
+fetches missing images for its listed sessions. The settings button at the top
+right selects missing images, refreshes while open, or manual fetching, and controls
+whether non-private previews are saved on this device. The refresh icon fetches
+the selected session's latest images in any mode. These preferences also live in
+`remotePreviews.updates` (`missing`, `open`, or `manual`) and
+`remotePreviews.saveLocally` in `config.yaml`.
+
+The Local and Remote tabs share a session tree. Remote machines contain sessions,
+and each session contains its numbered windows. A window row opens that window
+in the existing viewer. The status bar retains the host's window numbers while
+pane headers keep connection and control actions beside their page.
 
 Small streams are centered in the page area. Larger streams have scrollbars.
 Disconnect leaves the hosted session running and returns to the remaining local

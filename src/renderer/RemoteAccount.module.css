@@ -1,4 +1,4 @@
-.account { display: flex; flex-direction: column; gap: 20px; font: inherit; color: inherit; min-width: 0; }
+.account { display: flex; flex-direction: column; gap: 20px; font: inherit; color: inherit; min-width: 0; width: 100%; max-width: var(--settings-row-width, 560px); }
 .account p { margin: 0; line-height: 1.5; }
 .account h3, .account h4 { margin: 0; font-size: inherit; }
 .section { display: flex; flex-direction: column; gap: 12px; padding-block: 16px; border-top: 1px solid #8884; }
@@ -20,3 +20,16 @@
 .box { display: flex; flex-direction: column; gap: 10px; padding-block: 16px; border-top: 1px solid #8884; }
 .views, .computer { display: flex; flex-direction: column; gap: 10px; }
 .error { color: #e87474; }
+.connectionForm { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.connectionForm label { display: flex; flex-direction: column; gap: 6px; }
+.computer [data-connected="true"] { color: #a7c88d; }
+.quoteGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.form .quote { position: relative; padding: 12px; border: 1px solid #505a66; cursor: pointer; }
+.form .quote[data-selected="true"] { border-color: #a7b69c; background: #a7b69c0d; }
+.quote input { width: auto; align-self: flex-start; }
+.quote span { color: #8995a3; }
+.account .disclosure { border: 0; padding: 4px 0; color: #bdc9b4; }
+.terms summary { cursor: pointer; color: #bdc9b4; }
+.terms p { margin-top: 10px; }
+.billingNote { color: #8995a3; font-size: 12px; }
+.customize { display: flex; flex-direction: column; gap: 14px; }

@@ -95,6 +95,7 @@ automation:
     requireType: true
     definitions:
       tmux:
+        identifierField: paneId
         fields:
           sessionId: { label: Session, type: session, required: true }
           windowId: { label: Window, type: window, required: true }
@@ -103,8 +104,14 @@ automation:
         focusCommand: /absolute/path/to/bmux/scripts/focus-tmux-agent.sh
 ```
 
-Config changes reload live. The agent settings UI controls `requireId` and
+Config changes reload live. The Bot settings UI controls `requireId` and
 `requireType`; definitions and focus commands live in the config file.
+`identifierField` selects a configured field to show beside the bot icon in
+automation alerts. By default, alerts show a field typed `pane`, then `paneId`,
+the terminal origin's pane ID, or the agent ID when no pane context is available.
+Each agent has its own segmented control: the bot icon opens its information,
+the middle segment shows its identifier, and the focus button opens its terminal
+or application when the type has a `focusCommand`.
 Required fields are checked whenever their type is supplied, even when
 `requireType` is off. With `requireType` on, the type must be configured.
 
@@ -131,6 +138,8 @@ known context when BMUX restarts.
 
 **Focus agent** runs the selected type's `focusCommand`. It receives
 `BMUX_AGENT_ID`, `BMUX_AGENT_TYPE`, `BMUX_AGENT_DATA`, and `BMUX_AGENT_ORIGIN`.
+An automation alert keeps its recorded agent as the focus target when another
+agent later uses the same browser pane, including after a browser restart.
 Fields typed `session`, `window`, or `pane` also become
 `BMUX_AGENT_SESSION_ID`, `BMUX_AGENT_WINDOW_ID`, or `BMUX_AGENT_PANE_ID`.
 Text fields become `BMUX_AGENT_FIELD_<UPPER_SNAKE_CASE_NAME>`.
@@ -146,3 +155,46 @@ verified origin. Send a browser command through the CLI with type `tmux` to
 refresh it. Focus runs only when requested through the UI.
 
 See [Browser automation](agent.md) for browser commands and protection settings.
+
+
+## Cursor and timing
+
+Open **Profile > Bot** and choose **Appearance** or **Timing**, or use a pane's
+**Active agent** indicator, choose **Bot settings**, then
+**Cursor and timing**. Appearance controls include color, size, idle rotation,
+click halo, movement trail, animation durations, cursor hide time, and command-label
+duration. The Timing tab sets page unlock time and the minimum/maximum
+pause between actions with a two-handle slider. Fast (0–200 ms), Medium
+(800–1,200 ms), and Safe (1,500–2,500 ms) presets change only the action pause.
+Sliders have exact numeric inputs as well. **Apply** saves the settings and updates
+open panes live. **Reset defaults** restores the current tab's draft; choose
+**Apply** to save it.
+
+These settings also reload live from `~/.config/bmux/config.yaml`:
+
+```yaml
+agentFeedback:
+  color: profile
+  cursorSize: 24
+  idleRotationDegrees: 12
+  idleRotationMs: 3600
+  haloSize: 64
+  haloDurationMs: 1100
+  trailWidth: 10
+  trailFadeMs: 350
+  cursorHideMs: 20000
+  commandDisplayMs: 5000
+  inputUnlockMs: 20000
+  actionDelayMinMs: 800
+  actionDelayMaxMs: 1200
+```
+
+Cursor color defaults to `profile`, using the same color as each pane’s profile
+icon. Choose **Custom** to use a six-digit hex color across all profiles. Existing
+custom colors are preserved. Sizes are pixels, rotation is degrees, and config
+durations are milliseconds.
+A zero cursor hide time keeps the cursor visible until manually hidden. Zero
+rotation, halo size/duration, trail width/fade, or command duration disables that
+effect. Page unlock time starts after commands finish; pending commands retain
+the input lock even when the timeout is zero. Action pause limits may both be
+zero. Social-site delays remain configurable in **Profile limits**.

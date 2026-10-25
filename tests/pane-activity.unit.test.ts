@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { activityAge, activityLabel, compactActivityLabel, windowVisitTime, sessionActivityTime } from '../src/shared/pane-activity'
+import { activityAge, activityLabel, compactActivityLabel, windowActivityTime, windowVisitTime, sessionActivityTime } from '../src/shared/pane-activity'
 import { newPane } from '../src/main/model'
 
 test('pane activity distinguishes missing, recent, old and future timestamps', () => {
@@ -52,4 +52,15 @@ test('compact status ages use minutes, hours and days without an ago suffix', ()
   expect(compactActivityLabel(now - 86399999, now)).toBe('23h')
   expect(compactActivityLabel(now - 86400000, now)).toBe('1d')
   expect(compactActivityLabel(now - 13 * 86400000, now)).toBe('13d')
+})
+
+test('window status uses the latest actual pane activity, independently of visits', () => {
+  let first = newPane('profile_default'), second = newPane('profile_default')
+  let window = { panes: [first, second], lastVisitedAt: 9000 }
+  expect(windowActivityTime(window)).toBeUndefined()
+  first.lastActivityAt = 1000; second.lastActivityAt = 2000
+  expect(windowActivityTime(window)).toBe(2000)
+  window.lastVisitedAt = 10000
+  expect(windowActivityTime(window)).toBe(2000)
+  expect(windowVisitTime(window)).toBe(10000)
 })
