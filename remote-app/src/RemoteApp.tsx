@@ -8,6 +8,7 @@ import { pendingAttention } from './attention-presentation'
 import { canManageHost } from './host-access'
 import { colors, radius, styles } from './theme'
 import { Button } from './components/Button'
+import { Brand } from './components/Brand'
 import { Sheet } from './components/Sheet'
 import { ViewerScreen } from './components/ViewerScreen'
 import { NewSessionSheet } from './components/NewSessionSheet'
@@ -44,7 +45,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   if (remote.loading) return <View style={[styles.screen, local.center]}><ActivityIndicator color={colors.secondary} /><Button title="Try demo" onPress={openDemo} /></View>
   if (!remote.account) return <SafeAreaView style={[styles.screen, local.center]}>
     <View style={local.welcome}>
-      <Text style={local.brand}>bmux remote</Text>
+      <Brand />
       <Text style={local.welcomeTitle}>Your sessions, wherever you are.</Text>
       <Text style={local.welcomeBody}>Explore two sample pages, or sign in to open your browsers.</Text>
       <View style={local.welcomeActions}><Button title="Try demo" primary onPress={openDemo} /><Button title="Sign in" busy={busy} onPress={() => void action(remote.login)} /></View>
@@ -66,7 +67,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   </View>
   return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
     {!(compact && section === 'sessions' && remote.selection) && <View style={local.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Sessions" onPress={() => setSection('sessions')}><Text style={local.brand}>bmux remote</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Sessions" onPress={() => setSection('sessions')}><Brand /></Pressable>
       <View style={styles.row}>
         <Pressable style={local.iconButton} accessibilityRole="button" accessibilityLabel={'Attention, ' + pending.length + ' pending'} onPress={() => { remote.close(); setSection('attention'); void remote.refresh() }}><Ionicons name="notifications-outline" size={22} color={section === 'attention' ? colors.accent : colors.secondary} />{pending.length > 0 && <Text style={local.badge}>{pending.length}</Text>}</Pressable>
         <Pressable style={local.iconButton} accessibilityRole="button" accessibilityLabel="Settings" onPress={() => { remote.close(); setSection('settings'); void remote.refresh() }}><Ionicons name="settings-outline" size={22} color={section === 'settings' ? colors.accent : colors.secondary} /></Pressable>
@@ -102,7 +103,7 @@ let HelpLinks = () => <View style={local.helpLinks}>
 let local = StyleSheet.create({
   helpLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 }, helpLink: { color: colors.secondary, fontSize: 13, minHeight: 44, paddingVertical: 12 },
   center: { alignItems: 'center', justifyContent: 'center', gap: 20 }, welcome: { width: '100%', maxWidth: 440, padding: 28, gap: 24 }, welcomeTitle: { color: colors.text, fontSize: 28, fontWeight: '600', lineHeight: 35 }, welcomeBody: { color: colors.secondary, fontSize: 16, lineHeight: 24 }, welcomeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  brand: { color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, header: { minHeight: 68, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border },
+  header: { minHeight: 68, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border },
   iconButton: { minHeight: 44, minWidth: 44, borderRadius: radius.pill, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', position: 'relative' }, badge: { position: 'absolute', right: 0, top: 2, backgroundColor: colors.warning, color: colors.bg, fontSize: 10, fontWeight: '700', minWidth: 16, textAlign: 'center', borderRadius: 8, padding: 2 },
   body: { flex: 1, flexDirection: 'row', minHeight: 0 }, sidebar: { flex: 1 }, sidebarWide: { width: 380, maxWidth: '45%', flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.border }, detail: { flex: 1, minWidth: 0 },
   connectionOptions: { gap: 4, paddingTop: 4 }, connectionRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8 }, setupText: { color: colors.secondary, fontSize: 14, lineHeight: 22, textAlign: 'left' },

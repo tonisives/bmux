@@ -6,6 +6,7 @@ import { colors, radius, styles } from '../theme'
 import { useCompactHeight, useSplitView } from '../useSplitView'
 import type { Attention, Host, Selection } from '../types'
 import { Button } from './Button'
+import { Brand } from './Brand'
 import { SessionList } from './SessionList'
 import { AttentionInbox, AttentionSummary } from './AttentionInbox'
 
@@ -32,7 +33,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
   let resume = () => { setResumed(true); setControlling(false) }
   return <SafeAreaView style={styles.screen}>
     <View style={[local.header, compact && local.compactHeader]}>
-      <View style={local.identity}><Text style={local.brand} numberOfLines={1}>bmux remote</Text><View style={local.demoBadge}><Text style={local.demoText}>Demo</Text></View></View>
+      <View style={local.identity}><Brand /><View style={local.demoBadge}><Text style={local.demoText}>Demo</Text></View></View>
       <View style={styles.row}><Pressable accessibilityRole="button" accessibilityLabel={'Attention, ' + (resumed ? 0 : 1) + ' pending'} style={local.bell} onPress={openInbox}><Ionicons name="notifications-outline" size={21} color={colors.secondary} />{!resumed && <View style={local.badge}><Text style={local.badgeText}>1</Text></View>}</Pressable><Button title="Exit demo" onPress={close} /></View>
     </View>
     <View style={local.workspace}>
@@ -77,7 +78,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
 
 let local = StyleSheet.create({
   compactHeader: { minHeight: 48 }, compactToolbar: { paddingVertical: 4 }, compactAttention: { paddingVertical: 6, flexWrap: 'nowrap' }, compactAttentionHeading: { flexBasis: 0, flexShrink: 1 },
-  header: { minHeight: 68, paddingHorizontal: 16, flexDirection: 'row', gap: 12, alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border }, identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 }, brand: { flexShrink: 1, color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.4 }, demoBadge: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: colors.grouped }, demoText: { color: colors.warning, fontSize: 12, fontWeight: '600' }, bell: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }, badge: { position: 'absolute', right: 0, top: 1, backgroundColor: colors.warning, minWidth: 16, borderRadius: 8, alignItems: 'center', padding: 2 }, badgeText: { fontSize: 10, fontWeight: '700', color: colors.bg },
+  header: { minHeight: 68, paddingHorizontal: 16, flexDirection: 'row', gap: 12, alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: colors.border }, identity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 10 }, demoBadge: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: colors.grouped }, demoText: { color: colors.warning, fontSize: 12, fontWeight: '600' }, bell: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }, badge: { position: 'absolute', right: 0, top: 1, backgroundColor: colors.warning, minWidth: 16, borderRadius: 8, alignItems: 'center', padding: 2 }, badgeText: { fontSize: 10, fontWeight: '700', color: colors.bg },
   workspace: { flex: 1, minHeight: 0, flexDirection: 'row' }, sidebar: { width: 380, maxWidth: '45%', minHeight: 0, borderRightWidth: 1, borderRightColor: colors.border }, list: { flex: 1 }, detail: { flex: 1, minWidth: 0, minHeight: 0 }, empty: { alignItems: 'center', justifyContent: 'center' },
   guide: { gap: 12, padding: 8 }, guideTitle: { color: colors.text, fontSize: 18, fontWeight: '600' }, description: { color: colors.secondary, fontSize: 14, lineHeight: 21 },
   toolbar: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12 }, heading: { flex: 1, minWidth: 0, gap: 4 }, attention: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.surface }, attentionHeading: { flexDirection: 'row', flexGrow: 1, flexBasis: 260, alignItems: 'center', gap: 10 }, attentionTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
