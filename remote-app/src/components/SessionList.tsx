@@ -32,12 +32,12 @@ let useDisclosure = (query: string) => {
   })
   return { expanded, toggle, keys, ref }
 }
-let Disclosure = ({ name, expanded, toggle, compact }: { name: string; expanded: boolean; toggle: () => void; compact?: boolean }) => <Pressable accessibilityRole="button" accessibilityLabel={(expanded ? 'Collapse ' : 'Expand ') + name} accessibilityState={{ expanded }} onPress={toggle} style={[local.toggle, compact && local.windowToggle]}><Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={14} color={colors.secondary} /></Pressable>
+let Disclosure = ({ name, expanded, toggle, compact }: { name: string; expanded: boolean; toggle: () => void; compact?: boolean }) => <Pressable accessibilityRole="button" accessibilityLabel={(expanded ? 'Collapse ' : 'Expand ') + name} accessibilityState={{ expanded }} aria-expanded={expanded} onPress={toggle} style={[local.toggle, compact && local.windowToggle]}><Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={14} color={colors.secondary} /></Pressable>
 let Branch = ({ last, children }: { last: boolean; children: ReactNode }) => <View style={local.branch}><View style={[local.branchVertical, last ? { height: 22 } : { bottom: 0 }]} /><View style={local.branchHorizontal} />{children}</View>
 let Activity = ({ when, now }: { when?: number; now: number }) => when ? <Text style={local.activity} accessibilityLabel={'Last used ' + new Date(when).toLocaleString()}>{activityLabel(when, now)}</Text> : null
 let Row = ({ name, open, selected, activity, icon = true, hint, children }: { name: string; open: () => void; selected: boolean; activity?: ReactNode; icon?: boolean; hint?: string; children?: ReactNode }) => {
   let [focused, setFocused] = useState(false), [hovered, setHovered] = useState(false)
-  return <Pressable testID="remote-tree-row" accessibilityRole="button" accessibilityLabel={'Open ' + name} accessibilityState={{ selected }} accessibilityHint={hint} onPress={open} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} style={[local.row, (focused || hovered) && local.highlighted, selected && local.selected]}>
+  return <Pressable testID="remote-tree-row" accessibilityRole="button" accessibilityLabel={'Open ' + name} accessibilityState={{ selected }} aria-selected={selected} accessibilityHint={hint} onPress={open} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)} style={[local.row, (focused || hovered) && local.highlighted, selected && local.selected]}>
     {icon && <Ionicons name="globe-outline" size={15} color={colors.secondary} />}<Text style={local.name} numberOfLines={1}>{name}</Text>{children}{activity}
   </Pressable>
 }
@@ -116,7 +116,7 @@ export let SessionList = ({ hosts, attention = [], selection, select, create, he
         <Text style={styles.secondary}>Service</Text><Text style={styles.text}>{machine.service}</Text>
         {machine.machine && <><Text style={styles.secondary}>System</Text><Text style={styles.text}>{({ darwin: 'macOS', linux: 'Linux', win32: 'Windows' } as Record<string, string>)[machine.machine.platform] ?? machine.machine.platform} · {machine.machine.arch}</Text>{!!machine.machine.version && <Text style={styles.text}>bmux {machine.machine.version}{machine.machine.revision && ' · ' + machine.machine.revision}</Text>}</>}
         <Text style={styles.secondary}>{machine.sessions.length} sessions · {machine.sessions.flatMap(session => session.panes).length} pages · {machine.permission === 'control' ? 'Watch and control' : 'Watch only'}</Text>
-        <View style={local.palette}>{remoteMachinePalette.map(value => <Pressable key={value} accessibilityRole="radio" accessibilityLabel={'Machine color ' + value} accessibilityState={{ checked: color(machine) === value }} onPress={() => saveColor(value)} style={[local.swatch, color(machine) === value && local.swatchSelected]}><Ionicons name={machine.machine?.platform === 'linux' ? 'server-outline' : 'desktop-outline'} size={21} color={value} /></Pressable>)}</View>
+        <View style={local.palette}>{remoteMachinePalette.map(value => <Pressable key={value} accessibilityRole="radio" accessibilityLabel={'Machine color ' + value} accessibilityState={{ checked: color(machine) === value }} aria-checked={color(machine) === value} onPress={() => saveColor(value)} style={[local.swatch, color(machine) === value && local.swatchSelected]}><Ionicons name={machine.machine?.platform === 'linux' ? 'server-outline' : 'desktop-outline'} size={21} color={value} /></Pressable>)}</View>
         <Text style={local.machineId}>{machine.id}</Text>
       </>}
     </Sheet>

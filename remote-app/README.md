@@ -30,7 +30,7 @@ ignored; app.config.ts and the lockfile are the sources of configuration.
 
 ## Client behavior
 
-- Machine chips, sessions and pages share the same layout across platforms.
+- Machines, sessions, windows and pages use the same tree layout across platforms.
 - Try demo opens two interactive sample pages without sign-in or a live view.
   It uses the same session list and controls, and labels its local task Demo.
   Its Attention inbox opens the sample request on its exact page in Watch.
