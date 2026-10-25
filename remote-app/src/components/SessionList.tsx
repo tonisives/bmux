@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import Ionicons from '@expo/vector-icons/Ionicons'
 import type { Attention, Host, Selection } from '../types'
 import { paneAttention } from '../attention-presentation'
+import { canManageHost } from '../host-access'
 import { colors, radius, styles } from '../theme'
 import { Button } from './Button'
 
@@ -14,7 +15,7 @@ export let SessionList = ({ hosts, attention = [], selection, select, create, he
   let [machine, setMachine] = useState('')
   let [search, setSearch] = useState('')
   let available = hosts.filter(host => !machine || host.id === machine)
-  let creator = available.find(host => host.permission === 'control' && host.capabilities?.sessionCreate === 1)
+  let creator = available.find(host => canManageHost(host) && host.capabilities?.sessionCreate === 1)
   return <View style={local.screen}>
     <ScrollView horizontal style={local.machineBar} contentContainerStyle={local.machineContent} showsHorizontalScrollIndicator={false}>
       {[{ id: '', service: 'All machines' }, ...hosts].map(host => <Pressable key={host.id} accessibilityRole="button" accessibilityLabel={host.service} accessibilityState={{ selected: host.id === machine }} onPress={() => setMachine(host.id)} style={[local.machine, host.id === machine && local.machineSelected]}>

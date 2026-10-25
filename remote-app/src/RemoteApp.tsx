@@ -5,6 +5,7 @@ import Ionicons from '@expo/vector-icons/Ionicons'
 import { Link } from 'expo-router'
 import { useRemote } from './RemoteContext'
 import { pendingAttention } from './attention-presentation'
+import { canManageHost } from './host-access'
 import { colors, radius, styles } from './theme'
 import { Button } from './components/Button'
 import { Sheet } from './components/Sheet'
@@ -33,6 +34,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let compact = useCompactHeight()
   let hasSessions = remote.hosts.some(host => host.sessions.some(session => session.panes.length > 0))
   let pending = pendingAttention(remote.attention)
+  let profileHosts = remote.hosts.filter(host => canManageHost(host) && host.capabilities?.profiles === 1)
   let openAttention = (id: string) => { remote.rememberAttention(id); setSection('sessions') }
   let action = async (run: () => Promise<unknown>) => { setBusy(true); try { await run() } catch (value) { remote.setError((value as Error).message) } finally { setBusy(false) } }
   useEffect(() => { if (attentionId) { setDemo(false); remote.rememberAttention(attentionId); setSection('sessions') } }, [attentionId])
@@ -78,7 +80,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
       <View style={styles.card}><Text style={styles.label}>Account</Text><Text style={styles.text}>{remote.account.name || remote.account.email || 'Signed in'}</Text>{!!remote.account.email && <Text style={styles.secondary}>{remote.account.email}</Text>}<Text style={styles.secondary}>Relay {remote.billing?.relay.active ? 'active' : 'inactive'}</Text><Button title="Sign out" busy={busy} onPress={() => void action(remote.logout)} /></View>
       <NotificationSetup />
       {remote.hosts.some(host => host.capabilities?.streamQuality === 1) && <View style={styles.card}><Text style={styles.label}>Data use</Text><View style={styles.row}>{(['auto', 'data-saver', 'quality'] as RemoteQualityMode[]).map(mode => <Button key={mode} title={mode === 'auto' ? 'Auto' : mode === 'data-saver' ? 'Data saver' : 'Quality'} primary={remote.streamQuality.mode === mode} onPress={() => void action(() => remote.streamQuality.setMode(mode))} />)}</View><Text style={styles.secondary}>Auto uses less data on cellular and full quality on Wi-Fi.</Text></View>}
-      {remote.hosts.some(host => host.capabilities?.profiles === 1) && <View style={styles.card}><Text style={styles.label}>Profiles</Text>{remote.hosts.filter(host => host.capabilities?.profiles === 1).map(host => <View key={host.id} style={[styles.row, local.sectionHeading]}><Text style={[styles.text, { flex: 1 }]}>{host.service}</Text><Button title="Profiles" onPress={() => setProfileHost(host)} /></View>)}</View>}
+      {profileHosts.length > 0 && <View style={styles.card}><Text style={styles.label}>Profiles</Text>{profileHosts.map(host => <View key={host.id} style={[styles.row, local.sectionHeading]}><Text style={[styles.text, { flex: 1 }]}>{host.service}</Text><Button title="Profiles" onPress={() => setProfileHost(host)} /></View>)}</View>}
       <View style={styles.card}><View style={[styles.row, local.sectionHeading]}><Text style={styles.label}>Live views</Text><Text style={styles.secondary}>{remote.views.length} / {remote.billing?.relay.maxStreams ?? 2}</Text></View>{remote.views.map(view => <View key={view.connection} style={[styles.row, local.sectionHeading]}><View style={{ flex: 1 }}><Text style={styles.text}>{remote.hosts.find(item => item.id === view.host)?.service || 'Browser'}</Text><Text style={styles.secondary}>{view.pane}</Text></View><Button title="Disconnect" onPress={() => setDisconnect(view.connection)} /></View>)}{remote.views.length === 0 && <Text style={styles.secondary}>No live views</Text>}</View>
       <Button title="Try demo" onPress={openDemo} />
       <HelpLinks />

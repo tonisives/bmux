@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-nati
 import * as Crypto from 'expo-crypto'
 import { useRemote } from '../RemoteContext'
 import { proxyDraft } from '../proxy'
+import { canManageHost } from '../host-access'
 import { colors, styles } from '../theme'
 import type { Host } from '../types'
 import type { RemoteManagementResults, RemoteProfile, RemoteProxy, RemoteProxyCredentials } from '../../../src/shared/remote-management'
@@ -22,7 +23,7 @@ export let ProfilesSheet = ({ host, close }: { host?: Host; close: () => void })
   currentHost.current = host ? host.id + ':' + host.generation : ''
   let profile = profiles.find(item => item.id === selected)
   let connection = profile?.connections.find(item => item.id === profile.defaultConnectionId)
-  let editable = host?.permission === 'control' && host.capabilities?.proxy === 1 && !profile?.proxyLocked
+  let editable = canManageHost(host) && host.capabilities?.proxy === 1 && !profile?.proxyLocked
   let changed = () => { request.current = ''; setTest(undefined); setNotice(''); setError('') }
   let load = async () => {
     if (!host) return
@@ -56,7 +57,7 @@ export let ProfilesSheet = ({ host, close }: { host?: Host; close: () => void })
     finally { setBusy(false) }
   }
   let check = async () => {
-    if (!profile) return
+    if (!profile || !canManageHost(host)) return
     setBusy(true); setError(''); setTest(undefined)
     try {
       let result = await remote.rpc('profiles.proxy.test', { profileId: profile.id, expectedRevision: profile.revision, ...(enabled && editable ? { draft: draft() } : { connectionId: profile.defaultConnectionId }) })
@@ -83,7 +84,7 @@ export let ProfilesSheet = ({ host, close }: { host?: Host; close: () => void })
       </>}
       {profile?.proxyLocked && <Text style={styles.secondary}>This profile’s connection is managed by its host.</Text>}
       <View style={styles.row}>
-        <Button title="Test connection" busy={busy} disabled={host?.capabilities?.proxy !== 1 || !enabled} onPress={() => void check()} />
+        <Button title="Test connection" busy={busy} disabled={!canManageHost(host) || host.capabilities?.proxy !== 1 || !enabled} onPress={() => void check()} />
         {editable && <Button title="Save connection" primary busy={busy} onPress={() => void save()} />}
       </View>
       {!!test && <View style={{ gap: 4 }}><Text style={styles.text}>{test.ip}{test.region ? ' · ' + test.region : ''}</Text><Text style={styles.secondary}>Checked {new Date(test.checkedAt).toLocaleTimeString()}</Text></View>}
