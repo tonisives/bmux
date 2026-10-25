@@ -1,10 +1,17 @@
 export type AgentOrigin = { type: 'tmux'; paneId: string; panePid: string; socketPath?: string; threadId?: string }
 export type AgentInfo = { agentId?: string; agentName?: string; agentPurpose?: string; agentType?: string; agentData?: Record<string, string>; agentOrigin?: AgentOrigin }
 export type AgentField = { label: string; type?: 'text' | 'session' | 'window' | 'pane'; required?: boolean }
-export type AgentDefinition = { fields: Record<string, AgentField>; focusCommand?: string }
+export type AgentDefinition = { fields: Record<string, AgentField>; identifierField?: string; focusCommand?: string }
 export type AgentSettings = { requireId: boolean; requireType: boolean; definitions: Record<string, AgentDefinition> }
 export let DEFAULT_AGENTS: AgentSettings = { requireId: true, requireType: false, definitions: {} }
 export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentType', 'agentData', 'agentOrigin'] as const
+export let agentIdentifier = (actor: AgentInfo, definition?: AgentDefinition): { label: string; value: string } => {
+  let fields = definition?.fields ?? {}
+  let key = [definition?.identifierField, ...Object.keys(fields).filter(key => fields[key].type === 'pane'), 'paneId'].find(key => key && actor.agentData?.[key])
+  if (key) return { label: fields[key]?.label ?? 'Pane ID', value: actor.agentData![key] }
+  if (actor.agentOrigin) return { label: 'Pane ID', value: actor.agentOrigin.paneId }
+  return { label: 'Agent ID', value: actor.agentId ?? actor.agentName ?? 'Unidentified agent' }
+}
 let agentRequirementError = (reason: string, actor: AgentInfo, settings: AgentSettings) => {
   let types = Object.keys(settings.definitions)
   let knownType = actor.agentType && Object.hasOwn(settings.definitions, actor.agentType) ? actor.agentType : undefined
@@ -50,8 +57,9 @@ export let parseAgentSettings = (value: unknown): AgentSettings => {
   if (!definitions || typeof definitions !== 'object' || Array.isArray(definitions)) throw new Error('Agent definitions must be a mapping')
   for (let [name, definition] of Object.entries(definitions)) {
     if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name) || !definition || typeof definition !== 'object' || Array.isArray(definition)) throw new Error('Invalid agent definition')
-    let { fields, focusCommand, ...rest } = definition
+    let { fields, identifierField, focusCommand, ...rest } = definition
     if (Object.keys(rest).length || !fields || typeof fields !== 'object' || Array.isArray(fields) || Object.keys(fields).length > 32 || focusCommand !== undefined && (typeof focusCommand !== 'string' || !focusCommand.trim() || focusCommand.length > 16000)) throw new Error('Invalid agent fields or focus command')
+    if (identifierField !== undefined && (typeof identifierField !== 'string' || !Object.hasOwn(fields, identifierField))) throw new Error('Agent identifierField must name a configured field')
     for (let [key, field] of Object.entries(fields)) {
       if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(key) || !field || typeof field !== 'object' || Array.isArray(field)) throw new Error('Invalid agent field')
       let { label, type, required, ...rest } = field as Record<string, unknown>

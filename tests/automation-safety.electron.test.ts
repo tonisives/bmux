@@ -149,7 +149,7 @@ for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit 
       expect((await cli(['dom', '-t', client.paneId])).ok).toBe(true)
       await exclusions.getByRole('button', { name: `Remove exclusion for ${host}` }).click()
       expect((await cli(['dom', '-t', client.paneId])).ok).toBe(false)
-      await chrome.getByRole('dialog', { name: 'Profile', exact: true }).getByRole('button', { name: 'Back to Bot settings' }).click()
+      await exclusions.getByRole('button', { name: 'Show less', exact: true }).click()
       let sessionLimit = antiBot.getByRole('spinbutton', { name: 'Session limit (minutes)' })
       await sessionLimit.fill('20'); await sessionLimit.press('Enter')
       await expect(antiBot.getByRole('region', { name: 'Paused automation' })).toHaveCount(0)
@@ -178,6 +178,7 @@ for (let action of ['alert', 'settings', 'expiry', 'idle']) test(`session-limit 
 
 test('automation and permission notices identify agent panes while personal browsing stays available', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-notice-'))
+  let marker = path.join(directory, 'focused.json')
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.end('<!doctype html><title>Agent notice fixture</title><main>Manual browsing</main>')
@@ -187,7 +188,9 @@ test('automation and permission notices identify agent panes while personal brow
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     let url = `http://one.example.com:${(server.address() as any).port}/fixture`
     let startedAt = Date.now() - 11 * 60_000
-    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
+    let focusCommand = `node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify([process.env.BMUX_AGENT_ID, process.env.BMUX_AGENT_SESSION_ID, process.env.BMUX_AGENT_PANE_ID]))' "${marker}"`
+    let settings = { keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { identifierField: 'paneId', fields: { sessionId: { label: 'Terminal session', type: 'session' }, paneId: { label: 'Terminal pane', type: 'pane' } }, focusCommand } } } } }
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify(settings))
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -202,7 +205,7 @@ test('automation and permission notices identify agent panes while personal brow
       return JSON.parse(result.stdout)
     }
     let agents = await command('new-session', { name: 'agents', profile: 'default' })
-    let first = (await cli(['new-window', '-t', agents.id, '-n', 'research', '--agent-id', '%45', '--agent-name', 'Research agent', '--agent-purpose', 'Review sources for the launch article'])).result.panes[0]
+    let first = (await cli(['new-window', '-t', agents.id, '-n', 'research', '--agent-id', '%45', '--agent-name', 'Research agent', '--agent-purpose', 'Review sources for the launch article', '--agent-type', 'terminal', '--agent-data', JSON.stringify({ sessionId: '$7', paneId: '%145' })])).result.panes[0]
     let second = (await cli(['new-window', '-t', agents.id, '-n', 'review', '--agent-id', '%46'])).result.panes[0]
     expect(first).toMatchObject({ agentId: '%45', agentName: 'Research agent', agentPurpose: 'Review sources for the launch article' })
     for (let pane of [first, second]) {
@@ -235,22 +238,45 @@ test('automation and permission notices identify agent panes while personal brow
       await expect(open.locator('span')).toHaveText('agents')
       await expect(open.locator('svg')).toBeVisible()
     }
-    await alert.getByRole('button', { name: 'Agent information', exact: true }).click()
+    let research = alert.getByRole('group', { name: 'Agent %145', exact: true })
+    let review = alert.getByRole('group', { name: 'Agent %46', exact: true })
+    await expect(research.getByTitle('Terminal pane: %145', { exact: true })).toHaveText('%145')
+    await expect(review.getByTitle('Agent ID: %46', { exact: true })).toHaveText('%46')
+    await expect(review.getByRole('button', { name: 'Focus agent', exact: true })).toHaveCount(0)
+    let infoButton = research.getByRole('button', { name: 'Agent information', exact: true })
+    let identifier = research.getByTitle('Terminal pane: %145', { exact: true })
+    let focusButton = research.getByRole('button', { name: 'Focus agent', exact: true })
+    let segments = await Promise.all([infoButton, identifier, focusButton].map(segment => segment.boundingBox()))
+    for (let index = 1; index < segments.length; index++) expect(segments[index]!.x).toBe(segments[index - 1]!.x + segments[index - 1]!.width)
+    await focusButton.click()
+    await expect.poll(async () => JSON.parse(await fs.readFile(marker, 'utf8').catch(() => 'null'))).toEqual(['%45', '$7', '%145'])
+    await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(personal.paneId)
+    settings.automation.agents.definitions.terminal.identifierField = 'sessionId'
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify(settings))
+    await expect(alert.getByRole('group', { name: 'Agent $7', exact: true }).getByTitle('Terminal session: $7', { exact: true })).toHaveText('$7')
+    settings.automation.agents.definitions.terminal.identifierField = 'paneId'
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify(settings))
+    await expect(research).toBeVisible()
+    await infoButton.click()
     let agentInfo = chrome.getByRole('dialog', { name: 'Agent information', exact: true })
     await expect(agentInfo).toContainText('Research agent')
     await expect(agentInfo).toContainText('Review sources for the launch article')
     await expect(agentInfo).toContainText('%45')
-    await expect(agentInfo).toContainText('%46')
+    await expect(agentInfo).not.toContainText('%46')
     await expect(agentInfo).not.toContainText('Not provided')
     await expect(agentInfo).not.toContainText('Browser pane')
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-information.png') })
     await agentInfo.getByRole('button', { name: 'Close', exact: true }).click()
-    await expect(alert).not.toContainText(first.id)
-    await expect(alert).not.toContainText(second.id)
+    await review.getByRole('button', { name: 'Agent information', exact: true }).click()
+    await expect(agentInfo).toContainText('%46')
+    await expect(agentInfo).not.toContainText('Research agent')
+    await agentInfo.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(alert.getByText(first.id, { exact: true })).toHaveCount(0)
+    await expect(alert.getByText(second.id, { exact: true })).toHaveCount(0)
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-notice-compact.png') })
-    await expect(alert).not.toContainText(personal.paneId)
+    await expect(alert.getByText(personal.paneId, { exact: true })).toHaveCount(0)
     let usage = (await cli(['automation', 'safety'])).result.profiles[0]
     expect(usage).toMatchObject({ startedAt, lastUsed: startedAt + 1000 })
     expect(usage.actors.map((actor: { paneId: string }) => actor.paneId)).toEqual([first.id, second.id])
@@ -266,7 +292,7 @@ test('automation and permission notices identify agent panes while personal brow
     await expect(permission.getByRole('button', { name: 'Go to pane', exact: true })).toHaveCount(0)
     await expect(alert.getByRole('button', { name: `Go to pane agents:2 · ${first.id} (%45)`, exact: true })).toHaveCount(0)
     await expect(alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true })).toBeVisible()
-    await alert.getByRole('button', { name: 'Agent information', exact: true }).click()
+    await infoButton.click()
     await expect(agentInfo).toContainText('Research agent')
     await agentInfo.press('Escape')
     expect(await requester.evaluate(() => (window as any).permissionResult)).toBeUndefined()
@@ -280,15 +306,15 @@ test('automation and permission notices identify agent panes while personal brow
     await toggle.uncheck()
     await expect.poll(async () => (await cli(['dom', '-t', first.id, '--agent-id', '%45'])).ok).toBe(true)
     expect((await cli(['dom', '-t', second.id, '--agent-id', '%46'])).ok).toBe(false)
-    await expect(alert).not.toContainText('(%45)')
+    await expect(research).toHaveCount(0)
     expect((await cli(['rpc', 'pane.anti-bot.set', JSON.stringify({ pane: second.id, enabled: false })])).ok).toBe(false)
     await toggle.check()
     await expect.poll(async () => (await cli(['dom', '-t', first.id, '--agent-id', '%45'])).ok).toBe(false)
     let generalSettings = chrome.getByRole('dialog', { name: 'Bot settings', exact: true })
     await antiBot.getByRole('button', { name: 'Show all', exact: true }).click()
     await expect(antiBot.getByRole('textbox', { name: 'Website', exact: true })).toBeVisible()
-    await expect(toggle).toBeHidden()
-    await generalSettings.getByRole('button', { name: 'Back to Bot settings' }).click()
+    await expect(toggle).toBeVisible()
+    await antiBot.getByRole('button', { name: 'Show less', exact: true }).click()
     await expect(antiBot.getByRole('button', { name: 'Show all', exact: true })).toBeFocused()
     await expect(toggle).toBeVisible()
     await generalSettings.getByRole('button', { name: 'Back to Bot settings' }).click()
@@ -301,6 +327,7 @@ test('automation and permission notices identify agent panes while personal brow
     await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(first.id)
     await alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true }).click({ position: { x: 2, y: 2 } })
     await expect.poll(async () => (await command('list-clients')).find((item: { id: string }) => item.id === personal.id).paneId).toBe(second.id)
+    await expect(chrome.locator(`[data-pane-id="${second.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
     await chrome.getByRole('group', { name: 'Bot settings', exact: true }).getByRole('button', { name: 'Bot settings', exact: true }).click()
     await chrome.getByRole('dialog', { name: 'Bot settings', exact: true }).getByRole('button', { name: 'default', exact: true }).click()
     await expect(antiBot).toContainText('Agent %46')
@@ -396,7 +423,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     let exclusions = antiBot.getByRole('region', { name: 'Excluded websites', exact: true })
     let excludedHost = () => exclusions.getByRole('group', { name: 'one.example.com', exact: true })
     let addSite = async (host: string) => {
-      if (!await exclusions.isVisible()) await antiBot.getByRole('button', { name: 'Show all', exact: true }).click()
+      if (!await exclusions.getByRole('textbox', { name: 'Website', exact: true }).isVisible()) await antiBot.getByRole('button', { name: 'Show all', exact: true }).click()
       await exclusions.getByRole('textbox', { name: 'Website', exact: true }).fill(host)
       await exclusions.getByRole('button', { name: 'Add', exact: true }).click()
     }
@@ -404,9 +431,9 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
       await exclusions.getByRole('button', { name: `Remove exclusion for ${host}` }).click()
       await expect(exclusions.getByRole('group', { name: host, exact: true })).toHaveCount(0)
     }
-    let summary = antiBot.getByRole('region', { name: 'Excluded websites summary', exact: true })
+    let summary = exclusions
     await expect(summary).toContainText('3 websites')
-    await expect(exclusions).toHaveCount(0)
+    await expect(exclusions.getByRole('textbox', { name: 'Website', exact: true })).toHaveCount(0)
     expect((await summary.boundingBox())!.height).toBeLessThan(80)
     await expect(antiBot.getByRole('combobox')).toHaveCount(0)
     let limitsBounds = (await antiBot.getByRole('region', { name: 'Limits', exact: true }).boundingBox())!
@@ -418,15 +445,42 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(5)
     await summary.getByRole('button', { name: 'Show all' }).click()
     await expect(excludedHost()).toBeVisible()
-    let overviewBounds = (await antiBot.getByRole('region', { name: 'Enable Bot protection', exact: true }).boundingBox())!, detailsBounds = (await exclusions.boundingBox())!
-    expect(detailsBounds.x).toBeGreaterThanOrEqual(overviewBounds.x + overviewBounds.width)
+    let editorBounds = (await exclusions.getByRole('textbox', { name: 'Website', exact: true }).boundingBox())!
+    let sectionHeading = (await exclusions.getByRole('heading', { name: 'Excluded websites', exact: true }).boundingBox())!
+    expect(editorBounds.x).toBeGreaterThanOrEqual(sectionHeading.x)
+    expect(editorBounds.y).toBeGreaterThan(sectionHeading.y + sectionHeading.height)
+    expect((await antiBot.getByRole('region', { name: 'Limits', exact: true }).boundingBox())!.width).toBe(limitsBounds.width)
+    await expect(panel.getByRole('button', { name: 'Back to Bot settings' })).toHaveCount(0)
     await panel.screenshot({ path: path.resolve('artifacts/bot-excluded-websites.png') })
-    await panel.getByRole('button', { name: 'Back to Bot settings' }).click()
+    await exclusions.getByRole('button', { name: 'Show less', exact: true }).click()
     await expect(summary.getByRole('button', { name: 'Show all' })).toBeFocused()
     await summary.getByRole('button', { name: 'Show all' }).click()
     await exclusions.getByRole('textbox', { name: 'Website', exact: true }).press('Escape')
     await expect(summary.getByRole('button', { name: 'Show all' })).toBeFocused()
     await summary.getByRole('button', { name: 'Show all' }).click()
+    await expect(exclusions.getByRole('textbox', { name: 'Search excluded websites' })).toHaveCount(0)
+    let bulkHosts = Array.from({ length: 12 }, (_, index) => `bulk${String(index).padStart(2, '0')}.example.com`)
+    for (let host of bulkHosts) await command('profile.anti-bot.site.set', { profile: pane.profileId, host, enabled: false })
+    let search = exclusions.getByRole('textbox', { name: 'Search excluded websites', exact: true }), websiteList = exclusions.getByRole('group', { name: 'Excluded website list', exact: true })
+    await expect(search).toBeVisible()
+    await expect.poll(() => websiteList.evaluate(element => element.scrollHeight > element.clientHeight && element.clientHeight <= 280)).toBe(true)
+    await websiteList.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect.poll(() => websiteList.evaluate(element => Math.abs(element.scrollTop + element.clientHeight - element.scrollHeight) <= 1)).toBe(true)
+    await panel.screenshot({ path: path.resolve('artifacts/bot-excluded-websites-long.png') })
+    await search.fill('BULK07')
+    await expect(websiteList.getByRole('group')).toHaveCount(1)
+    await expect(websiteList.getByRole('group', { name: bulkHosts[7], exact: true })).toBeVisible()
+    await search.fill('missing.example')
+    await expect(websiteList.getByRole('status')).toHaveText('No matching websites.')
+    await search.press('Escape')
+    await expect(search).toHaveValue('')
+    await expect(websiteList.getByRole('group')).toHaveCount(15)
+    await search.fill('bulk07')
+    await removeSite(bulkHosts[7])
+    await expect(websiteList.getByRole('status')).toHaveText('No matching websites.')
+    await search.fill('')
+    for (let host of bulkHosts.filter((_, index) => index !== 7)) await command('profile.anti-bot.site.remove', { profile: pane.profileId, host })
+    await expect(search).toHaveCount(0)
     let temporary = exclusions.getByRole('group', { name: 'temporary.example.com', exact: true })
     await expect(temporary).toContainText('Temporary · Until')
     await temporary.getByRole('button', { name: 'Keep temporary.example.com excluded' }).click()
@@ -464,7 +518,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     expect((await cli(['rpc', 'profile.anti-bot.site.remove', JSON.stringify({ profile: pane.profileId, host: 'one.example.com' })])).ok).toBe(false)
     await expect(antiBot.getByRole('region', { name: 'Paused automation' })).toContainText('Account warning on one.example.com')
     await expect(antiBot.getByRole('heading')).toHaveText(['Paused automation', 'Enable Bot protection', 'Limits', 'Excluded websites'])
-    await panel.getByRole('button', { name: 'Back to Bot settings' }).click()
+    await exclusions.getByRole('button', { name: 'Show less', exact: true }).click()
     let pauseSection = antiBot.getByRole('region', { name: 'Paused automation' }), enableSection = antiBot.getByRole('region', { name: 'Enable Bot protection' })
     await pauseSection.scrollIntoViewIfNeeded()
     let pauseBounds = (await pauseSection.boundingBox())!, enableBounds = (await enableSection.boundingBox())!
@@ -510,7 +564,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await expect.poll(async () => (await cli(['automation', 'safety'])).result.limits.profiles[pane.profileId]).toBe(false)
     await addSite('one.example.com')
     let savedExclusion = (await cli(['automation', 'safety'])).result.limits.sites[pane.profileId]['one.example.com']
-    await panel.getByRole('button', { name: 'Back to Bot settings' }).click()
+    await exclusions.getByRole('button', { name: 'Show less', exact: true }).click()
     // The same website and numeric fields in another profile keep independent settings.
     await panel.getByRole('button', { name: 'Close', exact: true }).click()
     let otherProfile = state.model.profiles.find((item: { id: string }) => item.id !== pane.profileId)!
@@ -540,7 +594,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await expect(chrome.getByRole('tabpanel', { name: 'Bot settings' }).getByRole('combobox')).toHaveCount(0)
     await chrome.getByRole('button', { name: 'Show all', exact: true }).click()
     for (let host of ['one.example.com', 'temporary.example.com', 'expired.example.com']) await expect(chrome.getByRole('group', { name: host, exact: true })).toBeVisible()
-    await chrome.getByRole('button', { name: 'Back to Bot settings' }).click()
+    await chrome.getByRole('button', { name: 'Show less', exact: true }).click()
     await expect(chrome.getByRole('spinbutton', { name: 'Session limit (minutes)' })).toHaveValue('20')
     await expect(chrome.getByRole('spinbutton', { name: 'Break (minutes)' })).toHaveValue('5')
     await expect(chrome.getByRole('spinbutton', { name: 'Social site delay (seconds)' })).toHaveValue('1.25')

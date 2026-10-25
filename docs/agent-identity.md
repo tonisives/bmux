@@ -95,6 +95,7 @@ automation:
     requireType: true
     definitions:
       tmux:
+        identifierField: paneId
         fields:
           sessionId: { label: Session, type: session, required: true }
           windowId: { label: Window, type: window, required: true }
@@ -105,6 +106,12 @@ automation:
 
 Config changes reload live. The Bot settings UI controls `requireId` and
 `requireType`; definitions and focus commands live in the config file.
+`identifierField` selects a configured field to show beside the bot icon in
+automation alerts. By default, alerts show a field typed `pane`, then `paneId`,
+the terminal origin's pane ID, or the agent ID when no pane context is available.
+Each agent has its own segmented control: the bot icon opens its information,
+the middle segment shows its identifier, and the focus button opens its terminal
+or application when the type has a `focusCommand`.
 Required fields are checked whenever their type is supplied, even when
 `requireType` is off. With `requireType` on, the type must be configured.
 
@@ -155,8 +162,8 @@ See [Browser automation](agent.md) for browser commands and protection settings.
 Open **Profile > Bot** and choose **Appearance** or **Timing**, or use a pane's
 **Active agent** indicator, choose **Bot settings**, then
 **Cursor and timing**. Appearance controls include color, size, idle rotation,
-click halo, and movement trail. The Timing tab sets animation durations, cursor
-hide time, command-label duration, page unlock time, and the minimum/maximum
+click halo, movement trail, animation durations, cursor hide time, and command-label
+duration. The Timing tab sets page unlock time and the minimum/maximum
 pause between actions with a two-handle slider. Fast (0–200 ms), Medium
 (800–1,200 ms), and Safe (1,500–2,500 ms) presets change only the action pause.
 Sliders have exact numeric inputs as well. **Apply** saves the settings and updates

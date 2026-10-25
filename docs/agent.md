@@ -189,8 +189,9 @@ a lease before agent commands can access selected websites.
 Open the profile view's **Bot** tab to check protection, limits, and pauses,
 or disable it for a profile or individual pane. Pane toggles override the profile
 default. A second tab bar separates **Protection**, **Appearance**, and **Timing**.
-Appearance configures the pointer, including profile or custom cursor color.
-Timing configures feedback timers and the action pause using a two-handle range
+Appearance configures the pointer, including profile or custom cursor color,
+animation durations, cursor hide time, and command-label duration.
+Timing configures page unlock time and the action pause using a two-handle range
 slider. **Fast** uses 0–200 ms, **Medium** uses 800–1,200 ms, and **Safe** uses
 1,500–2,500 ms. Presets change only the action pause. Sliders also have exact
 numeric inputs. These cursor and timing settings are shared across profiles;
@@ -266,8 +267,9 @@ are preserved.
 The alert's **Disable Bot protection** dropdown shows the recorded website hostname and offers
 **For 15 minutes**, **For 1 hour**, and **Until removed**. Its exclusion appears
 in this profile's **Excluded websites** list. The Protection tab shows a compact
-count; **Show all** opens the full editor to the right, or on its own page in a
-narrow panel. Back returns to Protection. Add a hostname or URL there to turn off
+count; **Show all** expands the editor in place, and **Show less** collapses it.
+Long lists scroll within the section and have a hostname search field.
+Add a hostname or URL there to turn off
 bot protection for that exact hostname: session limits, social-site pacing, and warning
 checks are skipped. Other profiles and websites retain their protection.
 Exclusions persist until you remove them. Older temporary rules show their
