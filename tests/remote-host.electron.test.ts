@@ -495,6 +495,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let second = await command('rpc', 'split-window', JSON.stringify({ pane: first, axis: 'horizontal', url: `${fixtureUrl}/?stream=2` }))
       let third = await command('rpc', 'split-window', JSON.stringify({ pane: second.id, axis: 'vertical', url: `${fixtureUrl}/?stream=3` }))
       for (let pane of [first, second.id, third.id]) await command('wait', '-t', pane, '--selector', 'input')
+      await expect.poll(() => local.evaluate(async id => (await (window as any).bmux.remoteSessions()).hosts.flatMap((host: { sessions: { id: string; panes: unknown[] }[] }) => host.sessions).find((session: { id: string }) => session.id === id)?.panes.length, hosted.id), { timeout: 10000 }).toBe(3)
       await local.evaluate(async ({ host, session }) => (window as any).bmux.openRemote(host, session), { host: (await command('remote', 'status')).hostId, session: hosted.id })
       await expect(local.locator('[data-pane-id]')).toHaveCount(3)
       let selected = local.locator('[data-pane-id][data-focused-pane="true"]')
