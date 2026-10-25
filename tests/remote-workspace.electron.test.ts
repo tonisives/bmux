@@ -71,6 +71,8 @@ test('remote workspace shares local layout, keeps client selection independent, 
     await chrome.screenshot({ path: info.outputPath('shared-remote-layout.png') })
     expect(await application.evaluate(() => (globalThis as any).workspaceFixture.snapshot.selection.paneId)).toBe(host.selection.paneId)
     await application.evaluate(async (_electron, client) => { let runtime = (globalThis as any).workspaceFixture.runtime; await runtime.execute({ method: 'detach-client', args: { client } }, client) }, secondClient)
+    await expect.poll(async () => Object.keys((await state()).remoteViews).filter(id => id.startsWith(`remote:${secondClient}:pane:`))).toEqual([])
+    expect(Object.keys((await state()).remoteViews).filter(id => id.startsWith(`remote:${local.id}:pane:`))).toHaveLength(5)
     await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
     let picker = chrome.getByRole('dialog', { name: 'Sessions' })
     await picker.getByRole('tab', { name: 'Local', exact: true }).click()
@@ -87,6 +89,7 @@ test('remote workspace shares local layout, keeps client selection independent, 
     expect((await state()).remoteControl[local.sessionId]).toBeUndefined()
     expect((await state()).model.sessions.some((session: any) => session.ephemeral)).toBe(false)
     await expect.poll(() => application.evaluate(() => (globalThis as any).workspaceFixture.media.size)).toBe(0)
+    await expect.poll(async () => Object.keys((await state()).remoteViews)).toEqual([])
     // A typed URL must still display a visible native local page after the switch.
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })

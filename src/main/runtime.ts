@@ -1777,7 +1777,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (shuttingDown) return
     previewCache.reconcile(previewOwners())
     let liveIds = new Set(walkPanes(model).map(({ pane }) => pane.id))
-    for (let tabId of tabs.keys()) if (!liveIds.has(tabId)) disposeTab(tabId)
+    for (let tabId of new Set([...tabs.keys(), ...remotePages.keys()])) if (!liveIds.has(tabId)) disposeTab(tabId)
     for (let tabId of Object.keys(favicons)) if (!liveIds.has(tabId)) delete favicons[tabId]
     for (let tabId of deferredTabs) if (!liveIds.has(tabId)) deferredTabs.delete(tabId)
     for (let tabId of deferredLinkLoads.keys()) if (!liveIds.has(tabId)) deferredLinkLoads.delete(tabId)
