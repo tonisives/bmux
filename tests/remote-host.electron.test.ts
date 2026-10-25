@@ -202,7 +202,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     finishAccountCheck?.()
     await routedCheck
     await viewer.unroute('**/api/me')
-    await expect(viewer.getByRole('button',{name:new RegExp(`main.*${service}`)})).toBeVisible()
+    await expect(viewer.getByRole('button',{name:'Open main',exact:true})).toBeVisible()
     let library = viewer.getByRole('complementary', { name: 'Sessions', exact: true })
     let preview = viewer.getByRole('region', { name: 'Session preview', exact: true })
     let libraryBounds = await library.boundingBox(), previewBounds = await preview.boundingBox()
@@ -223,7 +223,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await expect(viewer.getByRole('heading',{name:/Usage/})).toBeVisible()
     await viewer.getByRole('button',{name:'Sessions'}).click()
     await resizeViewer(1280)
-    await viewer.getByRole('button',{name:new RegExp(`main.*${service}`)}).click()
+    await viewer.getByRole('button',{name:'Open main',exact:true}).click()
     // Watching allows up to twenty seconds for signaling and ICE negotiation.
     await expect(viewer.getByLabel('Pane',{exact:true})).toBeVisible({timeout:25000})
     expect((await command('status')).model.sessions[0].lastActivityAt).toBe(lastUse)
@@ -243,7 +243,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let video = document.querySelector('video')!
       return video.videoWidth>0 && video.videoHeight>0 && video.getVideoPlaybackQuality().totalVideoFrames>5 && Number(video.dataset.viewportWidth)>0 && Number(video.dataset.viewportHeight)>0
     },undefined,{timeout:15000})
-    let sessionRow = viewer.getByRole('button',{name:new RegExp(`main.*${service}`)})
+    let sessionRow = viewer.getByRole('button',{name:'Open main',exact:true})
     let rowBounds = await sessionRow.boundingBox(), videoBounds = await viewer.getByLabel('Remote browser').boundingBox()
     expect(rowBounds).not.toBeNull(); expect(videoBounds).not.toBeNull()
     expect(rowBounds!.x + rowBounds!.width).toBeLessThan(videoBounds!.x)

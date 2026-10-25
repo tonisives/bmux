@@ -4,8 +4,9 @@ import type { RemoteHost } from '../shared/remote-sessions'
 import { BackButton } from './PanelHeader'
 import type { PanelBack } from './PanelHeader'
 import css from './RemoteMachine.module.css'
+import { remoteMachineColor, remoteMachineName, remoteMachinePalette as palette } from '../shared/remote-tree'
 
-export let remoteMachineName = (host: RemoteHost, hosts: RemoteHost[]) => host.machine?.name || (hosts.filter(item => item.service === host.service).length > 1 ? `${host.service} · ${host.id.slice(0, 8)}` : host.service)
+export { remoteMachineName }
 export let useRemoteMachines = (hosts: RemoteHost[], ref: RefObject<HTMLElement | null>) => {
   let [selected, select] = useState<string>()
   let colors = useRemoteMachineColors(hosts)
@@ -17,8 +18,7 @@ export let useRemoteMachineColors = (hosts: RemoteHost[]) => {
   let [colors, setColors] = useState<Record<string, string>>(() => {
     try { let saved = JSON.parse(localStorage.getItem('remote-machine-colors') ?? '{}'); return Object.fromEntries(Object.entries(saved).filter(([id, color]) => id && typeof color === 'string' && /^#[a-f0-9]{6}$/i.test(color))) as Record<string, string> } catch { return {} }
   })
-  let ordered = hosts.map(host => host.id).sort()
-  let color = (id: string) => colors[id] ?? palette[Math.max(0, ordered.indexOf(id)) % palette.length]
+  let color = (id: string) => colors[id] ?? remoteMachineColor(id, hosts)
   let save = (id: string, color: string) => { if (!palette.includes(color)) return; let next = { ...colors, [id]: color }; setColors(next); localStorage.setItem('remote-machine-colors', JSON.stringify(next)) }
   return { color, save }
 }
@@ -43,5 +43,4 @@ export let RemoteMachineDetails = ({ host, name, color, changeColor, back }: { h
     <div className={css.colors} role="radiogroup" aria-label="Machine icon color">{palette.map(value => <button type="button" key={value} role="radio" aria-checked={color === value} aria-label={`Machine color ${value}`} data-color={value} onClick={pickColor}><RemoteMachineIcon platform={machine?.platform} color={value} /></button>)}</div>
   </div>
 }
-let palette = ['#8d9fff', '#34b3a0', '#e5a450', '#dc7d9c', '#a78bfa', '#94a3b8']
 let platforms: Record<string, string> = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' }

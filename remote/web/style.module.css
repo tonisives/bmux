@@ -25,7 +25,7 @@
 .googleButton { display: flex; align-items: center; justify-content: center; gap: 12px; min-width: 220px; min-height: 44px; padding: 0 18px; background: #161616; color: #ededed; border: 1px solid #3a3a3a; border-radius: 10px; font-weight: 500; }
 .googleButton:hover { background: #252525; }
 .error { flex: 0 0 auto; padding: 12px 20px; margin: 0; border-bottom: 1px solid #444; background: #202020; color: #ededed; overflow-wrap: anywhere; }
-.workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: clamp(240px, 25vw, 340px) minmax(0, 1fr); }
+.workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: clamp(280px, 28vw, 340px) minmax(0, 1fr); }
 .library { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px 12px 12px; border-right: 1px solid #2a2a2a; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #a3a3a3; }
 .sectionHeading h1 { margin: 0; color: #ededed; font-size: 15px; font-weight: 600; }
@@ -36,15 +36,14 @@
 .libraryActions button:hover { background: #252525; }
 .library > p { margin: 12px 10px; color: #a3a3a3; }
 .sessions { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: auto; }
-.session { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 62px; padding: 12px 14px; text-align: left; background: #161616; border: 1px solid transparent; border-radius: 12px; }
-.session:hover { background: #202020; }
-.session[aria-current="true"] { border-color: #525252; background: #282828; }
-.sessionCopy { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
-.sessionCopy strong { overflow: hidden; font-size: 14px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.sessionCopy small { overflow: hidden; color: #a3a3a3; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.sessionArrow { margin-left: auto; color: #737373; font-size: 20px; }
+.machineDetails { min-width: 0; min-height: 0; padding: 24px; overflow: auto; }
+.machineDetails button { border-radius: 8px; }
+.machineDetails dl > div { display: flex; gap: 12px; }
+.machineDetails dt { color: #999; }
+.machineDetails dd { margin: 0; }
 .emptyViewer { display: grid; min-width: 0; place-items: center; padding: 24px; color: #737373; }
 .viewer { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.viewer[hidden] { display: none; }
 .viewerToolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 10px 14px; border-bottom: 1px solid #2a2a2a; }
 .paneSelect { flex: 1; min-width: 0; height: 36px; padding: 0 10px; background: #161616; border: 1px solid #333; border-radius: 8px; }
 .status { margin-left: auto; color: #a3a3a3; font-size: 12px; white-space: nowrap; }

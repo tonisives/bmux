@@ -5,6 +5,10 @@ import { api, createViewer } from './client'
 import type { Host, State } from './client'
 import styles from './style.module.css'
 import { RemoteAccount } from '../../src/renderer/RemoteAccount'
+import { RemoteMachineDetails, useRemoteMachineColors } from '../../src/renderer/RemoteMachine'
+import { remoteMachineName } from '../../src/shared/remote-tree'
+import type { RemoteSession } from '../../src/shared/remote-sessions'
+import { SessionTree } from './SessionTree'
 import type { RemoteResumeAcknowledgement } from '../../src/shared/remote-attention'
 let visitBilling = (url: string) => { let target = new URL(url); if (target.protocol !== 'https:' || !['checkout.stripe.com','billing.stripe.com'].includes(target.hostname)) throw new Error('Invalid checkout URL'); location.assign(target.href) }
 
@@ -52,6 +56,8 @@ let App = () => {
   let [knownAccount, setKnownAccount] = useState(() => localStorage.getItem('bmux-known-account') === '1')
   let [googleReady, setGoogleReady] = useState(false)
   let [hostsLoaded, setHostsLoaded] = useState(false)
+  let [machineId, setMachineId] = useState<string>()
+  let machine = hosts.find(host => host.id === machineId), machineColors = useRemoteMachineColors(hosts)
   let [resuming,setResuming]=useState(false)
   let listed = hosts.flatMap(host => host.sessions.flatMap(session => session.panes.length ? [{ host, session, pane: session.panes[0] }] : []))
   let selected = listed.find(item => `${item.host.id}:${item.session.id}` === selectedId)
@@ -106,13 +112,16 @@ let App = () => {
     let timer = setInterval(() => { void api('/api/usage').then(setUsage).catch(() => undefined) }, 15000)
     return () => clearInterval(timer)
   }, [viewer])
-  let watch = (host: Host, session: Host['sessions'][number], updateUrl = true) => {
-    if (!viewer || !session.panes[0]) return
+  let watch = (host: Host, session: Host['sessions'][number], updateUrl = true, preferredPane?: string) => {
+    let pane = preferredPane ?? (selectedId === `${host.id}:${session.id}` && state ? state.pane : session.panes[0]?.id)
+    if (!viewer || !pane) return
+    setMachineId(undefined)
+    if (selectedId === `${host.id}:${session.id}` && state) { if (pane !== state.pane) viewer.send({ type: 'switch', pane }); return }
     let request = ++watchRequest.current
     if (updateUrl) { setSessionUrl(host.id, session.id); setTarget(`${host.id}:${session.id}`) }
     setSelectedId(`${host.id}:${session.id}`); setWatching(true); setState(undefined); setError('')
     if (video.current) video.current.srcObject = null
-    void viewer.watch(host, session.id, session.panes[0].id).catch(error => { if (request === watchRequest.current) report(error) }).finally(() => { if (request === watchRequest.current) setWatching(false) })
+    void viewer.watch(host, session.id, pane).catch(error => { if (request === watchRequest.current) report(error) }).finally(() => { if (request === watchRequest.current) setWatching(false) })
   }
   let leave = (updateUrl = true) => { ++watchRequest.current; viewer?.stop(); if (updateUrl) { setSessionUrl(); setTarget('') } setSelectedId(''); setWatching(false); setState(undefined); setError(''); if (video.current) video.current.srcObject = null }
   useEffect(() => {
@@ -171,20 +180,21 @@ let App = () => {
   let enter = () => command('key', { key: 'Enter' })
   let sendText = (event: FormEvent) => { event.preventDefault(); if (controlling && text) { viewer?.send({ type: 'text', generation: lease?.generation, text }); setText('') } inputDialog.current?.close() }
   let openInput = (mode: 'address' | 'text') => { setInputMode(mode); inputDialog.current?.showModal(); inputField.current?.focus() }
-  let showSessions = () => { inputDialog.current?.close(); leave(); setView('sessions') }
+  let showSessions = () => { inputDialog.current?.close(); leave(); setMachineId(undefined); setView('sessions') }
+  let selectTree = (host: Host, session: RemoteSession, pane?: string) => watch(host, session, true, pane)
+  let closeMachine = () => { setMachineId(undefined); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-machine-details="${CSS.escape(machineId ?? '')}"]`)?.focus({ preventScroll: true })) }
   let connectRelay = () => { leave(); setRent(false); setView('service') }
   let addBox = () => { leave(); setRent(true); setView('service') }
   let signIn = () => googleClient.current?.requestAccessToken()
   return <main className={styles.main}>
-    <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home"><img src="https://cdn.digthree.tonis.dev/bmux/website-ca1a3c8712d7/icon-512.png" alt="" width="28" height="28" />bmux</button><span className={styles.headerLabel}>Remote</span>{(viewer || knownAccount) && <button className={styles.avatar} onClick={() => { if (!viewer) return; if (selected) leave(); setView(view === 'service' ? 'sessions' : 'service') }} aria-label="Account" title="Account" disabled={!viewer} aria-busy={auth !== 'ready'}><Icon name="user" />{auth !== 'ready' && <span className={styles.avatarSpinner} />}</button>}</header>
+    <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home"><img src="https://cdn.digthree.tonis.dev/bmux/website-ca1a3c8712d7/icon-512.png" alt="" width="28" height="28" />bmux</button><span className={styles.headerLabel}>Remote</span>{(viewer || knownAccount) && <button className={styles.avatar} onClick={() => { if (!viewer) return; if (selected) leave(); setRent(false); setView(view === 'service' && !rent ? 'sessions' : 'service') }} aria-label="Account" title="Account" disabled={!viewer} aria-busy={auth !== 'ready'}><Icon name="user" />{auth !== 'ready' && <span className={styles.avatarSpinner} />}</button>}</header>
     {error && <p role="status" className={styles.error}>{error}</p>}
     {!viewer && <section className={styles.signIn}>{auth === 'signed-out' ? <><p>Sign in to see your sessions.</p><button className={styles.googleButton} onClick={() => googleClient.current?.requestAccessToken()} disabled={!googleReady}><GoogleIcon />Sign in with Google</button></> : <p role="status" className={styles.loadingMessage}><span className={styles.spinner} />{auth === 'connecting' ? 'Connecting to your sessions…' : 'Checking your session…'}</p>}</section>}
-    {view === 'sessions' && viewer && <div className={`${styles.workspace} ${selected ? styles.workspaceActive : ''}`}><aside className={styles.library} aria-label="Sessions"><div className={styles.sectionHeading}><h1>Sessions</h1><span>{hostsLoaded ? listed.length : '…'}</span></div><div className={styles.libraryActions}><button onClick={connectRelay}>Relay</button><button onClick={addBox}>Add box</button></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
-      <div className={styles.sessions}>{listed.map(({ host, session }) => <button key={`${host.id}:${session.id}`} className={styles.session} aria-current={selectedId === `${host.id}:${session.id}` ? 'true' : undefined} onClick={() => watch(host, session)}>
-        <span className={styles.sessionCopy}><strong>{session.name}</strong><small>{host.service}</small></span><span className={styles.sessionArrow} aria-hidden="true">›</span>
-      </button>)}</div>
+    {view === 'sessions' && viewer && <div className={`${styles.workspace} ${selected || machine ? styles.workspaceActive : ''}`}><aside className={styles.library} aria-label="Sessions"><div className={styles.sectionHeading}><h1>Sessions</h1><span>{hostsLoaded ? listed.length : '…'}</span></div><div className={styles.libraryActions}><button onClick={connectRelay}>Relay</button><button onClick={addBox}>Add box</button></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
+      <div className={styles.sessions}><SessionTree hosts={hosts} selected={selectedId} pane={state?.pane} select={selectTree} details={host => setMachineId(host.id)} color={machineColors.color} /></div>
     </aside>
-    {selected ? <section className={styles.viewer} aria-label="Session viewer">
+    {machine && <section className={styles.machineDetails} aria-label="Remote machine details"><RemoteMachineDetails host={machine} name={remoteMachineName(machine, hosts)} color={machineColors.color(machine.id)} changeColor={color => machineColors.save(machine.id, color)} back={{ label: 'Back to preview', run: closeMachine }} /></section>}
+    {selected ? <section className={styles.viewer} aria-label="Session viewer" hidden={!!machine}>
       <div className={styles.viewerToolbar}><button className={`${styles.iconButton} ${styles.mobileBack}`} onClick={showSessions} aria-label="Sessions" title="Sessions"><Icon name="back" /></button>
         {state && <select className={styles.paneSelect} aria-label="Pane" value={state.pane} onChange={choosePane}>{state.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => <option key={pane.id} value={pane.id}>{session.name} · {pane.title || pane.url || 'Blank page'}</option>)))}</select>}
         <span className={styles.status}>{watching ? 'Connecting' : controlling ? 'Controlling' : 'Watching'}</span>
@@ -193,9 +203,9 @@ let App = () => {
       {help && <div className={styles.attention}><span>{help.status==='verifying' ? 'Verifying' : help.reason === 'help' ? 'Agent needs your help. Resolve the issue, then resume.' : 'Automation paused for verification. Resolve the issue, then resume.'}</span>{controlling && help.status!=='verifying' && <button onClick={resume} disabled={resuming}>Resume automation</button>}</div>}
       <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} data-viewport-width={viewport?.width} data-viewport-height={viewport?.height} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
       {controlling && <div className={styles.controls}><div className={styles.controlGroup}><button className={styles.iconButton} onClick={back} aria-label="Back" title="Back"><Icon name="back" /></button><button className={styles.iconButton} onClick={forward} aria-label="Forward" title="Forward"><Icon name="forward" /></button><button className={styles.iconButton} onClick={reload} aria-label="Reload" title="Reload"><Icon name="reload" /></button></div><div className={styles.controlGroup}><button className={styles.iconButton} onClick={() => openInput('address')} aria-label="Open address" title="Open address"><Icon name="link" /></button><button className={styles.iconButton} onClick={() => openInput('text')} aria-label="Type into page" title="Type into page"><Icon name="type" /></button><button className={styles.iconButton} onClick={enter} aria-label="Enter" title="Enter"><Icon name="enter" /></button><button className={styles.iconButton} onClick={resize} aria-label="Fit viewport" title="Fit viewport"><Icon name="fit" /></button></div></div>}
-    </section> : <section className={styles.emptyViewer} aria-label="Session preview"><p>Select a session.</p></section>}</div>}
+    </section> : !machine && <section className={styles.emptyViewer} aria-label="Session preview"><p>Select a session.</p></section>}</div>}
     <dialog ref={inputDialog} className={styles.dialog} aria-label={inputMode === 'address' ? 'Open address' : 'Type into page'}><form onSubmit={inputMode === 'address' ? navigate : sendText}><div className={styles.dialogHeading}><strong>{inputMode === 'address' ? 'Open address' : 'Type into page'}</strong><button type="button" className={styles.iconButton} onClick={() => inputDialog.current?.close()} aria-label="Close"><Icon name="close" /></button></div><input ref={inputField} aria-label={inputMode === 'address' ? 'Address' : 'Text'} type={inputMode === 'address' ? 'url' : 'text'} value={inputMode === 'address' ? address : text} onChange={inputMode === 'address' ? changeAddress : changeText} placeholder={inputMode === 'address' ? 'https://example.com' : 'Enter text'} required /><button className={styles.primaryButton}>{inputMode === 'address' ? 'Go' : 'Type'}</button></form></dialog>
-    {view === 'service' && viewer && <section className={styles.serviceView}><div className={styles.sectionHeading}><button onClick={showSessions}><Icon name="back" />Sessions</button></div><h2>Account</h2><RemoteAccount api={api} visit={visitBilling} signIn={signIn} rent={rent} /><p>Account ID: <code>{owner}</code></p>{providers?.appleEnabled && <p>{providers.appleLinked ? 'Apple linked' : <a href="/api/auth/providers/apple/link">Link Apple</a>}</p>}<details><summary>Services and access</summary>
+    {view === 'service' && viewer && <section className={styles.serviceView}><div className={styles.sectionHeading}><button onClick={showSessions}><Icon name="back" />Sessions</button></div><h2>{rent ? 'Add box' : 'Account'}</h2><RemoteAccount api={api} visit={visitBilling} signIn={signIn} rent={rent} view={rent ? 'boxes' : 'account'} />{!rent && <><p>Account ID: <code>{owner}</code></p>{providers?.appleEnabled && <p>{providers.appleLinked ? 'Apple linked' : <a href="/api/auth/providers/apple/link">Link Apple</a>}</p>}<details><summary>Services and access</summary>
       <form className={styles.row} onSubmit={createService}><input aria-label="New service name" placeholder="Service name" value={serviceName} onChange={event => setServiceName(event.target.value)} required /><button>Create API key</button></form>
       {createdKey && <p>Save the key for {keyService} now. It is shown once: <code>{createdKey}</code><button onClick={() => setCreatedKey('')}>Dismiss</button></p>}
       {services.filter(service => !service.revoked).map(service => <p key={service.id}>{service.id} <button onClick={() => rotateService(service.id)}>Rotate key</button> <button onClick={() => revokeService(service.id)}>Revoke</button></p>)}
@@ -206,7 +216,7 @@ let App = () => {
       </form>}
       {grants.map(grant => <p key={`${grant.service}:${grant.user_id}`}>{grant.service} · <code>{grant.user_id}</code> · {grant.permission} <button onClick={() => removeGrant(grant.service, grant.user_id)}>Remove</button></p>)}
     </details>
-    <div className={styles.usage}><h3>Usage <span>LAST 30 DAYS</span></h3>{usage.length ? <div className={styles.tableScroll}><table><thead><tr><th>Service</th><th>Started</th><th>Succeeded</th><th>Failed</th><th>Active minutes</th></tr></thead><tbody>{usage.map(item => <tr key={item.service}><td>{item.service}</td><td>{item.started}</td><td>{item.succeeded}</td><td>{item.failed}</td><td>{Math.round(item.browser_ms / 60000)}</td></tr>)}</tbody></table></div> : <p>No usage in the last 30 days.</p>}</div></section>}
+    <div className={styles.usage}><h3>Usage <span>LAST 30 DAYS</span></h3>{usage.length ? <div className={styles.tableScroll}><table><thead><tr><th>Service</th><th>Started</th><th>Succeeded</th><th>Failed</th><th>Active minutes</th></tr></thead><tbody>{usage.map(item => <tr key={item.service}><td>{item.service}</td><td>{item.started}</td><td>{item.succeeded}</td><td>{item.failed}</td><td>{Math.round(item.browser_ms / 60000)}</td></tr>)}</tbody></table></div> : <p>No usage in the last 30 days.</p>}</div></>}</section>}
   </main>
 }
 createRoot(document.getElementById('root')!).render(<App />)

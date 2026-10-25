@@ -18,10 +18,16 @@ test('remote web Account preserves Apple linking and the responsive session work
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-auth-web-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let providers = { appleEnabled: true, appleLinked: false }
-  let hosts = [{ id: 'fixture-host', service: 'Development machine', generation: 'fixture-runtime', permission: 'watch', key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [
-    { id: 'research', name: 'Research', panes: [{ id: 'research-page', title: 'Example page' }] },
+  let used = Date.now() - 120000
+  let researchPages = [{ id: 'research-page', title: 'Example page', lastActivityAt: used }, { id: 'second-page', title: 'Comparison', lastActivityAt: used }, { id: 'notes-page', title: 'Notes', lastActivityAt: used }]
+  let hosts = [{ id: 'fixture-host', service: 'Development machine', generation: 'fixture-runtime', permission: 'watch', machine: { name: 'Personal Mac', platform: 'darwin', arch: 'arm64', version: '0.1.10', revision: 'fixture' }, key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [
+    { id: 'research', name: 'Research', lastActivityAt: used, panes: researchPages, windows: [
+      { id: 'split-window', name: 'Workspace', automaticName: false, lastActivityAt: used, panes: researchPages.slice(0, 2) },
+      { id: 'notes-window', name: 'Notes', automaticName: true, lastActivityAt: used, panes: researchPages.slice(2) },
+    ] },
     { id: 'writing', name: 'Writing', panes: [{ id: 'writing-page', title: 'Draft' }] },
-  ] }]
+  ] }, { id: 'legacy-host', service: 'Development machine', generation: 'legacy-runtime', permission: 'watch', machine: { name: 'Research Linux', platform: 'linux', arch: 'x64', version: '0.1.9', revision: 'legacy' }, key: { kty: 'OKP', crv: 'Ed25519', x: 'b'.repeat(43) }, sessions: [{ id: 'legacy-session', name: 'Archive', panes: [{ id: 'legacy-page', title: 'Saved page' }] }] }]
+  let signals: { type: string; pane?: string; session?: string }[] = []
   let server = http.createServer((request, response) => {
     void (async () => {
       let url = new URL(request.url!, 'http://localhost'), route = url.pathname
@@ -49,7 +55,10 @@ test('remote web Account preserves Apple linking and the responsive session work
     })().catch(() => { response.writeHead(500); response.end() })
   })
   let sockets = new WebSocketServer({ server, path: '/connect' })
-  sockets.on('connection', socket => socket.send(JSON.stringify({ type: 'hosts', hosts })))
+  sockets.on('connection', socket => {
+    socket.send(JSON.stringify({ type: 'hosts', hosts }))
+    socket.on('message', value => { let message = JSON.parse(String(value)); if (message.type === 'signal') signals.push(JSON.parse(message.envelope.payload)) })
+  })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   try {
@@ -100,14 +109,45 @@ test('remote web Account preserves Apple linking and the responsive session work
     let library = page.getByRole('complementary', { name: 'Sessions', exact: true })
     let preview = page.getByRole('region', { name: 'Session preview', exact: true })
     await expect(library).toBeVisible(); await expect(preview).toBeVisible()
-    let row = library.getByRole('button', { name: /Research.*Development machine/ })
+    let row = library.getByRole('button', { name: 'Open Research', exact: true })
     let rowBounds = await row.boundingBox(), previewBounds = await preview.boundingBox()
     expect(rowBounds!.x + rowBounds!.width).toBeLessThan(previewBounds!.x)
     let appearance = await row.evaluate(element => { let style = getComputedStyle(element); return { radius: parseFloat(style.borderRadius), color: style.backgroundColor.match(/\d+/g)!.map(Number) } })
     expect(appearance.radius).toBeGreaterThan(0)
     expect(new Set(appearance.color).size).toBe(1)
+    let personal = library.getByRole('button', { name: 'Machine Personal Mac', exact: true }), linux = library.getByRole('button', { name: 'Machine Research Linux', exact: true })
+    let personalIcon = personal.getByRole('img', { name: 'macOS machine', exact: true })
+    expect(await personalIcon.getAttribute('stroke')).not.toBe(await linux.getByRole('img', { name: 'Linux machine', exact: true }).getAttribute('stroke'))
+    await expect(library.getByRole('group', { name: 'Sessions on Personal Mac', exact: true }).getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
+    await expect(library.getByRole('group', { name: 'Windows in Research', exact: true }).getByRole('button', { name: 'Open Workspace', exact: true })).toBeVisible()
+    await expect(library.getByRole('group', { name: 'Pages in Workspace', exact: true }).getByRole('button', { name: 'Open Comparison', exact: true })).toBeVisible()
+    await expect(library.getByRole('button', { name: 'Open Saved page', exact: true })).toBeVisible()
+    await expect(row.locator('time')).toHaveAttribute('title', /^Last used /)
+    await library.getByRole('button', { name: 'Collapse windows in Research', exact: true }).click()
+    await expect(library.getByRole('button', { name: 'Open Workspace', exact: true })).toHaveCount(0)
+    await row.press('j'); await expect(library.getByRole('button', { name: 'Open Writing', exact: true })).toBeFocused()
+    await library.getByRole('button', { name: 'Open Writing', exact: true }).press('k'); await expect(row).toBeFocused()
+    await row.press('l')
+    await library.getByRole('button', { name: 'Collapse pages in Workspace', exact: true }).click()
+    await expect(library.getByRole('button', { name: 'Open Comparison', exact: true })).toHaveCount(0)
+    await library.getByRole('button', { name: 'Open Workspace', exact: true }).press('l')
+    await library.getByRole('button', { name: 'Collapse machine Research Linux', exact: true }).click()
+    await expect(library.getByRole('button', { name: 'Open Archive', exact: true })).toHaveCount(0)
+    await linux.press('l')
+    await expect(library.getByRole('button', { name: 'Open Saved page', exact: true })).toBeVisible()
+    await personal.click()
+    let machine = page.getByRole('region', { name: 'Remote machine details', exact: true })
+    await expect(machine).toContainText('macOS · arm64')
+    await expect(machine).toContainText('0.1.10 · fixture')
+    await machine.getByRole('radio', { name: 'Machine color #e5a450', exact: true }).click()
+    await page.screenshot({ path: info.outputPath('remote-web-machine.png') })
+    await machine.getByRole('button', { name: 'Back to preview', exact: true }).click()
+    await expect(personal).toBeFocused()
+    await expect(personalIcon).toHaveAttribute('stroke', '#e5a450')
     await page.screenshot({ path: info.outputPath('remote-web-unselected.png') })
-    await row.click()
+    await library.getByRole('button', { name: 'Open Comparison', exact: true }).click()
+    await expect.poll(() => signals.filter(message => message.type === 'open')).toHaveLength(1)
+    expect(signals.find(message => message.type === 'open')).toMatchObject({ session: 'research', pane: 'second-page' })
     await expect(row).toHaveAttribute('aria-current', 'true')
     await expect(page.getByRole('region', { name: 'Session viewer', exact: true })).toBeVisible()
     await expect(page.getByLabel('Remote browser')).toBeVisible()
@@ -116,6 +156,7 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByRole('button', { name: 'Sessions', exact: true })).toBeHidden()
     let landscapeRow = await row.boundingBox(), landscapeViewer = await page.getByLabel('Remote browser').boundingBox()
     expect(landscapeRow!.x + landscapeRow!.width).toBeLessThan(landscapeViewer!.x)
+    expect((await library.getByRole('button', { name: 'Open Comparison', exact: true }).locator('span').boundingBox())!.width).toBeGreaterThanOrEqual(60)
     expect(landscapeViewer!.height).toBeGreaterThan(150)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: info.outputPath('remote-web-landscape.png') })

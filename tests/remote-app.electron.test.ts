@@ -13,7 +13,10 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-companion-test-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let page: Page | undefined
-  let host = { id: 'fixture-host', service: 'Research computer', generation: 'runtime-current', permission: 'control', owner: false as boolean | undefined, capabilities: { management: 1, sessionCreate: 1, profiles: 1, proxy: 1, pageCreate: 1 }, key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [{ id: 'session-research', name: 'Research', panes: [{ id: 'pane-primary', title: 'Example page' }, { id: 'pane-secondary', title: 'Second page' }] }] }
+  let used = Date.now() - 120000
+  let pages = [{ id: 'pane-primary', title: 'Example page', lastActivityAt: used }, { id: 'pane-secondary', title: 'Second page', lastActivityAt: used, agentPurpose: 'Compare sources' }]
+  let host = { id: 'fixture-host', service: 'Research computer', machine: { name: 'Personal Mac', platform: 'darwin', arch: 'arm64', version: '0.1.10', revision: 'fixture' }, generation: 'runtime-current', permission: 'control', owner: false as boolean | undefined, capabilities: { management: 1, sessionCreate: 1, profiles: 1, proxy: 1, pageCreate: 1 }, key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [{ id: 'session-research', name: 'Research', lastActivityAt: used, panes: pages, windows: [{ id: 'window-research', name: 'Workspace', automaticName: false, lastActivityAt: used, panes: pages }] }] }
+  let legacy = { id: 'legacy-host', service: 'Research computer', machine: { name: 'Research Linux', platform: 'linux', arch: 'x64' }, generation: 'legacy-runtime', permission: 'watch', key: { kty: 'OKP', crv: 'Ed25519', x: 'b'.repeat(43) }, sessions: [{ id: 'session-archive', name: 'Archive', panes: [{ id: 'pane-archive', title: 'Saved page' }] }] }
   let views = [{ connection: 'other-view', host: host.id, generation: host.generation, pane: 'other-pane' }]
   let signedIn = false
   let attentionGeneration = host.generation
@@ -27,7 +30,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
         if (!signedIn) { response.writeHead(401); response.end(); return }
         json({ owner: 'fixture-owner', name: 'Browser operator' }); return
       }
-      if (route === '/api/hosts') { json([host]); return }
+      if (route === '/api/hosts') { json([host, legacy]); return }
       if (route === '/api/connect') { json({ ticket: 'fixture-ticket', iceServers: [] }); return }
       let attention = { id: 'opaque-attention', revision: 1, reason: 'challenge', status: 'pending', createdAt: new Date().toISOString(), host: host.id, generation: attentionGeneration, session: 'session-research', pane: 'pane-secondary', episode: 'episode-fixture', online: true, resolved: false }
       if (route === '/api/attention') { json({ items: [attention], nextCursor: null }); return }
@@ -52,7 +55,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
   })
   let sockets = new WebSocketServer({ server, path: '/connect' })
   sockets.on('connection', socket => {
-    socket.send(JSON.stringify({ type: 'hosts', hosts: [host] }))
+    socket.send(JSON.stringify({ type: 'hosts', hosts: [host, legacy] }))
     socket.on('message', value => {
       let message = JSON.parse(String(value))
       if (message.type === 'signal') signals.push(JSON.parse(message.envelope.payload))
@@ -141,9 +144,40 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await resize(1280)
     signedIn = true
     await page.reload()
-    await expect(page.getByRole('button', { name: 'Research computer', exact: true })).toBeVisible()
+    let machine = page.getByRole('button', { name: 'Machine Personal Mac', exact: true })
+    await expect(machine).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Machine Research Linux', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open Second page', exact: true })).toBeVisible()
+    let session = page.getByRole('button', { name: 'Open Research', exact: true })
+    await expect(session.getByLabel(/^Last used /)).toBeVisible()
+    await page.getByRole('button', { name: 'Collapse windows in Research', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Open Workspace', exact: true })).toHaveCount(0)
+    await session.press('j'); await expect(page.getByRole('button', { name: 'Machine Research Linux', exact: true })).toBeFocused()
+    await page.getByRole('button', { name: 'Machine Research Linux', exact: true }).press('k'); await expect(session).toBeFocused()
+    await session.press('l')
+    await page.getByRole('button', { name: 'Collapse pages in Workspace', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Open Second page', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Open Workspace', exact: true }).press('l')
+    await page.getByRole('button', { name: 'Collapse machine Research Linux', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Open Archive', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Machine Research Linux', exact: true }).press('l')
+    await expect(page.getByRole('button', { name: 'Open Saved page', exact: true })).toBeVisible()
+    let search = page.getByRole('textbox', { name: 'Search sessions', exact: true })
+    await search.fill('Saved page')
+    await expect(session).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Open Saved page', exact: true })).toBeVisible()
+    await search.fill('')
+    await machine.click()
+    await expect(page.getByText('macOS · arm64', { exact: true })).toBeVisible()
+    await expect(page.getByText('bmux 0.1.10 · fixture', { exact: true })).toBeVisible()
+    await page.getByRole('radio', { name: 'Machine color #e5a450', exact: true }).click()
+    await expect(page.getByRole('radio', { name: 'Machine color #e5a450', exact: true })).toHaveAttribute('aria-checked', 'true')
+    await page.screenshot({ path: info.outputPath('companion-machine-details.png') })
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await machine.click()
+    await expect(page.getByRole('radio', { name: 'Machine color #e5a450', exact: true })).toHaveAttribute('aria-checked', 'true')
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Included browser', exact: true })).toHaveCount(0)
     await expect(page.getByText('Included browser', { exact: true })).toHaveCount(0)
