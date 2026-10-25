@@ -2,6 +2,7 @@ import { WebContentsView } from 'electron'
 import type { BaseWindow, Rectangle } from 'electron'
 import { agentCommandFeedbackScript } from './agent-command-feedback'
 import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
+import type { Pane } from '../shared/types'
 
 export let AGENT_INPUT_LOCK_MS = DEFAULT_AGENT_FEEDBACK.inputUnlockMs
 export let scheduleAgentInputUnlock = (lastUsed: number, unlock: () => void, duration = AGENT_INPUT_LOCK_MS) => {
@@ -16,6 +17,27 @@ export let scheduleAgentInputUnlock = (lastUsed: number, unlock: () => void, dur
   timer = setTimeout(check, Math.max(0, lastUsed + duration - Date.now()))
   timer.unref()
   return () => clearTimeout(timer)
+}
+
+export let AGENT_INPUT_OVERRIDE_MS = 5 * 60_000
+export let createAgentInputOverrides = (changed: (paneId: string) => void) => {
+  let overrides = new Map<Pane, { expiresAt: number; cancel: () => void }>()
+  let set = (pane: Pane, enabled: boolean) => {
+    overrides.get(pane)?.cancel()
+    overrides.delete(pane)
+    if (enabled) {
+      let startedAt = Date.now()
+      let cancel = scheduleAgentInputUnlock(startedAt, () => { overrides.delete(pane); changed(pane.id) }, AGENT_INPUT_OVERRIDE_MS)
+      overrides.set(pane, { expiresAt: startedAt + AGENT_INPUT_OVERRIDE_MS, cancel })
+    }
+    changed(pane.id)
+    return overrides.get(pane)?.expiresAt
+  }
+  let has = (pane: Pane | undefined) => !!pane && (overrides.get(pane)?.expiresAt ?? 0) > Date.now()
+  let status = () => Object.fromEntries([...overrides].filter(([pane]) => has(pane)).map(([pane, override]) => [pane.id, override.expiresAt]))
+  let remove = (paneId: string) => { for (let [pane, override] of overrides) if (pane.id === paneId) { override.cancel(); overrides.delete(pane) } }
+  let clear = () => { for (let override of overrides.values()) override.cancel(); overrides.clear() }
+  return { set, has, status, remove, clear }
 }
 
 // A separate native view receives human input; CDP still targets the page below.

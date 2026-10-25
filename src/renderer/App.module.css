@@ -12,6 +12,9 @@
 .buildDetails dt { color: #9ca3ad; }
 .buildDetails dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
 .status button:hover, .status button[data-active="true"] { color: #f0f2f5; }
+.status .agentAlertsButton { display: inline-flex; align-items: center; gap: 5px; height: 22px; max-width: none; padding: 0 6px; border: 1px solid #76565a; color: #e6a69c; }
+.status .agentAlertsButton:hover { background: #2a2022; color: #f2c1bb; }
+.alertChevron { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .status .newTab { display: grid; place-items: center; align-self: flex-end; width: 24px; height: 24px; margin-left: -6.4px; border-top: 1px solid transparent; color: #77818d; }
 .app[data-status-bar="bottom"] .newTab { align-self: flex-start; border-top: 0; border-bottom: 1px solid transparent; }
 .status .newTab:hover { border-radius: 3px; background: #48525f; color: #f0f2f5; }
@@ -79,7 +82,11 @@
 .notificationSiteExclusion { display: inline-flex; align-items: center; gap: 8px; padding-left: 6px; border: 1px solid #76565a; }
 .notificationSiteExclusion > span { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notificationSiteExclusion .notificationAction { padding: 2px 6px; border: 0; border-left: 1px solid #76565a; }
+.notificationSiteMenu { position: relative; display: inline-flex; flex: 0 0 24px; }
+.notificationSiteMenu .notificationAction { width: 24px; height: 22px; padding: 0; appearance: none; cursor: pointer; }
+.notificationSiteMenu .alertChevron { position: absolute; inset: 5px 6px; pointer-events: none; }
 .notification .notificationPaneLink { display: inline-flex; align-items: center; gap: 4px; }
+.bmuxIcon { width: 14px; height: 14px; flex: 0 0 14px; object-fit: contain; }
 .notificationPaneLink > span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notificationAgent { display: inline-flex; align-items: stretch; flex: 0 0 auto; max-width: 100%; border: 1px solid #76565a; }
 .notification .notificationAgent button { width: 24px; height: 22px; flex: 0 0 24px; border: 0; color: #f2c1bb; }
