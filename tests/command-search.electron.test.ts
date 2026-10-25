@@ -95,7 +95,7 @@ test.beforeAll(async () => {
     }
     if (request.url?.includes('/profile-split-')) {
       response.writeHead(200, { 'Content-Type': 'text/html' })
-      response.end('<!doctype html><title>Split page fixture</title><style>html{background:#234567}body{height:2400px}aside{position:fixed;inset:0 0 0 auto;width:20px;background:#60c080}</style><h1>Split page fixture</h1><aside></aside>')
+      response.end('<!doctype html><title>Split page fixture</title><style>html{background:#234567;scrollbar-width:none}body{height:2400px}aside{position:fixed;inset:0 0 0 auto;width:20px;background:#60c080}</style><h1>Split page fixture</h1><aside></aside>')
       return
     }
     response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>')
