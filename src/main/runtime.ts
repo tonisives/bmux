@@ -323,7 +323,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let pageFocusTarget: { clientId: string; paneId: string } | undefined
   let dialogPrompts = new Map<string, { prompt: DialogPrompt; respond: (response: number) => void; cancel: () => void }>()
   let overlays = new Set<string>()
-  let raisedDialogChrome = new Set<string>()
+  let pageOverlays = new Set<string>()
+  let raisedOverlayChrome = new Set<string>()
+  let keepsPages = (clientId: string) => dialogPrompts.has(clientId) || pageOverlays.has(clientId)
   let automatedContents = new Set<number>()
   let visualQueue: Promise<void> = Promise.resolve()
   let tabQueues = new Map<string, Promise<unknown>>()
@@ -1730,7 +1732,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       let { x, y, width, height } = floatRect(client, placement)
       frame.setBounds({ x, y, width, height })
-      frame.setVisible(!overlays.has(client.id) || dialogPrompts.has(client.id))
+      frame.setVisible(!overlays.has(client.id) || keepsPages(client.id))
     }
   }
   let moveView = (live: LiveTab, parent: BaseWindow) => {
@@ -1824,7 +1826,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let viewers = new Map<string, { id: string; live: LiveClient; bounds: Bounds }[]>()
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
-      if (!live || !live.window.isVisible() || live.window.isMinimized() || (overlays.has(candidate.id) && !dialogPrompts.has(candidate.id))) continue
+      if (!live || !live.window.isVisible() || live.window.isMinimized() || (overlays.has(candidate.id) && !keepsPages(candidate.id))) continue
       let paneIds = visiblePaneIds(candidate)
       for (let paneId of paneIds) {
         let tabId = paneById(model, paneId).pane.id
@@ -1917,10 +1919,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
       if (!live) continue
-      if (!dialogPrompts.has(candidate.id) && raisedDialogChrome.delete(candidate.id)) {
+      if (!keepsPages(candidate.id) && raisedOverlayChrome.delete(candidate.id)) {
         live.chrome.setBackgroundColor('#111318'); live.window.contentView.addChildView(live.chrome, 0)
       }
-      if (overlays.has(candidate.id) && !dialogPrompts.has(candidate.id)) continue
+      if (overlays.has(candidate.id) && !keepsPages(candidate.id)) continue
       let window = model.sessions.flatMap(session => session.windows).find(window => window.id === candidate.windowId)
       let ordered: View[] = []
       for (let paneId of visiblePaneIds(candidate)) {
@@ -1938,13 +1940,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           if (page.camera) ordered.push(page.camera)
         }
       }
-      if (dialogPrompts.has(candidate.id)) {
-        raisedDialogChrome.add(candidate.id); live.chrome.setBackgroundColor('#00000000'); ordered.push(live.chrome)
+      if (keepsPages(candidate.id)) {
+        raisedOverlayChrome.add(candidate.id); live.chrome.setBackgroundColor('#00000000'); ordered.push(live.chrome)
       }
       if (live.tabTooltip.getVisible()) ordered.push(live.tabTooltip)
       let current = live.window.contentView.children.filter(view => ordered.includes(view))
       if (ordered.some((view, index) => current[index] !== view)) for (let view of ordered) live.window.contentView.addChildView(view)
-      if (dialogPrompts.has(candidate.id) && live.window.isFocused()) live.chrome.webContents.focus()
+      if (keepsPages(candidate.id) && live.window.isFocused()) live.chrome.webContents.focus()
     }
     if (pointerTarget) {
       let cursor = screen.getCursorScreenPoint()
@@ -2177,7 +2179,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     })
     window.on('closed', () => {
       dialogPrompts.get(client.id)?.cancel()
-      raisedDialogChrome.delete(client.id)
+      pageOverlays.delete(client.id); raisedOverlayChrome.delete(client.id)
       clients.delete(client.id)
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
       if (!linkPreview.webContents.isDestroyed()) linkPreview.webContents.close()
@@ -2891,6 +2893,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         overlays.add(client.id); clients.get(client.id)?.tabTooltip.setVisible(false)
       }
       else overlays.delete(client.id)
+      if (args.visible && args.keepPages === true) pageOverlays.add(client.id)
+      else pageOverlays.delete(client.id)
       await scheduleVisuals(); return { visible: !!args.visible }
     }
     if (method === 'list-sessions') return model.sessions.filter(session => !session.ephemeral)
@@ -3372,7 +3376,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
       window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal', args.before === true)
       window.panes.push(pane)
-      if (args.client && args.background !== true) { let selected = resolve(model.clients, args.client, 'Client'); selected.sessionId = session.id; selected.windowId = window.id; selected.paneId = pane.id }
+      if (args.client && args.background !== true) { let selected = resolve(model.clients, args.client, 'Client'); selected.sessionId = session.id; selected.windowId = window.id; selected.paneId = pane.id; selected.zoomedPaneId = null }
       changed(); await visualQueue; return pane
     }
     if (method === 'resize-pane') {
