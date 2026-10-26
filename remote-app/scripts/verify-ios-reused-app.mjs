@@ -23,8 +23,10 @@ let harnessPaths = new Set([
   'tests/remote-host.electron.test.ts',
   'tests/paid-remote.electron.test.ts',
   'tests/remote-prices.unit.test.ts',
+  'tests/automation-safety.electron.test.ts',
+  'tests/last-page-agent.electron.test.ts',
 ])
-let webPaths = new Set(['remote/web/main.tsx', 'src/renderer/RemoteAccount.tsx', 'src/renderer/RemoteAccount.module.css', 'src/shared/remote-prices.ts'])
+let webPaths = new Set(['remote/web/main.tsx', 'src/renderer/App.tsx', 'src/renderer/RemoteAccount.tsx', 'src/renderer/RemoteAccount.module.css', 'src/shared/remote-prices.ts'])
 let metroSource = file => /^remote-app\/src\/.+\.(?:[cm]?js|jsx|ts|tsx|css)$/.test(file)
 
 export let verifyReusedChanges = changed => {

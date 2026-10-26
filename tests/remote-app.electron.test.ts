@@ -288,9 +288,9 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     }
   } catch (error) {
     if (page) {
-      await page.screenshot({ path: info.outputPath('companion-failure.png') }).catch(() => {})
-      let focusedWindow = await application?.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.id).catch(() => undefined)
-      let layout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, focused: document.hasFocus(), activeElement: { label: document.activeElement?.getAttribute('aria-label'), role: document.activeElement?.getAttribute('role'), tag: document.activeElement?.tagName }, dialogs: document.querySelectorAll('[role="dialog"]').length, elements: [...document.querySelectorAll('[aria-label="Open Research"], [role="tab"], [aria-label="Search sessions"]')].map(element => {
+      await page.screenshot({ path: info.outputPath('companion-failure.png'), timeout: 5000 }).catch(() => {})
+      let focusedWindow = await test.step('Read focused test window after failure', async () => application?.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.id), { timeout: 5000 }).catch(() => undefined)
+      let layout = await test.step('Read companion layout after failure', async () => page!.evaluate(() => ({ width: innerWidth, height: innerHeight, focused: document.hasFocus(), activeElement: { label: document.activeElement?.getAttribute('aria-label'), role: document.activeElement?.getAttribute('role'), tag: document.activeElement?.tagName }, dialogs: document.querySelectorAll('[role="dialog"]').length, elements: [...document.querySelectorAll('[aria-label="Open Research"], [role="tab"], [aria-label="Search sessions"]')].map(element => {
         let ancestors = [], current: Element | null = element
         while (current && ancestors.length < 8) {
           let rect = current.getBoundingClientRect(), style = getComputedStyle(current)
@@ -298,7 +298,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
           current = current.parentElement
         }
         return ancestors
-      }) })).catch(() => ({}))
+      }) })), { timeout: 5000 }).catch(() => ({}))
       let layoutFile = info.outputPath('companion-layout.json')
       await fs.writeFile(layoutFile, JSON.stringify({ focusedWindow, ...layout }, null, 2))
       await info.attach('companion-layout', { path: layoutFile, contentType: 'application/json' })
