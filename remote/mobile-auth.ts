@@ -5,12 +5,12 @@ import { createRemoteJWKSet, importPKCS8, jwtVerify, SignJWT, type JWTPayload } 
 import type { RemoteNativeCredentials } from '../src/shared/remote-mobile-auth'
 
 export type LoginContext = { owner: string; tokenHash: string; nativeSession?: string }
-type Options = { pool: Pool; origin: string; googleClientId: string; revoked: (session: string) => void; env?: NodeJS.ProcessEnv }
+type Options = { pool: Pool; origin: string; googleClientId: string; revoked: (session: string) => void; webRevoked?: (tokenHash: string) => void; env?: NodeJS.ProcessEnv }
 export let authHash = (value: string) => createHash('sha256').update(value).digest('hex')
 let opaque = () => randomBytes(32).toString('hex')
 let cookie = (request: http.IncomingMessage, name: string) => new RegExp(`(?:^|;\\s*)${name}=([a-f0-9]{64})(?:;|$)`).exec(request.headers.cookie ?? '')?.[1]
 let invalid = () => new Error('Authentication flow unavailable')
-export let createMobileAuth = ({ pool, origin, googleClientId, revoked, env = process.env }: Options) => {
+export let createMobileAuth = ({ pool, origin, googleClientId, revoked, webRevoked, env = process.env }: Options) => {
   let secure = origin.startsWith('https:'), callback = 'bmux-remote://auth/callback'
   let appleClientId = env.BMUX_APPLE_CLIENT_ID, appleTeam = env.BMUX_APPLE_TEAM_ID, appleKeyId = env.BMUX_APPLE_KEY_ID, applePrivateKey = env.BMUX_APPLE_PRIVATE_KEY
   let appleEnabled = !!(appleClientId && appleTeam && appleKeyId && applePrivateKey)
@@ -83,6 +83,18 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, env = pr
   }
   let route = async (request: http.IncomingMessage, response: http.ServerResponse, url: URL, readBody: () => Promise<Record<string, unknown>>) => {
     let path = url.pathname, method = request.method
+    if (method === 'POST' && path === '/api/logout') {
+      if (request.headers.origin !== origin || request.headers.authorization) throw invalid()
+      let auth = await authenticate(request, true)
+      await transaction(async client => {
+        await client.query('DELETE FROM bmux_provider_flows WHERE login_hash=$1', [auth.tokenHash])
+        await client.query('DELETE FROM bmux_logins WHERE token_hash=$1 AND owner=$2', [auth.tokenHash, auth.owner])
+      })
+      webRevoked?.(auth.tokenHash)
+      response.setHeader('Set-Cookie', `bmux_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure ? '; Secure' : ''}`)
+      for (let name of ['bmux_google_reauth', 'bmux_apple_flow', 'bmux_mobile_flow']) setCookie(response, name, '', 0)
+      json(response, { ok: true }); return true
+    }
     if (!path.startsWith('/api/auth/')) return false
     if (method === 'GET' && path === '/api/auth/mobile/start') {
       let state = url.searchParams.get('state'), challenge = url.searchParams.get('code_challenge')
