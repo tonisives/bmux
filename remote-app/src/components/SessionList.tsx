@@ -98,6 +98,7 @@ export let SessionList = ({ hosts, attention = [], selection, select, create, he
   let [machineColors, setMachineColors] = useState<Record<string, string>>({})
   let machine = hosts.find(host => host.id === machineId), color = (host: Host) => machineColors[host.id] ?? remoteMachineColor(host.id, hosts)
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
+  useEffect(() => { if (!searchVisible) setSearch('') }, [searchVisible])
   useEffect(() => { if (focusSearch && searchVisible) searchInput.current?.focus() }, [focusSearch, searchVisible])
   useEffect(() => {
     let active = true

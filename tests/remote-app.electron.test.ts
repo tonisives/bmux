@@ -67,14 +67,16 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     let config = path.join(directory, 'config.yaml')
     await fs.writeFile(config, 'browser:\n  autoUpdateFilters: false\n')
     application = await electron.launch({ args: [process.cwd(), '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: config, BMUX_BACKGROUND: '1' } })
-    let windowId = await application.evaluate(async ({ BrowserWindow }, origin) => {
+    let windowId = await application.evaluate(async ({ app, BrowserWindow }, origin) => {
       let window = new BrowserWindow({ show: true, width: 1280, height: 800, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
       await window.loadURL(origin)
-      setImmediate(() => window.focus())
+      setImmediate(() => { app.focus({ steal: true }); window.focus() })
       return window.id
     }, origin)
     await expect.poll(() => application!.context().pages().some(page => page.url() === origin + '/')).toBe(true)
     page = application.context().pages().find(page => page.url() === origin + '/')!
+    await expect.poll(() => application!.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.id)).toBe(windowId)
+    await expect.poll(() => page!.evaluate(() => document.hasFocus())).toBe(true)
     let resize = async (width: number, height = 800) => {
       await application!.evaluate(({ BrowserWindow }, { id, width, height }) => { setImmediate(() => BrowserWindow.fromId(id)?.setContentSize(width, height)) }, { id: windowId, width, height })
       await expect.poll(() => page!.evaluate(() => innerWidth)).toBe(width)
@@ -225,6 +227,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await page.getByRole('tab', { name: 'Sessions', exact: true }).click()
     await resize(390)
     await expect(page.getByRole('textbox', { name: 'Search sessions', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: 'Sessions', exact: true })).toBeInViewport({ ratio: 1 })
     await page.getByRole('tab', { name: 'Search', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Search sessions', exact: true })).toBeFocused()
     await page.getByRole('textbox', { name: 'Search sessions', exact: true }).fill('Saved page')
@@ -235,6 +238,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     await page.screenshot({ path: info.outputPath('companion-mobile-list.png') })
     await resize(1280)
+    await expect(page.getByRole('textbox', { name: 'Search sessions', exact: true })).toHaveValue('')
     await page.getByRole('button', { name: 'Open Research', exact: true }).click()
     await expect.poll(() => signals.filter(message => message.type === 'open')).toHaveLength(2)
     expect(signals.filter(message => message.type === 'open')[1]).toMatchObject({ session: 'session-research', pane: 'pane-primary' })
@@ -290,7 +294,9 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
         }
         return ancestors
       }) })).catch(() => ({}))
-      await info.attach('companion-layout', { body: JSON.stringify(layout, null, 2), contentType: 'application/json' })
+      let layoutFile = info.outputPath('companion-layout.json')
+      await fs.writeFile(layoutFile, JSON.stringify(layout, null, 2))
+      await info.attach('companion-layout', { path: layoutFile, contentType: 'application/json' })
     }
     await closeTestApplication(application)
     for (let socket of sockets.clients) socket.terminate()

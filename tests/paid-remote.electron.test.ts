@@ -190,10 +190,10 @@ test('paid remote account connects a running computer and opens regional box che
     await selfHosted.getByRole('textbox',{name:'Box name',exact:true}).fill('My Linux box')
     await expect(selfHosted.getByRole('button',{name:'Create host config'})).toBeEnabled()
     await selfHosted.getByRole('button',{name:'Create host config'}).click()
-    let selfHostedService = requests.filter(item => item.route === '/api/services').at(-1)!.body.service
-    expect(selfHostedService).toMatch(/^my-linux-box-[a-f0-9]{8}$/)
     let download = selfHosted.getByRole('link',{name:'Download config',exact:true})
     await expect(download).toHaveAttribute('href',/^blob:/)
+    let selfHostedService = requests.filter(item => item.route === '/api/services').at(-1)!.body.service
+    expect(selfHostedService).toMatch(/^my-linux-box-[a-f0-9]{8}$/)
     await expect(download).toHaveAttribute('download',`bmux-${selfHostedService}.json`)
     await expect(selfHosted).not.toContainText('a'.repeat(64))
     let hostConfig = path.join(directory,'self-hosted.json')
@@ -219,8 +219,9 @@ test('paid remote account connects a running computer and opens regional box che
     expect(requests.filter(item => item.route === '/api/services/revoke').at(-1)?.body.service).toBe(selfHostedService)
     enrollmentOrigin = false
     await selfHosted.getByRole('button',{name:'Create host config'}).click()
-    let legacyService = requests.filter(item => item.route === '/api/services').at(-1)!.body.service
     await expect(selfHosted.getByRole('status')).toHaveText('Update this relay to download a host config.')
+    let legacyService = requests.filter(item => item.route === '/api/services').at(-1)!.body.service
+    expect(legacyService).not.toBe(selfHostedService)
     await expect(selfHosted.getByRole('link',{name:'Download config',exact:true})).toHaveCount(0)
     await expect(selfHosted.getByText('Run with Docker',{exact:true})).toHaveCount(0)
     await selfHosted.getByRole('button',{name:'Revoke key',exact:true}).click()
