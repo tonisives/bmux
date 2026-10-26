@@ -20,7 +20,7 @@ export let estimateCurrency = (locales: readonly string[], rates?: ReferenceRate
   }
   return 'USD'
 }
-export let usdPrice = (cents: number, locale?: string) => new Intl.NumberFormat(locale, { style:'currency', currency:'USD', currencyDisplay:'code' }).format(cents / 100)
+export let usdPrice = (cents: number) => new Intl.NumberFormat('en-US', { style:'currency', currency:'USD' }).format(cents / 100)
 export let localPrice = (cents: number, currency: string, rates?: ReferenceRates, locale?: string) => {
   let rate = rates?.rates[currency]
   if (currency === 'USD' || !rate || !Number.isFinite(rate) || rate <= 0) return undefined
@@ -28,5 +28,5 @@ export let localPrice = (cents: number, currency: string, rates?: ReferenceRates
 }
 export let priceEstimate = (cents: number, currency: string, rates?: ReferenceRates, locale?: string) => {
   let local = localPrice(cents,currency,rates,locale)
-  return `${usdPrice(cents,locale)}${local ? ` (≈ ${local})` : ''}`
+  return `${usdPrice(cents)}${local ? ` (≈ ${local})` : ''}`
 }

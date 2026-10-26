@@ -11,8 +11,6 @@
 .account input, .account select, .account textarea { width: 100%; min-width: 0; box-sizing: border-box; }
 .account a { color: inherit; text-decoration: underline; }
 .account code { overflow-wrap: anywhere; }
-.currency { display: flex; align-items: center; gap: 10px; }
-.currency select { width: auto; }
 .form { display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px solid #8885; border-radius: 4px; }
 .form label { display: flex; flex-direction: column; gap: 6px; }
 .form .checkbox { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; line-height: 1.5; }
@@ -31,7 +29,6 @@
 .account .disclosure { border: 0; padding: 4px 0; color: #bdc9b4; }
 .terms summary { cursor: pointer; color: #bdc9b4; }
 .terms p { margin-top: 10px; }
-.billingNote { color: #8995a3; font-size: 12px; }
 .customize { display: flex; flex-direction: column; gap: 14px; }
 .boxKinds { display: flex; gap: 8px; flex-wrap: wrap; border: 0; padding: 0; margin: 0; }
 .boxKinds legend { margin-bottom: 8px; }

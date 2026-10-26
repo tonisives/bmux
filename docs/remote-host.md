@@ -7,7 +7,7 @@ Chromium headless-shell engine or claim a smaller browser bundle.
 ## Managed relay and rented boxes
 
 Open **Sessions > Remote > Relay**, or **Settings > Account**.
-Sign in and activate relay for **$10 USD per account per month**. Connect the
+Sign in and activate relay for **$10 per account per month**. Connect the
 running computer with a recognizable name; its sessions keep running throughout.
 The Relay button above the session list turns green while this computer is
 connected. Press **g** in the remote list to open Relay. The chevron returns to
