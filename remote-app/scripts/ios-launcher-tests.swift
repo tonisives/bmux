@@ -24,6 +24,10 @@ final class BMUXLauncherTests: XCTestCase {
     image.name = name
     image.lifetime = .keepAlways
     add(image)
+    let hierarchy = XCTAttachment(string: app.debugDescription)
+    hierarchy.name = name + "-hierarchy"
+    hierarchy.lifetime = .keepAlways
+    add(hierarchy)
   }
 
   private func orient(landscape: Bool) {
@@ -40,6 +44,21 @@ final class BMUXLauncherTests: XCTestCase {
     XCTAssertFalse(app.buttons["Open Docs"].exists)
     XCTAssertFalse(app.buttons["Attention, 0 pending"].exists)
     XCTAssertEqual(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label == %@", "Settings", "Search")).count, 0)
+  }
+
+  private func waitForPageLayout(landscape: Bool) {
+    let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+      let page = self.app.descendants(matching: .any).matching(identifier: "demo-browser-page").firstMatch
+      guard page.exists else { return false }
+      let window = self.app.windows.firstMatch.frame, frame = page.frame
+      let inset = max(0, frame.minX - window.minX)
+      return (window.width > window.height) == landscape
+        && abs(frame.width - (window.width - 2 * inset)) <= 2
+        && frame.width >= window.width * 0.8
+        && frame.height >= window.height * 0.65
+        && frame.maxY <= window.maxY + 1
+    }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 30), .completed, "The browser page must fill the rotated window before capture")
   }
 
   override func tearDownWithError() throws {
@@ -78,6 +97,7 @@ final class BMUXLauncherTests: XCTestCase {
     capture("04-demo-list")
     app.buttons["Open Docs"].tap()
     assertPageOnly()
+    waitForPageLayout(landscape: false)
     capture("05-demo-page")
     app.buttons["Page details"].tap()
     XCTAssertTrue(app.staticTexts["Watch"].waitForExistence(timeout: 10))
@@ -86,8 +106,10 @@ final class BMUXLauncherTests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Watch"].waitForNonExistence(timeout: 10))
     orient(landscape: true)
     assertPageOnly()
+    waitForPageLayout(landscape: true)
     capture("07-demo-page-landscape")
     orient(landscape: false)
+    waitForPageLayout(landscape: false)
     app.terminate()
     app.launch()
 

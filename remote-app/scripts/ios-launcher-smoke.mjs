@@ -76,6 +76,11 @@ try {
     }
   }
   await metroLog.close()
+  try {
+    let predicate = 'process == "bmuxremote" AND (eventMessage CONTAINS[c] "transport" OR eventMessage CONTAINS[c] "font" OR eventMessage CONTAINS[c] "asset" OR eventMessage CONTAINS[c] "localhost" OR eventMessage CONTAINS[c] "load")'
+    let logs = await execute('xcrun', ['simctl', 'spawn', device, 'log', 'show', '--style', 'compact', '--last', '10m', '--info', '--predicate', predicate], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 })
+    await writeFile(path.join(output, 'native-asset-logs.txt'), logs.stdout)
+  } catch (error) { result.nativeAssetLogError = error.message }
   await execute('xcrun', ['xcresulttool', 'export', 'attachments', '--path', testResults, '--output-path', path.join(output, 'ui')], { timeout: 30_000 }).catch(error => { result.attachmentExportError = error.message })
   result.completedAt = new Date().toISOString()
   await writeFile(path.join(output, 'launcher-result.json'), JSON.stringify(result, null, 2))
