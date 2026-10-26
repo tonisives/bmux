@@ -1693,6 +1693,7 @@ test('pane address bars navigate independently and leave window switching availa
     await container.getByRole('button', { name: 'Address', exact: true }).click()
     let input = container.getByRole('textbox', { name: 'URL or search', exact: true })
     await expect(input).toBeFocused()
+    await expect(input).toBeVisible()
     await input.fill('pane')
     await expect(suggestions).toBeVisible()
     for (let ratio of [.4, .6]) {
@@ -2186,17 +2187,19 @@ test('window switching restores each window’s zoomed pane', async () => {
     await cli('select-pane', { client: client.id, pane: firstSplit.id })
     await cli('toggle-pane-zoom', { client: client.id })
     await expectSelection(first.id, [firstSplit.id], firstSplit.id)
+    await cli('cycle-pane', { client: client.id })
+    await expectSelection(first.id, [first.panes[0].id], first.panes[0].id)
 
     await cli('new-window', { session: session.id, client: client.id, name: 'zoom-third', url })
     await chrome.getByRole('button', { name: '1:zoom-first', exact: true }).click()
-    await expectSelection(first.id, [firstSplit.id], firstSplit.id)
+    await expectSelection(first.id, [first.panes[0].id], first.panes[0].id)
 
     await cli('cycle-window', { client: client.id, direction: 1 })
     await expectSelection(second.id, [second.panes[0].id, secondSplit.id], null)
     await cli('select-pane', { client: client.id, pane: secondSplit.id })
     await cli('toggle-pane-zoom', { client: client.id })
     await cli('cycle-window', { client: client.id, direction: -1 })
-    await expectSelection(first.id, [firstSplit.id], firstSplit.id)
+    await expectSelection(first.id, [first.panes[0].id], first.panes[0].id)
     await cli('select-window', { client: client.id, window: second.id })
     await expectSelection(second.id, [secondSplit.id], secondSplit.id)
 

@@ -3305,7 +3305,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         else owner.chrome.webContents.focus()
         if (args.movePointer === true && client.paneId !== previousPaneId) pointerTarget = { clientId: client.id, paneId: client.paneId, expires: Date.now() + 1000, origin: screen.getCursorScreenPoint() }
       }
-      save(); void scheduleVisuals(); return client
+      repairClients(); save(); void scheduleVisuals(); return client
     }
     if (method === 'select-layout' || method === 'maximize-pane') {
       let parent = args.pane ? paneById(model, args.pane) : undefined

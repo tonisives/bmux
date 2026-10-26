@@ -411,7 +411,7 @@
 .download progress { width: 100%; accent-color: #9dc5ee; }
 .download > div { display: flex; gap: 8px; }
 
-@container (max-width: 560px) { .clickModeLabel { display: none; } }
+@container (max-width: 560px) { .clickModeLabel, .addressBar:has(.addressEditor) .paneAgentId { display: none; } }
 @container (max-width: 300px) { .clickModeAction { padding: 3px 2px; } .clickModeActionGroup { gap: 2px; } .clickModeActions { gap: 2px; } }
 
 .extensionRow { position: relative; display: flex; align-items: center; gap: 8px; padding-right: 8px; border-bottom: 1px solid #363c45; }
