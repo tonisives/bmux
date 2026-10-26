@@ -12,15 +12,15 @@ describe('remote price estimates', () => {
     expect(estimateCurrency(['th-TH'],rates)).toBe('THB')
     expect(estimateCurrency(['en-AE'],rates)).toBe('USD')
   })
-  it('keeps USD explicit and formats local estimates using the currency precision', () => {
-    expect(priceEstimate(1000,'EUR',rates,'en-US')).toBe('USD\u00a010.00 (≈ EUR\u00a09.00)')
-    expect(priceEstimate(851,'JPY',rates,'en-US')).toBe('USD\u00a08.51 (≈ JPY\u00a01,277)')
-    expect(priceEstimate(1000,'USD',rates,'en-US')).toBe('USD\u00a010.00')
+  it('formats dollar prices and local estimates using the currency precision', () => {
+    expect(priceEstimate(1000,'EUR',rates,'en-US')).toBe('$10.00 (≈ EUR\u00a09.00)')
+    expect(priceEstimate(851,'JPY',rates,'en-US')).toBe('$8.51 (≈ JPY\u00a01,277)')
+    expect(priceEstimate(1000,'USD',rates,'en-US')).toBe('$10.00')
   })
   it('keeps the USD price available without reference data', () => {
     expect(estimateCurrency(['de-DE'])).toBe('USD')
     expect(estimateCurrency(['invalid!','ja-JP'],rates)).toBe('JPY')
     expect(localPrice(1000,'EUR')).toBeUndefined()
-    expect(priceEstimate(1000,'AED',rates,'en-US')).toBe('USD\u00a010.00')
+    expect(priceEstimate(1000,'AED',rates,'en-US')).toBe('$10.00')
   })
 })

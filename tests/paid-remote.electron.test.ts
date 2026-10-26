@@ -14,6 +14,7 @@ test('paid remote account connects a running computer and opens regional box che
   let directory = await fs.mkdtemp(path.join(os.tmpdir(),'bmux-paid-remote-')), config = path.join(directory,'config.yaml')
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let billingEmail: string | undefined
+  let rateRequests = 0
   let catalogFailed = false, expired = false, rentalEnabled = true, relayActive = true, enrollmentOrigin = true, rentals: RentedBox[] = []
   let quote = {id:'regional-quote',region:'fsn1',regionName:'Falkenstein',memoryGb:4,cores:2,diskGb:40,trafficBytes:20e12,monthlyCents:851,currency:'usd'}
   let checkoutUrl = 'https://checkout.stripe.com/c/pay/bmux-fixture'
@@ -30,7 +31,7 @@ test('paid remote account connects a running computer and opens regional box che
       if (route === '/api/hosts') { json(readyHost ? [{id:'rented-host',generation:'rented-generation',key:publicKey,service:'research-box',permission:'control',sessions:[{id:'rented-session',workspace:1,name:'Research box',panes:[{id:'rented-pane',title:'Start page'}]}]}] : []); return }
       if (route === '/api/me') { json({owner:'123456789',email:billingEmail,entitlement:{canStream:true,streamLimit:100,activeStreams:0,status:'unmanaged'}}); return }
       if (route === '/api/billing/status') { json({enabled:true,relay:{active:relayActive,monthlyCents:1000,currency:'usd',maxStreams:2,cancelRequested:false,status:relayActive?'active':'inactive'}}); return }
-      if (route === '/api/billing/rates') { json({base:'USD',source:'ECB',date:'2026-10-23',rates:{USD:1,EUR:.9,GBP:.75,JPY:150,THB:35}}); return }
+      if (route === '/api/billing/rates') { rateRequests++; json({base:'USD',source:'ECB',date:'2026-10-23',rates:{USD:1,EUR:.9,GBP:.75,JPY:150,THB:35}}); return }
       if (route === '/api/rentals') { json(rentals); return }
       if (route === '/api/streams') { json(views); return }
       if (route === '/api/streams/disconnect') { views=[]; json({ok:true}); return }
@@ -86,9 +87,9 @@ test('paid remote account connects a running computer and opens regional box che
     await command.fill('settings'); await command.press('Enter')
     await expect(settings).toContainText('pilot@example.com')
     await expect(settings.getByRole('button',{name:'Confirm billing email with Google',exact:true})).toHaveCount(0)
-    await settings.getByRole('combobox',{name:'Estimates in'}).selectOption('EUR')
-    await expect(settings.getByLabel('Relay',{exact:true})).toContainText(/USD\s10\.00 \(≈ EUR\s9\.00\)/)
-    await expect(settings).toContainText('Your bank sets the conversion rate')
+    await expect(settings.getByRole('combobox',{name:'Estimates in'})).toHaveCount(0)
+    await expect(settings.getByLabel('Relay',{exact:true})).toContainText('$10.00 / month')
+    await expect(settings).not.toContainText('Your bank sets the conversion rate')
     await settings.getByRole('button',{name:'Disconnect view',exact:true}).click()
     await expect(settings.getByRole('button',{name:'Disconnect view',exact:true})).toHaveCount(0)
     await settings.getByRole('button',{name:'Close',exact:true}).click()
@@ -126,11 +127,11 @@ test('paid remote account connects a running computer and opens regional box che
     let form = picker.getByRole('form',{name:'Rent a box'})
     await expect(form.getByRole('radio')).toHaveCount(3)
     await expect(picker.getByRole('region',{name:'Relay',exact:true})).toHaveCount(0)
-    await picker.getByRole('combobox',{name:'Estimates in'}).selectOption('JPY')
-    await expect(form.getByRole('radiogroup')).toContainText(/USD\s8\.51 \(≈ JPY\s1,277\)/)
+    await expect(picker.getByRole('combobox',{name:'Estimates in'})).toHaveCount(0)
+    await expect(form.getByRole('radiogroup')).toContainText('$8.51')
     await form.getByRole('button',{name:'All sizes and regions'}).click()
     await form.getByRole('combobox',{name:'Region',exact:true}).selectOption('fsn1')
-    await expect(form.getByRole('combobox',{name:'Size and region'})).toContainText(/USD\s8\.51 \(≈ JPY\s1,277\)/)
+    await expect(form.getByRole('combobox',{name:'Size and region'})).toContainText('$8.51')
     await form.getByRole('combobox',{name:'Size and region'}).selectOption('regional-quote')
     await form.getByText('Rental and deletion terms',{exact:true}).click()
     await expect(form).toContainText('Price includes IPv4 and our 20% service fee')
@@ -140,7 +141,7 @@ test('paid remote account connects a running computer and opens regional box che
     await form.getByRole('checkbox').check()
     await chrome.screenshot({path:info.outputPath('rent-box.png')})
     await application.context().route('https://checkout.stripe.com/**',route => route.fulfill({contentType:'text/html',body:'<!doctype html><title>Test checkout</title><h1>Test checkout</h1>'}))
-    let checkout = form.getByRole('button',{name:/Continue to checkout · USD\s8\.51\/month/})
+    let checkout = form.getByRole('button',{name:'Continue to checkout · $8.51/month'})
     for (let attempt = 0; attempt < 2; attempt++) { await checkout.click(); await expect(picker.getByRole('alert')).toContainText('Checkout temporarily unavailable'); await expect(checkout).toBeEnabled() }
     let attempts = requests.filter(item => item.route === '/api/rentals/checkout')
     expect(attempts).toHaveLength(2); expect(attempts[0].body.requestId).toBe(attempts[1].body.requestId)
@@ -240,6 +241,7 @@ test('paid remote account connects a running computer and opens regional box che
     expect(await application.evaluate(({BaseWindow}) => BaseWindow.getAllWindows().length)).toBe(nativeWindows)
     expect(requests.filter(item => item.route === '/api/services')).toHaveLength(3)
     expect(requests.filter(item => item.route === '/api/services/revoke')).toHaveLength(3)
+    expect(rateRequests).toBe(0)
   } finally {
     await closeTestApplication(application)
     for (let socket of sockets.clients) socket.terminate(); sockets.close(); server.closeAllConnections()
