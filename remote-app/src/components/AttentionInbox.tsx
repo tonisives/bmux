@@ -28,7 +28,7 @@ export let AttentionInbox = ({ items, hosts, open, dismiss, loadMore, loading = 
   let pending = pendingAttention(items)
   let visible = history ? items : pending
   return <ScrollView contentContainerStyle={local.content}>
-    <View style={local.sectionHeading}><View style={local.heading}><Text style={styles.title}>Attention</Text><Text style={styles.secondary}>{pending.length ? pending.length + (pending.length === 1 ? ' open request' : ' open requests') : 'You’re all caught up'}</Text></View><Button title={history ? 'Pending' : 'History'} onPress={() => setHistory(!history)} /></View>
+    <View style={local.sectionHeading}><View style={local.heading}><Text style={styles.title}>Notifications</Text>{pending.length > 0 && <Text style={styles.secondary}>{pending.length + (pending.length === 1 ? ' open request' : ' open requests')}</Text>}</View><Button title={history ? 'Pending' : 'History'} onPress={() => setHistory(!history)} /></View>
     {visible.map(item => {
       let details = attentionDetails(item, hosts)
       let success = item.status === 'resolved'
@@ -44,7 +44,7 @@ export let AttentionInbox = ({ items, hosts, open, dismiss, loadMore, loading = 
       </View>
     })}
     {!!loadMore && <Button title="Load more" busy={loading} onPress={loadMore} />}
-    {visible.length === 0 && <View style={local.empty}><View style={local.emptyIcon}><Ionicons name="checkmark" size={28} color={colors.secondary} /></View><Text style={local.emptyTitle}>{history ? 'No requests yet' : 'Nothing needs your attention'}</Text><Text style={local.emptyText}>Agent help requests and browser checks appear here.</Text></View>}
+    {visible.length === 0 && <View style={local.empty}><Text style={local.emptyTitle}>{history ? 'No history' : 'No notifications'}</Text></View>}
   </ScrollView>
 }
 
@@ -53,5 +53,5 @@ let local = StyleSheet.create({
   item: { backgroundColor: colors.surface, borderRadius: radius.md, borderCurve: 'continuous', position: 'relative', overflow: 'hidden' }, open: { padding: 18, gap: 12 }, pressed: { backgroundColor: colors.grouped }, requestHeading: { flexDirection: 'row', gap: 10, alignItems: 'center', paddingRight: 30 }, icon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.grouped }, requestTitle: { color: colors.text, fontSize: 14, fontWeight: '600', flex: 1 },
   status: { backgroundColor: colors.grouped, paddingVertical: 5, paddingHorizontal: 9, borderRadius: radius.pill }, statusText: { color: colors.secondary, fontSize: 11, fontWeight: '600' }, success: { color: colors.success }, page: { color: colors.text, fontSize: 18, fontWeight: '600', letterSpacing: -0.2 }, requestFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 2 }, date: { color: colors.muted, fontSize: 12, flex: 1 }, openText: { color: colors.text, fontSize: 13, fontWeight: '500' }, dismiss: { position: 'absolute', right: 0, top: 0, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   summary: { backgroundColor: colors.surface, borderRadius: radius.md, padding: 18, gap: 12 }, summaryHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 }, summaryTitle: { color: colors.text, fontSize: 15, fontWeight: '600', flex: 1 },
-  empty: { paddingHorizontal: 24, paddingVertical: 48, gap: 16, alignItems: 'center' }, emptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }, emptyTitle: { color: colors.text, fontSize: 17, fontWeight: '500', textAlign: 'center' }, emptyText: { color: colors.secondary, fontSize: 14, lineHeight: 21, textAlign: 'center' },
+  empty: { paddingHorizontal: 24, paddingVertical: 48, alignItems: 'center' }, emptyTitle: { color: colors.secondary, fontSize: 15, textAlign: 'center' },
 })

@@ -11,17 +11,29 @@ let harnessPaths = new Set([
   '.github/workflows/remote-app.yml',
   '.github/workflows/remote-chooser.yml',
   'remote-app/README.md',
+  'remote-app/INTEGRATION.md',
   'remote-app/scripts/add-ios-launcher-tests.rb',
   'remote-app/scripts/ios-launcher-smoke.mjs',
   'remote-app/scripts/ios-launcher-tests.swift',
   'remote-app/scripts/verify-ios-reused-app.mjs',
   'tests/fixtures/remote-workspace-main.ts',
   'tests/remote-workspace.electron.test.ts',
+  'tests/remote-app.electron.test.ts',
+  'tests/remote-auth.electron.test.ts',
+  'tests/remote-host.electron.test.ts',
+  'tests/paid-remote.electron.test.ts',
 ])
+let webPaths = new Set(['remote/web/main.tsx', 'src/renderer/RemoteAccount.tsx'])
+let metroSource = file => /^remote-app\/src\/.+\.(?:[cm]?js|jsx|ts|tsx|css)$/.test(file)
 
 export let verifyReusedChanges = changed => {
-  let productChanges = changed.filter(file => !harnessPaths.has(file) && !file.startsWith('docs/') && !['README.md', 'AGENTS.md'].includes(file))
-  assert.deepEqual(productChanges, [], 'Retained app reuse requires unchanged product, configuration, dependencies and runtime inputs')
+  let nativeInputChanges = changed.filter(file => !metroSource(file) && !webPaths.has(file) && !harnessPaths.has(file) && !file.startsWith('docs/') && !['README.md', 'AGENTS.md'].includes(file))
+  assert.deepEqual(nativeInputChanges, [], 'Retained app reuse requires unchanged native inputs, configuration, dependencies and assets')
+  return {
+    runtimeSourceChanges: changed.filter(metroSource),
+    webSourceChanges: changed.filter(file => webPaths.has(file)),
+    allowedHarnessChanges: changed.filter(file => !metroSource(file) && !webPaths.has(file)),
+  }
 }
 
 let iosBuildJob = workflow => {
@@ -59,7 +71,8 @@ let main = async () => {
   let target = (await execute('git', ['rev-parse', 'HEAD'])).stdout.trim()
   if (process.env.GITHUB_SHA) assert.equal(target, process.env.GITHUB_SHA)
   let changed = (await execute('git', ['diff', '--name-only', run.head_sha, target])).stdout.trim().split('\n').filter(Boolean)
-  verifyReusedChanges(changed)
+  let sourceChanges = verifyReusedChanges(changed)
+  let metroSourceTree = (await execute('git', ['rev-parse', `${target}:remote-app/src`])).stdout.trim()
   let sourceJob = iosBuildJob((await execute('git', ['show', `${run.head_sha}:.github/workflows/remote-app.yml`])).stdout)
   let targetJob = iosBuildJob((await execute('git', ['show', `${target}:.github/workflows/remote-app.yml`])).stdout)
   assert.equal(sourceJob, targetJob, 'The retained native build configuration must match')
@@ -100,7 +113,7 @@ let main = async () => {
     nativeCompile: compile.conclusion, nativeStartup: startup.conclusion,
     unchangedNativeBuildJobSha256: createHash('sha256').update(sourceJob).digest('hex'),
     buildJobNormalization: ['dispatch routing condition', 'job timeout budget'],
-    allowedHarnessChanges: changed, productChanges: [], artifactId: artifact.id,
+    ...sourceChanges, nativeInputChanges: [], metroSourceTree, artifactId: artifact.id,
     artifactDigest: artifact.digest, downloadedDigest: digest, executableHashes: hashes,
     bundleIdentifier: info.CFBundleIdentifier, sdk: info.DTSDKName, executableModesRestored: true,
   }

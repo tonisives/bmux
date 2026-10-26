@@ -7,16 +7,19 @@ attention delivery and host primitives belong to the backend workstream.
 
 ## Onboarding and layout
 
-Try demo opens two local sample pages without authentication or signaling. It
-starts in Watch, requires Take control before confirming stock, and requires an
-explicit Resume demo agent. The shared session list is also used for connected
-hosts. Wide screens show list and detail side by side; phones show one at a time.
-Controls use pill shapes and rows use rounded inset groups with neutral fills.
+Demo opens a list containing Docs and Notes without authentication or signaling.
+Opening either page starts in Watch. Take control enables editing Notes. The
+shared session list is also used for connected hosts.
 
-When sessions exist, connection setup moves below the list. The included-browser
-promotion is hidden when that browser already has listed pages; a browser that
-has not been opened is a compact optional row. New accounts can open an entitled
-included browser in one action. Their default profile comes from the host.
+Sessions, Settings and Search are the three bottom tabs. One bell at the top
+opens notifications. Phones show the list or a page, including in landscape;
+web windows and native tablets can show both. A page has a title bar above its
+browser content. Tapping the title opens details, controls and page switching.
+
+Connection setup, notification registration and the included browser are in
+Settings. The included-browser row is hidden when that browser already has
+listed pages. New accounts can open an entitled included browser in one action.
+Its default profile comes from the host.
 
 ## Native authentication
 
@@ -65,12 +68,11 @@ change inbox metadata only. Expo push data contains only attentionId. Opening a
 notification resolves the authenticated exact host generation, session, pane
 and episode, then starts in Watch. It never acquires control or resumes.
 
-Sessions show an open-request summary and markers for the matching page and
-host generation. The inbox shows the computer, session, page and task status;
-metadata from a replacement runtime is not used to label an old request. Demo
-mode uses the same inbox and opens its sample request on Field Notes in Watch.
-Native notification setup appears below connected sessions until registration
-succeeds. Registration state is scoped to the current account/request and is
+Sessions show markers for requests on the matching page and host generation.
+The inbox shows the computer, session, page and task status; metadata from a
+replacement runtime is not used to label an old request. Demo has an empty
+notification inbox. Native notification setup is in Settings. Registration
+state is scoped to the current account/request and is
 rechecked on foreground return without asking for permission again.
 
 Resume requires a current lease and fresh attention resolution. A persisted

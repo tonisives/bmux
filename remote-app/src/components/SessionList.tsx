@@ -90,13 +90,15 @@ let Machine = ({ host, hosts, query, color, details, create, ...props }: Omit<Se
   </View>
 }
 
-export let SessionList = ({ hosts, attention = [], selection, select, create, header, footer, empty }: {
-  hosts: Host[]; selection?: Selection; select: (selection: Selection) => void; create?: (host: Host) => void; attention?: Attention[]; header?: ReactNode; footer?: ReactNode; empty?: ReactNode
+export let SessionList = ({ hosts, attention = [], selection, select, create, header, footer, empty, searchVisible = true, focusSearch = 0 }: {
+  hosts: Host[]; selection?: Selection; select: (selection: Selection) => void; create?: (host: Host) => void; attention?: Attention[]; header?: ReactNode; footer?: ReactNode; empty?: ReactNode; searchVisible?: boolean; focusSearch?: number
 }) => {
   let [search, setSearch] = useState(''), [machineId, setMachineId] = useState<string>(), [now, setNow] = useState(Date.now)
+  let searchInput = useRef<TextInput>(null)
   let [machineColors, setMachineColors] = useState<Record<string, string>>({})
   let machine = hosts.find(host => host.id === machineId), color = (host: Host) => machineColors[host.id] ?? remoteMachineColor(host.id, hosts)
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
+  useEffect(() => { if (focusSearch && searchVisible) searchInput.current?.focus() }, [focusSearch, searchVisible])
   useEffect(() => {
     let active = true
     void AsyncStorage.getItem('remote-machine-colors').then(value => { if (active && value) { let saved = JSON.parse(value); setMachineColors(Object.fromEntries(Object.entries(saved).filter(([, color]) => remoteMachinePalette.includes(String(color)))) as Record<string, string>) } }).catch(() => undefined)
@@ -104,10 +106,10 @@ export let SessionList = ({ hosts, attention = [], selection, select, create, he
   }, [])
   let saveColor = (value: string) => { if (!machine) return; let next = { ...machineColors, [machine.id]: value }; setMachineColors(next); void AsyncStorage.setItem('remote-machine-colors', JSON.stringify(next)).catch(() => undefined) }
   return <View style={local.screen} {...webKeys(treeKeys)}>
-    <View style={local.toolbar}><Ionicons name="search" size={17} color={colors.secondary} /><TextInput style={local.searchInput} placeholder="Search sessions" placeholderTextColor={colors.muted} value={search} onChangeText={setSearch} accessibilityLabel="Search sessions" /></View>
+    {searchVisible && <View style={local.toolbar}><Ionicons name="search" size={17} color={colors.secondary} /><TextInput ref={searchInput} style={local.searchInput} placeholder="Search sessions" placeholderTextColor={colors.muted} value={search} onChangeText={setSearch} accessibilityLabel="Search sessions" /></View>}
     <ScrollView style={local.scroll} contentContainerStyle={local.list} keyboardShouldPersistTaps="handled">
       {header}
-      {hosts.map(host => <Machine key={host.id} host={host} hosts={hosts} query={search} color={color(host)} details={() => setMachineId(host.id)} create={create} selection={selection} select={select} attention={attention} now={now} />)}
+      {hosts.map(host => <Machine key={host.id} host={host} hosts={hosts} query={searchVisible ? search : ''} color={color(host)} details={() => setMachineId(host.id)} create={create} selection={selection} select={select} attention={attention} now={now} />)}
       {hosts.length === 0 && empty}
       {footer}
     </ScrollView>

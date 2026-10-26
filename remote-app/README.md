@@ -46,23 +46,26 @@ project. Changes to this native setup require rebuilding the development app.
 ## Client behavior
 
 - Machines, sessions, windows and pages use the same tree layout across platforms.
-- Try demo opens two interactive sample pages without sign-in or a live view.
-  It uses the same session list and controls, and labels its local task Demo.
-  Its Attention inbox opens the sample request on its exact page in Watch.
-- Wide screens place sessions beside the browser. Connected sessions lead the
-  list; machine setup and an unopened included browser sit below them.
+- Demo opens a list with two local pages, Docs and Notes, without sign-in or a
+  live view. Notes is editable after taking control.
+- Sessions, Settings and Search are the three bottom tabs. The bell opens
+  notifications. Machine setup and the included browser are in Settings.
+- Web windows and native tablets place sessions beside the browser. Phones show
+  the list or the page, including in landscape.
+- The page title opens details, controls and page switching. The browser fills
+  the area below its title bar.
 - Opening a page or attention request starts in Watch.
-- Zoom and pan are local. Fit to phone explicitly changes the host viewport
+- Zoom and pan are local. Fit viewport explicitly changes the host viewport
   while its viewer owns the control lease.
 - Backgrounding closes the live view and releases control. Returning reconnects
   to the same host generation and page.
 - Attention links and push data carry an opaque attention ID. The app resolves
   the authenticated target and checks its host generation, session and pane.
-- Open requests appear above the session list and mark their matching pages.
-  The inbox shows the computer, session, page and checking/completed status.
+- Open requests mark their matching pages. The notification inbox shows the
+  computer, session, page and checking/completed status.
 - Native login credentials and per-account signing seeds use SecureStore.
-- Notifications use Expo tokens. Connected sessions offer Enable alerts until
-  registration succeeds; Settings shows the registration status. Returning from
+- Notifications use Expo tokens. Settings offers Enable notifications and shows
+  the registration status. Returning from
   system settings rechecks permission without prompting.
 
 The shared signed viewer lives in remote/web/client.ts. Platform adapters supply
@@ -115,12 +118,17 @@ runs only for that check and stops when the check finishes. The simulator app is
 uploaded after a successful compile even if a later launch or UI check fails.
 
 The chooser runner is a standalone XCTest project with no application build
-dependency. To verify harness changes against a retained Debug app, dispatch
+dependency. To verify harness or JavaScript UI changes against a retained Debug app, dispatch
 `remote-app.yml` with `retained_app_run` set to its build run ID. It invokes the
-separate Remote chooser workflow without cancelling a normal app build. Reuse
+separate Remote chooser workflow without cancelling a normal app build. The
+same dispatch also checks and exports the current web app, then runs its browser
+test. Reuse
 requires successful native compilation and startup, an unchanged native build
-job and product/runtime inputs, and the original artifact's verified SHA-256
+job, native configuration, dependencies and assets, and the original artifact's verified SHA-256
 digest. A fresh iOS 27 simulator runs the same launch and chooser assertions;
 the artifact includes provenance, screenshots, test counts and cleanup results.
+Source-only changes under `src/` are served by a fresh Metro fixture. Its receipt
+records the checkout SHA, source tree and bundle hash separately from the
+retained native executable hashes.
 
 Clawtab theme attribution is recorded in THIRD_PARTY_NOTICES.md.

@@ -16,7 +16,6 @@ concurrency:
   cancel-in-progress: ${{ !inputs.retained_app_run }}
 jobs:
   web:
-    if: ${{ !inputs.retained_app_run }}
     runs-on: ubuntu-24.04
     defaults:
       run:

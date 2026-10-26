@@ -49,7 +49,9 @@ final class BMUXLauncherTests: XCTestCase {
     capture("02-editable-server-url")
     app.buttons["Connect"].tap()
 
-    XCTAssertTrue(app.staticTexts["Your sessions, wherever you are."].waitForExistence(timeout: 180))
+    XCTAssertTrue(app.buttons["Sign in"].waitForExistence(timeout: 180))
+    XCTAssertTrue(app.buttons["Sign in"].isHittable)
+    XCTAssertTrue(app.buttons["Demo"].exists)
     capture("03-metro-welcome")
     app.terminate()
     app.launch()

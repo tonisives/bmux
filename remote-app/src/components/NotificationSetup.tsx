@@ -18,9 +18,9 @@ export let NotificationSetup = ({ compact = false }: { compact?: boolean }) => {
     finally { setBusy(false) }
   }
   return <View style={styles.card}>
-    <View style={local.heading}><Ionicons name={remote.notificationsEnabled ? 'notifications' : 'notifications-outline'} size={20} color={colors.secondary} /><Text style={local.title}>{remote.notificationsEnabled ? 'Notifications enabled' : 'Get help alerts'}</Text></View>
-    <Text style={styles.secondary}>{off ? 'Enable notifications in system settings.' : 'Know when a browser check or agent needs you.'}</Text>
-    {!remote.notificationsEnabled && <View style={styles.row}><Button title={off ? 'Open system settings' : 'Enable alerts'} busy={busy} onPress={() => off ? void Linking.openSettings().catch(error => setError(error.message)) : void enable()} /></View>}
+    <View style={local.heading}><Ionicons name={remote.notificationsEnabled ? 'notifications' : 'notifications-outline'} size={20} color={colors.secondary} /><Text style={local.title}>{remote.notificationsEnabled ? 'Notifications enabled' : 'Notifications'}</Text></View>
+    {off && <Text style={styles.secondary}>Enable notifications in system settings.</Text>}
+    {!remote.notificationsEnabled && <View style={styles.row}><Button title={off ? 'Open system settings' : 'Enable notifications'} busy={busy} onPress={() => off ? void Linking.openSettings().catch(error => setError(error.message)) : void enable()} /></View>}
     {!!error && <Text accessibilityRole="alert" style={local.error}>{error}</Text>}
   </View>
 }
