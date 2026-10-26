@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, reassignConflictingPaneIds, removePane, removeSession, repairClientSelections, resolveWindow, newWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
+import { cloneWindow, initialModel, mapLayout, newPane, newSession, paneInDirection, reassignConflictingPaneIds, removePane, removeSession, repairClientSelections, resolveWindow, newWindow, selectClientWindow, splitLayout, updateAutomaticWindowName, validateModel } from '../src/main/model'
 import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/store'
 import { backOpener } from '../src/shared/opener-navigation'
 
@@ -44,6 +44,21 @@ describe('session layouts and persistence', () => {
       delete model.lastFocusedClientId
       writeModel(directory, model)
       expect(readModel(directory).lastFocusedClientId).toBeUndefined()
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
+  it('persists window zooms while omitting windows in unsaved sessions', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-window-zoom-'))
+    try {
+      let model = initialModel(), session = model.sessions[0], window = session.windows[0]
+      let privateSession = newSession('private', session.defaultProfileId, true), ephemeral = newSession('ephemeral', session.defaultProfileId)
+      ephemeral.ephemeral = true
+      model.sessions.push(privateSession, ephemeral)
+      model.clients.push({ id: 'client', sessionId: session.id, windowId: window.id, paneId: window.panes[0].id, zoomedPaneId: window.panes[0].id, width: 800, height: 600, windowZooms: Object.fromEntries(model.sessions.map(session => [session.windows[0].id, session.windows[0].panes[0].id])) })
+      writeModel(directory, model)
+      let restored = readModel(directory)
+      expect(restored.clients[0].windowZooms).toEqual({ [window.id]: window.panes[0].id })
+      expect(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).not.toContain(privateSession.id)
+      expect(fs.readFileSync(path.join(directory, 'state.json'), 'utf8')).not.toContain(ephemeral.id)
     } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
   it('persists pinned windows, accepts older state and rejects invalid pin settings', () => {
@@ -359,6 +374,65 @@ it('returns each client to its most recently visited surviving window after clos
   repairClientSelections(model)
   expect(client.windowId).toBe(first.id)
   expect(client.windowHistory).toEqual([first.id])
+})
+
+it('remembers each client’s zoom separately for every window', () => {
+  let model = initialModel(), session = model.sessions[0], first = session.windows[0], second = newWindow('second', session.defaultProfileId)
+  let split = newPane(session.defaultProfileId)
+  first.panes.push(split)
+  first.layout = splitLayout(first.layout, first.panes[0].id, split.id, 'horizontal')
+  session.windows.push(second)
+  model.clients = first.panes.map((pane, index) => ({ id: `client_${index}`, sessionId: session.id, windowId: first.id, paneId: pane.id, zoomedPaneId: pane.id, width: 800, height: 600 }))
+  repairClientSelections(model)
+  let [client, other] = model.clients
+  for (let item of model.clients) selectClientWindow(item, session, second)
+  repairClientSelections(model)
+  expect(model.clients.map(client => client.zoomedPaneId)).toEqual([null, null])
+  client.zoomedPaneId = second.panes[0].id
+  repairClientSelections(model)
+  for (let item of model.clients) selectClientWindow(item, session, first)
+  repairClientSelections(model)
+  expect(client).toMatchObject({ paneId: first.panes[0].id, zoomedPaneId: first.panes[0].id })
+  expect(other).toMatchObject({ paneId: split.id, zoomedPaneId: split.id })
+  client.zoomedPaneId = null
+  repairClientSelections(model)
+  selectClientWindow(client, session, second)
+  repairClientSelections(model)
+  expect(client).toMatchObject({ paneId: second.panes[0].id, zoomedPaneId: second.panes[0].id })
+  selectClientWindow(client, session, first)
+  repairClientSelections(model)
+  expect(client.zoomedPaneId).toBeNull()
+  expect(other.zoomedPaneId).toBe(split.id)
+})
+
+it('forgets closed zoomed panes before their IDs are reused and restores zoom on window closure', () => {
+  let model = initialModel(), session = model.sessions[0], first = session.windows[0], second = newWindow('second', session.defaultProfileId)
+  let split = newPane(session.defaultProfileId)
+  first.panes.push(split)
+  first.layout = splitLayout(first.layout, first.panes[0].id, split.id, 'horizontal')
+  session.windows.push(second)
+  model.clients = [{ id: 'client', sessionId: session.id, windowId: first.id, paneId: split.id, zoomedPaneId: split.id, width: 800, height: 600 }]
+  let client = model.clients[0]
+  repairClientSelections(model)
+  selectClientWindow(client, session, second)
+  repairClientSelections(model)
+  first.panes = first.panes.filter(pane => pane !== split)
+  first.layout = removePane(first.layout, split.id)!
+  repairClientSelections(model)
+  expect(client.windowZooms).not.toHaveProperty(first.id)
+  first.panes.push({ ...split, title: 'replacement' })
+  first.layout = splitLayout(first.layout, first.panes[0].id, split.id, 'horizontal')
+  selectClientWindow(client, session, first)
+  repairClientSelections(model)
+  expect(client.zoomedPaneId).toBeNull()
+  client.zoomedPaneId = client.paneId = first.panes[0].id
+  repairClientSelections(model)
+  selectClientWindow(client, session, second)
+  repairClientSelections(model)
+  session.windows = [first]
+  repairClientSelections(model)
+  expect(client).toMatchObject({ windowId: first.id, paneId: first.panes[0].id, zoomedPaneId: first.panes[0].id })
+  expect(client.windowZooms).toEqual({ [first.id]: first.panes[0].id })
 })
 
 it('keeps each client session history ordered by most recent selection', () => {

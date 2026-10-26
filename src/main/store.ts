@@ -86,13 +86,19 @@ export let writeModel = (directory: string, model: Model, bookmarkFile = path.jo
   let sessions = model.sessions.filter(session => !session.private && !session.ephemeral)
   if (!sessions.length) sessions = [newSession('main', model.profiles[0].id, false, model)]
   let sessionIds = new Set(sessions.map(session => session.id))
+  let windowIds = new Set(sessions.flatMap(session => session.windows.map(window => window.id)))
   let restored = model.clients.map(client => {
     if (!model.sessions.some(session => session.id === client.sessionId && session.remote)) return client
     let session = latestLocalSession({ ...model, sessions }, client) ?? sessions[0]
     let window = client.windowHistory?.map(id => session.windows.find(window => window.id === id)).find(window => !!window) ?? session.windows[0]
     return { ...client, sessionId: session.id, windowId: window.id, paneId: window.panes[0]?.id ?? null, zoomedPaneId: null }
   })
-  let clients = restored.filter(client => sessionIds.has(client.sessionId)).map(client => ({ ...client, sessionHistory: client.sessionHistory?.filter(id => sessionIds.has(id)), windowHistory: client.windowHistory?.filter(id => sessions.some(session => session.windows.some(window => window.id === id))) }))
+  let clients = restored.filter(client => sessionIds.has(client.sessionId)).map(client => ({
+    ...client,
+    sessionHistory: client.sessionHistory?.filter(id => sessionIds.has(id)),
+    windowHistory: client.windowHistory?.filter(id => windowIds.has(id)),
+    windowZooms: client.windowZooms && Object.fromEntries(Object.entries(client.windowZooms).filter(([id]) => windowIds.has(id)))
+  }))
   let lastFocusedClientId = clients.some(client => client.id === model.lastFocusedClientId) ? model.lastFocusedClientId : undefined
   let state: Model = { ...model, sessions, clients, lastFocusedClientId, profiles: model.profiles.map(({ bookmarks: _bookmarks, ...profile }) => profile) }
   writeAtomic(path.join(directory, 'state.json'), JSON.stringify(state, null, 2))

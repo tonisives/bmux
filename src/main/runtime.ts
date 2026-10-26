@@ -21,7 +21,7 @@ import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
-import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
+import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, selectClientWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
@@ -3159,8 +3159,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = resolve(model.sessions, args.session, 'Session')
       let windowId = client.sessionId === session.id ? client.windowId : client.windowHistory?.find(id => session.windows.some(window => window.id === id))
       let window = session.windows.find(window => window.id === windowId) ?? session.windows[0]
-      if (client.windowId !== window.id) client.paneId = window.panes[0]?.id ?? null
-      client.sessionId = session.id; client.windowId = window.id
+      selectClientWindow(client, session, window)
       changed(); await visualQueue; return client
     }
     if (method === 'list-windows') return resolve(model.sessions, args.session, 'Session').windows
@@ -3276,8 +3275,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = resolve(model.sessions, client.sessionId, 'Session')
       let index = session.windows.findIndex(window => window.id === client.windowId)
       let window = method === 'select-window' ? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window') : session.windows[(index + Number(args.direction ?? 1) + session.windows.length) % session.windows.length]
-      client.sessionId = model.sessions.find(session => session.windows.includes(window))!.id
-      client.windowId = window.id; client.paneId = window.panes[0]?.id ?? null
+      selectClientWindow(client, model.sessions.find(session => session.windows.includes(window))!, window)
       changed(); await visualQueue; return client
     }
     if (method === 'select-pane' || method === 'cycle-pane' || method === 'select-pane-direction') {

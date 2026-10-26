@@ -1,7 +1,7 @@
 import { validateAgentInfo } from '../shared/agent-info'
 import { assignWindowNumbers, windowNumber } from '../shared/window-number'
 import { randomUUID } from 'node:crypto'
-import type { Layout, Model, Pane, Profile, WorkspaceSession, InternalWindow } from '../shared/types'
+import type { Client, Layout, Model, Pane, Profile, WorkspaceSession, InternalWindow } from '../shared/types'
 import { parseProfileProxy } from './profile-proxy'
 import { parseDevicePersona } from './device-persona'
 
@@ -300,13 +300,22 @@ export let validateModel = (value: unknown): Model => {
   return model
 }
 
+export let selectClientWindow = (client: Client, session: WorkspaceSession, window: InternalWindow) => {
+  let sameWindow = client.windowId === window.id
+  let zoomedPaneId = sameWindow ? client.zoomedPaneId : client.windowZooms?.[window.id]
+  client.zoomedPaneId = window.panes.some(pane => pane.id === zoomedPaneId) ? zoomedPaneId : null
+  client.paneId = client.zoomedPaneId ?? (sameWindow && window.panes.some(pane => pane.id === client.paneId) ? client.paneId : window.panes[0]?.id ?? null)
+  client.sessionId = session.id
+  client.windowId = window.id
+}
+
 export let repairClientSelections = (model: Model) => {
   for (let session of model.sessions) { assignWindowNumbers(session); orderPinnedWindows(session) }
   let panes = walkPanes(model).map(item => item.pane), paneIds = new Set(panes.map(pane => pane.id))
   // Pane numbers can be reused after closure. Never return to an unrelated page.
   for (let pane of panes) if (pane.backToOpener && !paneIds.has(pane.openerPaneId!)) pane.backToOpener = false
   let existingSessions = new Set(model.sessions.map(session => session.id))
-  let existingWindows = new Set(model.sessions.flatMap(session => session.windows.map(window => window.id)))
+  let existingWindows = new Map(model.sessions.flatMap(session => session.windows.map(window => [window.id, window] as const)))
   for (let client of model.clients) {
     let session = model.sessions.find(session => session.id === client.sessionId) ?? model.sessions[0]
     if (!session) continue
@@ -317,10 +326,13 @@ export let repairClientSelections = (model: Model) => {
     let previous = history.find(id => session.windows.some(window => window.id === id))
     let window = session.windows.find(window => window.id === client.windowId)
       ?? session.windows.find(window => window.id === previous) ?? session.windows[0]
-    client.windowId = window.id
+    if (client.windowId !== window.id) selectClientWindow(client, session, window)
     client.windowHistory = [window.id, ...history.filter(id => id !== window.id)]
     if (!window.panes.some(pane => pane.id === client.paneId)) client.paneId = window.panes[0]?.id ?? null
     if (!window.panes.some(pane => pane.id === client.zoomedPaneId)) client.zoomedPaneId = null
+    client.windowZooms = Object.fromEntries(Object.entries(client.windowZooms ?? {}).filter(([windowId, paneId]) => existingWindows.get(windowId)?.panes.some(pane => pane.id === paneId)))
+    if (client.zoomedPaneId) client.windowZooms[window.id] = client.zoomedPaneId
+    else delete client.windowZooms[window.id]
   }
 }
 
