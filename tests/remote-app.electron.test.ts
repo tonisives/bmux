@@ -136,6 +136,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await page.getByRole('button', { name: 'Attention, 0 pending', exact: true }).click()
     await expect(page.getByText('No notifications', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(page.getByText('No notifications', { exact: true })).toHaveCount(0)
     await page.screenshot({ path: info.outputPath('companion-demo-list-mobile.png') })
     await page.getByRole('button', { name: 'Open Notes', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Demo note', exact: true })).toHaveValue('A local note')

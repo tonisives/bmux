@@ -54,7 +54,7 @@ jobs:
         with:
           name: remote-app-web
           path: remote-app/dist/
-      - run: pnpm test:electron tests/remote-app.electron.test.ts
+      - run: pnpm test:electron tests/remote-app.electron.test.ts --repeat-each 3
       - uses: actions/upload-artifact@v4
         if: always()
         with:
