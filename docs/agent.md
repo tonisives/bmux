@@ -90,8 +90,10 @@ Wrappers that invoke the CLI, such as `gscctl`, inherit the `BMUX_AGENT_*`
 environment variables from their shell.
 
 The CLI uses the calling process's tmux pane. Shared-daemon Codex commands use
-their injected thread ID and a unique exact terminal session name and directory;
-the selected tmux pane and inherited `TMUX_PANE` are not used as identity. It
+their injected thread ID and the saved session name and directory label in the
+terminal title. The shell's current directory may differ from the saved session
+directory. The title must identify one saved thread and one tmux pane; the selected
+tmux pane and inherited `TMUX_PANE` are not used as identity. It
 rejects supplied terminal IDs that disagree with the caller. Codex agents in tmux
 get this context automatically, with their thread ID as the default agent ID.
 `bmux agent context` prints the resolved context without starting the browser.

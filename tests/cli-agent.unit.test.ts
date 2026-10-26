@@ -43,7 +43,7 @@ test('agent identifiers reach browser, creation, RPC and movement commands witho
     if (process.platform !== 'win32') {
       let database = new DatabaseSync(path.join(directory, 'state_5.sqlite'))
       database.exec('CREATE TABLE threads (id TEXT, name TEXT, cwd TEXT, archived INTEGER)')
-      database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run('publishing-thread', 'Publishing videos', directory)
+      database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run('publishing-thread', 'Publishing videos', path.join(directory, 'movies'))
       database.close()
       let commands = path.join(directory, 'commands')
       await fs.mkdir(commands)

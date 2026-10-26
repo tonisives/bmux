@@ -6,12 +6,12 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 let run = async (command, args) => (await promisify(execFile)(command, args, { timeout: 5000, maxBuffer: 1024 * 1024 })).stdout
-let canonical = value => { try { return fs.realpathSync(value) } catch { return value } }
+let sessionDirectory = cwd => path.basename(cwd) || cwd
 let paneName = title => title.split(' | ').at(-2)?.replace(/^[\u2800-\u28ff]\s*/, '').trim()
 
 export let findAgentPane = (panes, processes, pid, thread) => {
   if (thread) {
-    let matches = panes.filter(pane => pane.command === 'codex' && paneName(pane.title) === thread.name && canonical(pane.cwd) === canonical(thread.cwd))
+    let matches = panes.filter(pane => pane.command === 'codex' && paneName(pane.title) === thread.name && pane.title.split(' | ').at(-1)?.trim() === sessionDirectory(thread.cwd))
     if (matches.length !== 1) throw new Error('Cannot identify a unique tmux pane for this agent thread; keep its terminal session name visible')
     return matches[0]
   }
@@ -34,7 +34,7 @@ let readThread = async (id, env) => {
   try {
     let thread = database.prepare('SELECT id, name, cwd FROM threads WHERE id = ? AND archived = 0').get(id)
     if (!thread?.name) throw new Error('Cannot identify the named terminal session for this agent thread')
-    let named = database.prepare('SELECT id, cwd FROM threads WHERE name = ? AND archived = 0').all(thread.name).filter(candidate => canonical(candidate.cwd) === canonical(thread.cwd))
+    let named = database.prepare('SELECT id, cwd FROM threads WHERE name = ? AND archived = 0').all(thread.name).filter(candidate => sessionDirectory(candidate.cwd) === sessionDirectory(thread.cwd))
     if (named.length !== 1) throw new Error('The agent terminal session name is ambiguous; give this thread a unique name')
     return thread
   } finally { database.close() }

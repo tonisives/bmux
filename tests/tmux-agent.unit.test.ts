@@ -30,6 +30,19 @@ test('shared-daemon agents resolve their thread terminal instead of the selected
   expect(() => findAgentPane([hacking], [], 999, thread)).toThrow('unique')
 })
 
+test('Codex lookup and focus use the saved session directory when the shell directory differs', async () => {
+  let shellElsewhere = { ...publishing, cwd: '/fixtures/home' }
+  let otherSession = { ...publishing, paneId: '%77', title: 'Publishing videos | deployments', cwd: thread.cwd }
+  let currentPanes = [otherSession, shellElsewhere]
+  expect(findAgentPane(currentPanes, [], 999, thread)).toEqual(shellElsewhere)
+  expect(() => findAgentPane([otherSession], [], 999, thread)).toThrow('unique')
+  let execute = async () => currentPanes.map(pane => [pane.sessionId, pane.windowId, pane.paneId, pane.panePid, pane.command, pane.title, pane.cwd, pane.clientTty, pane.sessionName, pane.windowIndex].join('\t')).join('\n')
+  let threadForId = async () => thread
+  let env = { TMUX: '/tmp/agent-tmux,123,5', TMUX_PANE: '%77', CODEX_THREAD_ID: thread.id }
+  expect(await resolveTmuxAgent({ env, execute, threadForId })).toEqual(context)
+  expect(await focusTmuxPane(context.agentData, context.agentOrigin, { execute, threadForId })).toBe('%70')
+})
+
 test('every tmux CLI browser call carries fresh origin and rejects a different supplied terminal pane', async () => {
   let env = { TMUX: '/tmp/agent-tmux,123,5', TMUX_PANE: '%76', CODEX_THREAD_ID: thread.id }
   let resolve = async () => structuredClone(context)
@@ -60,6 +73,11 @@ test('thread lookup uses only exact saved identity and refuses ambiguous names',
     database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run(thread.id, thread.name, thread.cwd)
     let env = { TMUX: '/tmp/agent-tmux,123,5', TMUX_PANE: '%76', CODEX_THREAD_ID: thread.id, CODEX_HOME: directory }
     expect(await resolveTmuxAgent({ env, execute: async () => list() })).toEqual(context)
+    database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run('other-project', thread.name, '/fixtures/other')
+    expect(await resolveTmuxAgent({ env, execute: async () => list() })).toEqual(context)
+    database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run('same-directory-label', thread.name, '/other/movies')
+    await expect(resolveTmuxAgent({ env, execute: async () => list() })).rejects.toThrow('ambiguous')
+    database.prepare('DELETE FROM threads WHERE id = ?').run('same-directory-label')
     database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run('another-thread', thread.name, thread.cwd)
     await expect(resolveTmuxAgent({ env, execute: async () => list() })).rejects.toThrow('ambiguous')
   } finally { database.close(); await fs.rm(directory, { recursive: true, force: true }) }
