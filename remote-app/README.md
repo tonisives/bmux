@@ -39,6 +39,7 @@ server at `https://metro-mobile.bmux.cc` is available from the first launch;
 choose it or use **Enter URL manually** to connect to another server. Expo keeps
 successfully opened URLs in its native history. Reopening shows the chooser,
 and its Settings tab can enable automatic launch of the most recent server.
+That explicit preference keeps a saved server ahead of an expired default entry.
 `BMUX_DEV_METRO_URL` changes the built-in remote entry when generating the native
 project. Changes to this native setup require rebuilding the development app.
 

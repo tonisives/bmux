@@ -16,13 +16,15 @@ let withIosRemoteMetro = (config, { url }) => withAppDelegate(config, config => 
       preferences.set(true, forKey: "bmux.devlauncher.remoteMetroConfigured")
     }
     let registry = EXDevLauncherController.sharedInstance().recentlyOpenedAppsRegistry
-    if !registry.recentlyOpenedApps().contains(where: { ($0["url"] as? String) == remoteMetroURL }) {
+    let recentApps = registry.recentlyOpenedApps()
+    let canSeedDefault = recentApps.isEmpty || !preferences.bool(forKey: "EXDevLauncherTryToLaunchLastBundle")
+    if canSeedDefault && !recentApps.contains(where: { ($0["url"] as? String) == remoteMetroURL }) {
       registry.appWasOpened(remoteMetroURL, queryParams: [:], manifest: nil)
     }
     #endif
 
 `
-    source = '#if DEBUG\nimport EXDevLauncher\n#endif\n' + source.replace(anchor, bootstrap + anchor)
+    source = '#if DEBUG\ninternal import EXDevLauncher\n#endif\n' + source.replace(anchor, bootstrap + anchor)
   }
   config.modResults.contents = source
   return config

@@ -24,6 +24,7 @@ assert.ok(schemes.has('bmux-remote'), 'Attention and sign-in links need the app 
 assert.ok(schemes.has('exp+bmux-remote'), 'The development client needs its Metro launch scheme')
 assert.equal(info.DEV_CLIENT_TRY_TO_LAUNCH_LAST_BUNDLE, false, 'Development builds must show the server chooser')
 assert.equal(info.DEV_CLIENT_DEFAULT_LAUNCHER_URL, undefined, 'A default launch URL would bypass the server chooser')
+assert.match(delegate, /#if DEBUG\ninternal import EXDevLauncher\n#endif/, 'The launcher import must match Expo generated module visibility')
 assert.match(delegate, /#if DEBUG\s+let remoteMetroURL = /, 'The remote server entry belongs only to development builds')
 assert.match(delegate, /registry\.appWasOpened\(remoteMetroURL, queryParams: \[:\], manifest: nil\)/)
 console.log('iOS scene lifecycle, window startup, launch schemes and development server chooser verified')
