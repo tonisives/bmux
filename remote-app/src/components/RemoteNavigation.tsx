@@ -25,7 +25,7 @@ let tabs: { id: RemoteTab; title: string; icon: keyof typeof Ionicons.glyphMap }
 ]
 
 export let RemoteTabs = ({ active, select }: { active: RemoteTab; select: (tab: RemoteTab) => void }) => <View accessibilityRole="tablist" style={local.tabs}>
-  {tabs.map(tab => <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.title} accessibilityState={{ selected: active === tab.id }} onPress={() => select(tab.id)} style={[local.tab, active === tab.id && local.selected]}>
+  {tabs.map(tab => <Pressable key={tab.id} accessibilityRole="tab" accessibilityLabel={tab.title} accessibilityState={{ selected: active === tab.id }} aria-selected={active === tab.id} onPress={() => select(tab.id)} style={[local.tab, active === tab.id && local.selected]}>
     <Ionicons name={tab.icon} size={22} color={active === tab.id ? colors.text : colors.secondary} />
     <Text style={[local.label, active === tab.id && local.selectedLabel]}>{tab.title}</Text>
   </Pressable>)}
