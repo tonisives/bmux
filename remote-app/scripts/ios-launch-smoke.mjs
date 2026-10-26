@@ -7,7 +7,9 @@ import { promisify } from 'node:util'
 
 let execute = promisify(execFile)
 let output = path.resolve('ios-smoke')
-let app = path.resolve('ios/build/Build/Products/Release-iphonesimulator/bmuxremote.app')
+let configuration = process.env.BMUX_IOS_BUILD_CONFIGURATION ?? 'Release'
+assert.ok(['Release', 'Debug'].includes(configuration))
+let app = path.resolve(`ios/build/Build/Products/${configuration}-iphonesimulator/bmuxremote.app`)
 let bundle = 'cc.bmux.remote'
 let stateFile = path.join(output, 'device.json')
 let screenshot = path.join(output, 'ios-launch.png')
