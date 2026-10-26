@@ -6,8 +6,8 @@ import { recommendedBoxQuotes, sortedBoxQuotes } from '../shared/remote-box-quot
 import { SelfHostedBox, useHostEnrollment } from './SelfHostedBox'
 import styles from './RemoteAccount.module.css'
 
-type Props = { api: AccountApi; visit: (url: string) => void | Promise<void>; signIn: () => void | Promise<void>; openBox?: (service: string) => Promise<void>; rent?: boolean; local?: boolean; view?: 'account' | 'relay' | 'boxes' }
-export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local = false, view = 'account' }: Props) => {
+type Props = { api: AccountApi; visit: (url: string) => void | Promise<void>; signIn: () => void | Promise<void>; signOut?: () => void | Promise<void>; openBox?: (service: string) => Promise<void>; rent?: boolean; local?: boolean; view?: 'account' | 'relay' | 'boxes' }
+export let RemoteAccount = ({ api, visit, signIn, signOut, openBox, rent = false, local = false, view = 'account' }: Props) => {
   let [account, setAccount] = useState<RelayAccount>(), [billing, setBilling] = useState<RelayBilling>()
   let [boxes, setBoxes] = useState<RentedBox[]>([]), [views, setViews] = useState<LiveView[]>([]), [computer, setComputer] = useState<RemoteComputer>()
   let [error, setError] = useState(''), [busy, setBusy] = useState(false), [loaded, setLoaded] = useState(false)
@@ -58,10 +58,10 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
     void api<{ enabled: boolean; quotes: BoxQuote[] }>('/api/rentals/catalog').then(value => { if (active) setCatalog(value) }).catch(error => { if (active) report(error) })
     return () => { active = false }
   }, [adding, boxKind, account?.owner, api])
-  let act = async (operation: () => Promise<unknown>) => {
+  let act = async (operation: () => Promise<unknown>, refreshAfter = true) => {
     if (pending.current) return
     pending.current = true; setBusy(true); setError('')
-    try { await operation(); await refresh() } catch (error) { report(error) }
+    try { await operation(); if (refreshAfter) await refresh() } catch (error) { report(error) }
     finally { pending.current = false; setBusy(false) }
   }
   let checkout = (path: string, body: unknown = {}) => act(async () => { let result = await api<{ url: string }>(path, body); await visit(result.url) })
@@ -69,6 +69,7 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
   let activate = () => { void checkout('/api/billing/checkout') }
   let manage = () => { void checkout('/api/billing/portal') }
   let authenticate = () => { void act(async () => { await signIn() }) }
+  let logout = () => { if (signOut) void act(async () => { await signOut() }, false) }
   let retry = () => { void act(async () => { if (adding && boxKind === 'rental') await loadCatalog() }) }
   let cancelRelay = () => { if (window.confirm('Cancel relay at the end of its paid period? Your boxes have separate subscriptions and will keep being charged.')) void act(() => api('/api/billing/cancel', {})) }
   let connect = (name: string) => { void act(() => api('/local/connect', { name })) }
@@ -87,7 +88,7 @@ export let RemoteAccount = ({ api, visit, signIn, openBox, rent = false, local =
   if (!loaded) return <p role="status">Loading account…</p>
   if (!account) return <section className={styles.account}><p>{error || 'Sign in to manage relay and boxes.'}</p><div className={styles.actions}><button onClick={authenticate} disabled={busy}>Sign in with Google</button><button onClick={retry} disabled={busy}>Retry</button></div></section>
   return <div className={styles.account} aria-label="Remote account" data-setting-id="remote-account">
-    <div className={styles.heading}><span>{account.email || account.owner}</span>{!account.email && <button onClick={authenticate} disabled={busy}>Confirm billing email with Google</button>}{rates && (view !== 'boxes' || boxKind === 'rental') && <label className={styles.currency}>Estimates in <select value={currency} onChange={changeCurrency}>{Object.keys(rates.rates).sort().map(code => <option key={code} value={code}>{code}</option>)}</select></label>}</div>
+    <div className={styles.heading}><span>{account.email || account.owner}</span>{!account.email && <button onClick={authenticate} disabled={busy}>Confirm billing email with Google</button>}{rates && (view !== 'boxes' || boxKind === 'rental') && <label className={styles.currency}>Estimates in <select value={currency} onChange={changeCurrency}>{Object.keys(rates.rates).sort().map(code => <option key={code} value={code}>{code}</option>)}</select></label>}{signOut && view === 'account' && <button onClick={logout} disabled={busy}>Sign out</button>}</div>
     {error && <div className={styles.error} role="alert">{error} <button onClick={retry} disabled={busy}>Retry</button></div>}
     {view !== 'boxes' && <section className={styles.section} aria-label="Relay"><div className={styles.heading}><h3>Relay</h3><span>{money(billing?.relay.monthlyCents ?? 1000)} / month</span></div>
       <p>Connect your computers and view two panes at once.</p>

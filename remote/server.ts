@@ -40,12 +40,17 @@ let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
   return digest(key.x)
 }
 type ListedSession = { canClose?: boolean; canClosePages?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
-type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[]; machine?: RemoteMachine; nativeSession?: string; capabilities?: RemoteCapabilities; kind?: string }
+type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[]; machine?: RemoteMachine; tokenHash?: string; nativeSession?: string; capabilities?: RemoteCapabilities; kind?: string }
 let peers = new Map<string, Peer>()
 let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number; desktop: boolean; tokenHash: string; nativeSession?: string }>()
+let revokedWebLogins = new Map<string, number>()
 let mobileAuth = createMobileAuth({ pool, origin: publicOrigin, googleClientId: audience, revoked: session => {
   for (let [ticket, value] of tickets) if (value.nativeSession === session) tickets.delete(ticket)
   for (let peer of peers.values()) if (peer.nativeSession === session) peer.socket.close(1008, 'Session revoked')
+}, webRevoked: tokenHash => {
+  revokedWebLogins.set(tokenHash, Date.now() + 30000)
+  for (let [ticket, value] of tickets) if (value.tokenHash === tokenHash) tickets.delete(ticket)
+  for (let peer of peers.values()) if (peer.role === 'viewer' && peer.tokenHash === tokenHash) peer.socket.terminate()
 } })
 let send = (peer: Peer, value: unknown) => { if (peer.socket.readyState === WebSocket.OPEN && peer.socket.bufferedAmount < 262144) peer.socket.send(JSON.stringify(value)) }
 let permission = async (user: string, host: Peer): Promise<'watch' | 'control' | undefined> => {
@@ -76,6 +81,7 @@ let body = async (request: http.IncomingMessage) => {
 }
 let ice = (id: string) => { let username = `${Math.floor(Date.now() / 1000) + 600}:${id}`; return [{ urls: turnUrls, username, credential: createHmac('sha1', turnSecret).update(username).digest('base64') }] }
 let server = http.createServer((request, response) => {
+  let connectionDeadline = Date.now() + 30000
   let json = (status: number, value: unknown) => { response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(value)) }
   void (async () => {
     let url = new URL(request.url ?? '/', publicOrigin)
@@ -180,7 +186,8 @@ let server = http.createServer((request, response) => {
         await mobileAuth.bindDevice(auth,id)
         let ticket = randomBytes(32).toString('hex')
         if (tickets.size >= 10000) throw new Error('Connection capacity reached')
-        tickets.set(ticket, { owner, id, key: publicKey, expires: Date.now() + 30000, tokenHash: auth.tokenHash, nativeSession: auth.nativeSession, desktop: !auth.nativeSession && request.headers['x-bmux-desktop'] === '1' })
+        if (connectionDeadline <= Date.now() || revokedWebLogins.has(auth.tokenHash)) throw new Error('Session revoked')
+        tickets.set(ticket, { owner, id, key: publicKey, expires: connectionDeadline, tokenHash: auth.tokenHash, nativeSession: auth.nativeSession, desktop: !auth.nativeSession && request.headers['x-bmux-desktop'] === '1' })
         json(200, { ticket, iceServers: ice(id) }); return
       }
       if (request.method === 'GET' && url.pathname === '/api/usage') {
@@ -242,8 +249,9 @@ server.on('upgrade', (request, socket, head) => {
       if (enrollment.nativeSession && !(await pool.query('SELECT 1 FROM bmux_mobile_devices WHERE device_id=$1 AND session_id=$2', [enrollment.id,enrollment.nativeSession])).rowCount) throw new Error('Device unbound')
       let device = await pool.query('SELECT id FROM bmux_devices WHERE id=$1 AND owner=$2 AND NOT revoked', [enrollment.id, enrollment.owner])
       if (!device.rowCount) throw new Error('Device revoked')
+      if (enrollment.expires <= Date.now() || revokedWebLogins.has(enrollment.tokenHash)) throw new Error('Session revoked')
       peers.get(enrollment.id)?.socket.close(1000, 'Reconnected')
-      peer = { owner: enrollment.owner, id: enrollment.id, role: 'viewer', key: enrollment.key, alive: true, nativeSession: enrollment.nativeSession }
+      peer = { owner: enrollment.owner, id: enrollment.id, role: 'viewer', key: enrollment.key, alive: true, tokenHash: enrollment.tokenHash, nativeSession: enrollment.nativeSession }
     }
     sockets.handleUpgrade(request, socket, head, connection => {
       let current: Peer = { ...peer, socket: connection }
@@ -326,6 +334,7 @@ server.on('upgrade', (request, socket, head) => {
 let timer = setInterval(() => {
   if (!ready) return
   for (let [ticket, value] of tickets) if (value.expires <= Date.now()) tickets.delete(ticket)
+  for (let [hash, expires] of revokedWebLogins) if (expires <= Date.now()) revokedWebLogins.delete(hash)
   for (let peer of peers.values()) { if (!peer.alive) peer.socket.terminate(); else { peer.alive = false; peer.socket.ping() } }
   void leases.expire().then(rows => { for (let lease of rows) { let host = peers.get(lease.host); if (host?.generation === lease.generation) send(host, { type: 'stream-revoked', connection: lease.connection }) } }).catch(() => { for (let peer of peers.values()) if (peer.role === 'host') peer.socket.close(1011, 'Stream permits unavailable') })
   void pool.query("DELETE FROM bmux_usage WHERE recorded<now()-interval '30 days'; DELETE FROM bmux_logins WHERE expires<now()").catch(() => undefined)
