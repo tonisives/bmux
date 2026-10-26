@@ -8,10 +8,6 @@ import { promisify } from 'node:util'
 let execute = promisify(execFile)
 let output = path.resolve('ios-smoke')
 let { device } = JSON.parse(await readFile(path.join(output, 'device.json'), 'utf8'))
-let prefix = async name => (await execute('brew', ['--prefix', name])).stdout.trim()
-let ruby = path.join(await prefix('ruby'), 'bin/ruby')
-await execute(ruby, ['scripts/add-ios-launcher-tests.rb'], { env: { ...process.env, GEM_HOME: path.join(await prefix('cocoapods'), 'libexec') } })
-
 let metroLog = await open(path.join(output, 'metro.log'), 'w')
 let metro = spawn('pnpm', ['exec', 'expo', 'start', '--dev-client', '--localhost', '--port', '19731', '--max-workers', '4'], {
   detached: true,

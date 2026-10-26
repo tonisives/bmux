@@ -108,4 +108,10 @@ native UI test screenshots and hierarchy, Metro log and test result. The Swift
 bootstrap check covers upgrade migration, preserving manually saved servers and
 launch preferences, duplicate entries and restoring an expired default entry.
 
+Before compiling Debug, the workflow uses the CocoaPods Ruby environment to run
+`ruby scripts/add-ios-launcher-tests.rb`. `pnpm smoke:ios:launcher` requires that
+test target, the built Debug app and the prepared simulator. Its Metro server
+runs only for that check and stops when the check finishes. The simulator app is
+uploaded after a successful compile even if a later launch or UI check fails.
+
 Clawtab theme attribution is recorded in THIRD_PARTY_NOTICES.md.

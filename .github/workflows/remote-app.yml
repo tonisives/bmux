@@ -90,7 +90,7 @@ jobs:
           path: remote-app/android/app/build/outputs/apk/release/*.apk
   ios:
     runs-on: xcode-27
-    timeout-minutes: 40
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -118,8 +118,12 @@ jobs:
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm exec expo prebuild --clean --platform ios --no-install
       - run: pnpm verify:ios
+      - name: Prepare native launcher tests with CocoaPods Ruby
+        if: matrix.configuration == 'Debug'
+        run: ruby scripts/add-ios-launcher-tests.rb 2>&1 | tee ios-smoke/launcher-prepare.log
       - run: pod install --project-directory=ios
-      - run: xcodebuild -workspace ios/bmuxremote.xcworkspace -scheme bmuxremote -configuration ${{ matrix.configuration }} -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build -jobs 4 CODE_SIGNING_ALLOWED=NO -quiet build > ios-build.log 2>&1
+      - id: ios-build
+        run: xcodebuild -workspace ios/bmuxremote.xcworkspace -scheme bmuxremote -configuration ${{ matrix.configuration }} -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build -jobs 4 CODE_SIGNING_ALLOWED=NO -quiet build > ios-build.log 2>&1
       - run: pnpm smoke:ios
       - run: pnpm smoke:ios:launcher
         if: matrix.configuration == 'Debug'
@@ -137,6 +141,7 @@ jobs:
           name: remote-app-ios-${{ matrix.configuration }}-build-log
           path: remote-app/ios-build.log
       - uses: actions/upload-artifact@v4
+        if: always() && steps.ios-build.outcome == 'success'
         with:
           name: ${{ matrix.configuration == 'Debug' && 'remote-app-ios-development-simulator' || 'remote-app-ios-simulator' }}
           path: remote-app/ios/build/Build/Products/${{ matrix.configuration }}-iphonesimulator/*.app/
