@@ -225,6 +225,20 @@ test('warnings latch across restarts and other sites until a human resolves the 
   expect(next.status().profiles[0].warning).toBeUndefined()
 })
 
+test('resuming a website clears both www aliases without clearing other websites or session usage', async () => {
+  let { policy, restart } = fixture()
+  for (let host of ['www.instagram.com', 'instagram.com', 'x.com']) await expect(policy.before('bot', async () => ({ url: `https://${host}/`, warning: 'challenge' }))).rejects.toThrow('Automation paused')
+  let previous = policy.status().profiles
+  policy.resume('bot', { url: 'https://instagram.com/' })
+  let restored = restart().status().profiles
+  for (let usage of restored.filter(usage => usage.siteHost!.includes('instagram.com'))) {
+    expect(usage.warning).toBeUndefined()
+    expect(usage.warningAt).toBeUndefined()
+    expect(usage.startedAt).toBe(previous.find(item => item.siteHost === usage.siteHost)!.startedAt)
+  }
+  expect(restored.find(usage => usage.siteHost === 'x.com')!.warning).toBe('challenge')
+})
+
 test('hitting the session limit publishes the cooldown without extending its deadline', async () => {
   let { policy, advance, changes } = fixture()
   await policy.before('bot', instagram)

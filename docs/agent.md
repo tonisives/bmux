@@ -249,9 +249,11 @@ needed for these defaults:
 
 Human browser controls remain available. Session usage and warning pauses survive
 restarts. Account warning pauses apply to the profile across websites. Session limits apply only to their recorded website. Resolve the warning on
-the affected website manually, then use **Resume automation** in the alert or Bot
-tab. This checks the website again before clearing the pause. The notice names
-the blocking website, shows when the warning was detected, and provides links to affected
+the affected website manually. After manual navigation or input, bmux rechecks the
+loaded website and clears its saved warning when it is resolved. **Resume automation**
+in the alert or Bot tab also checks immediately. Session breaks remain independent.
+The notice shows its pause icon and detection time on the left, names the blocking
+website once, and provides links to affected
 automation panes, including their agent identifiers. The **Bot settings** row below the alerts holds the shared controls. Its gear
 opens shared agent requirements and a **Profile limits** list. Every profile is
 editable, including profiles with no open panes. Limits apply across agents using

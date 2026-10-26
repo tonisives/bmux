@@ -85,7 +85,7 @@ import { initialSecurity } from '../shared/site-security'
 import { createMemoryDiagnostics, memoryOwners, memorySample, MEMORY_INTERVAL_MS } from './memory'
 import { shouldDeferStartupPane } from './startup-restore'
 import { createAutomationPolicy } from './automation-policy'
-import { automationProfileLimits, updateAutomationSafetyLimit, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
+import { automationProfileLimits, automationWebsiteHost, updateAutomationSafetyLimit, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, matchingAutomationGroup, paceAutomationCommand } from '../shared/automation'
 import { automationWarningScript, createAutomationSafety } from './automation-safety'
 import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
@@ -1161,6 +1161,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     ]).then(async () => { if (isLiveTabOpen(live)) { await installSwipe?.(); return startSecurity() } }).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { setNavigationError(tabId, `Device identity failed: ${errorText(error)}`); publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
+    let warningRecheck: ReturnType<typeof setTimeout> | undefined
+    let queueWarningRecheck = () => {
+      if (warningRecheck || live.disposed || pane.lastUsedBy !== 'human' || !automationSafety?.status().profiles.some(usage => usage.profileId === pane.profileId && usage.warning)) return
+      warningRecheck = setTimeout(() => { warningRecheck = undefined; void recheckHumanWarning(pane, live).catch(() => undefined) }, 250)
+      warningRecheck.unref()
+    }
+    contents.once('destroyed', () => clearTimeout(warningRecheck))
     contents.on('audio-state-changed', ({ audible }) => {
       if (live.disposed) return
       if (audible) audibleMedia.add(tabId)
@@ -1256,6 +1263,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       tab.lastUsedBy = 'human'
       tab.lastActivityAt = now
       save()
+      queueWarningRecheck()
     }
     contents.on('before-input-event', (_event, input) => { if (input.type === 'keyDown') recordActivity() })
     contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown' || input.type === 'mouseMove' && (input.movementX || input.movementY)) recordActivity() })
@@ -1277,7 +1285,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       void scheduleVisuals()
     }
     contents.on('did-start-loading', () => { loading[tabId] = true; publish() })
-    contents.on('did-stop-loading', () => { delete loading[tabId]; live.pendingUrl = undefined; publish(); setTimeout(() => requestPreview(tabId, live), 250).unref() })
+    contents.on('did-stop-loading', () => { delete loading[tabId]; live.pendingUrl = undefined; publish(); queueWarningRecheck(); setTimeout(() => requestPreview(tabId, live), 250).unref() })
     contents.on('page-favicon-updated', (_event, urls) => {
       let iconUrl = urls.find(url => /^https?:\/\//i.test(url) || /^data:image\//i.test(url))
       if (!iconUrl) return
@@ -1333,7 +1341,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       requestedHistoryUrl = undefined
       live.unloadGuard?.cancel(); live.pendingUrl = undefined; update()
     })
-    contents.on('did-navigate-in-page', () => update())
+    contents.on('did-navigate-in-page', () => { update(); queueWarningRecheck() })
     contents.on('did-finish-load', () => {
       // Navigation can replace Chromium's emulated native surface. Reapply its fit.
       if (pane.device && live.deviceScale !== undefined) void applyDeviceMetrics(contents, pane.device, live.deviceScale).catch(reportError)
@@ -2221,9 +2229,28 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-    let result = await debuggerApi.sendCommand('Runtime.evaluate', { expression: automationWarningScript, returnByValue: true, timeout: 2000 })
+    let result = await debuggerApi.sendCommand('Runtime.evaluate', { expression: `({ warning: ${automationWarningScript}, ready: document.readyState === 'complete' && !!document.body?.innerText.trim() })`, returnByValue: true, timeout: 2000 })
     if (result.exceptionDetails) throw new Error('Could not inspect page for automation warnings')
-    return { url: live.contents.getURL() || url, warning: result.result.value as AutomationWarning | undefined }
+    let page = result.result.value as { warning?: AutomationWarning; ready: boolean }
+    return { url: live.contents.getURL() || url, warning: page.warning, ready: page.ready }
+  }
+  let recheckHumanWarning = async (pane: Pane, live: LiveTab) => {
+    let current = () => !shuttingDown && currentPane(pane.id) === pane && tabs.get(pane.id) === live && !live.disposed && !live.contents.isDestroyed() && !live.contents.isCrashed() && !loading[pane.id] && !live.pendingUrl && pane.lastUsedBy === 'human' && !activeAgents.get(pane.id)?.pending && !automatedNavigations.has(pane.id) && !automatedContents.has(live.contents.id)
+    if (!current()) return
+    let site = (url: string) => automationWebsiteHost(url)?.replace(/^www\./, '')
+    let url = live.contents.getURL(), document = documents.get(pane.id)
+    let warnings = () => (automationSafety?.status().profiles ?? []).filter(usage => usage.profileId === pane.profileId && usage.warning && site(`https://${usage.warningHost}`) === site(url))
+    let episode = (usage: ReturnType<typeof warnings>[number]) => `warning-${createHash('sha256').update(JSON.stringify([usage.profileId,usage.warningHost,usage.warning,usage.warningAt ?? usage.startedAt])).digest('hex')}`
+    let episodes = warnings().map(episode)
+    if (!episodes.length) return
+    let page = await inspectAutomationPage(pane.id)
+    if (!page.ready || page.warning || !current() || live.contents.getURL() !== url || documents.get(pane.id) !== document || warnings().some(usage => !episodes.includes(episode(usage)))) return
+    automationSafety?.resume(pane.profileId, page)
+    for (let request of attention.active().filter(request => episodes.includes(request.episode))) {
+      if (request.originator) { if (request.status === 'pending') attention.acknowledge(request.pane, request.episode, request.revision, randomUUID()) }
+      else attention.resolve(request.pane, request.episode)
+    }
+    publish()
   }
   let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true, recover = false) => {
     if (!context.profileId || !context.paneId) return

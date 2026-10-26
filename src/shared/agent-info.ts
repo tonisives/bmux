@@ -6,6 +6,12 @@ export type AgentSettings = { requireId: boolean; requireType: boolean; definiti
 export let DEFAULT_AGENTS: AgentSettings = { requireId: true, requireType: false, definitions: {} }
 export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentType', 'agentData', 'agentOrigin'] as const
 export let agentIdentifier = (actor: AgentInfo, definition?: AgentDefinition): { label: string; value: string } => {
+  let data = actor.agentData
+  if (actor.agentType === 'tmux' || actor.agentOrigin?.type === 'tmux') {
+    let session = data?.sessionName ?? data?.sessionId, window = data?.windowIndex ?? data?.windowId
+    let pane = data?.paneId ?? actor.agentOrigin?.paneId
+    if (session && window) return { label: 'Tmux location', value: `${session}:${window}${pane ? ` · ${pane}` : ''}` }
+  }
   let fields = definition?.fields ?? {}
   let key = [definition?.identifierField, ...Object.keys(fields).filter(key => fields[key].type === 'pane'), 'paneId'].find(key => key && actor.agentData?.[key])
   if (key) return { label: fields[key]?.label ?? 'Pane ID', value: actor.agentData![key] }

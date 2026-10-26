@@ -1,6 +1,6 @@
 import type { AgentInfo, AgentOrigin } from '../src/shared/agent-info'
 
-export type AgentPane = { sessionId: string; windowId: string; paneId: string; panePid: string; command: string; title: string; cwd: string; clientTty?: string; sessionName?: string }
+export type AgentPane = { sessionId: string; windowId: string; paneId: string; panePid: string; command: string; title: string; cwd: string; clientTty?: string; sessionName?: string; windowIndex?: string }
 export type AgentThread = { id: string; name: string; cwd: string }
 type Options = { env?: NodeJS.ProcessEnv; pid?: number; execute?: (command: string, args: string[]) => Promise<string>; threadForId?: (id: string, env: NodeJS.ProcessEnv) => Promise<AgentThread> }
 type Context = AgentInfo & { agentId: string; agentType: string; agentData: Record<string, string>; agentOrigin: AgentOrigin }
