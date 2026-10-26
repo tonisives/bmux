@@ -7,19 +7,20 @@ import { promisify } from 'node:util'
 
 let execute = promisify(execFile)
 let output = path.resolve('ios-smoke')
+let metroURL = 'http://localhost:19731'
 let { device } = JSON.parse(await readFile(path.join(output, 'device.json'), 'utf8'))
 let metroLog = await open(path.join(output, 'metro.log'), 'w')
 let metro = spawn('pnpm', ['exec', 'expo', 'start', '--dev-client', '--localhost', '--port', '19731', '--max-workers', '4'], {
   detached: true,
   stdio: ['ignore', metroLog.fd, metroLog.fd],
-  env: { ...process.env, CI: '1', EXPO_PACKAGER_PROXY_URL: 'http://127.0.0.1:19731', EXPO_NO_TELEMETRY: '1' },
+  env: { ...process.env, CI: '1', EXPO_PACKAGER_PROXY_URL: metroURL, EXPO_NO_TELEMETRY: '1' },
 })
-let result = { device, phase: 'metro' }
+let result = { device, phase: 'metro', metroURL }
 try {
   await new Promise((resolve, reject) => { metro.once('spawn', resolve); metro.once('error', reject) })
   let deadline = Date.now() + 120_000
   while (true) {
-    let ready = await fetch('http://127.0.0.1:19731/status', { signal: AbortSignal.timeout(2000) }).then(response => response.text()).then(text => text.includes('packager-status:running')).catch(() => false)
+    let ready = await fetch(`${metroURL}/status`, { signal: AbortSignal.timeout(2000) }).then(response => response.text()).then(text => text.includes('packager-status:running')).catch(() => false)
     if (ready) break
     assert.equal(metro.exitCode, null, 'The disposable Metro server must remain running')
     assert.ok(Date.now() < deadline, 'The disposable Metro server must become ready')

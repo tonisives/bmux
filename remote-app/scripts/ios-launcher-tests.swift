@@ -3,7 +3,7 @@ import XCTest
 final class BMUXLauncherTests: XCTestCase {
   private let app = XCUIApplication(bundleIdentifier: "cc.bmux.remote")
   private let remoteURL = "https://metro-mobile.bmux.cc"
-  private let localURL = "http://127.0.0.1:19731"
+  private let localURL = "http://localhost:19731"
 
   private func serverEntries(_ url: String) -> XCUIElementQuery {
     app.buttons.matching(NSPredicate(format: "label CONTAINS %@", url))
