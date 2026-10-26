@@ -19,11 +19,27 @@ let fixture = () => {
     return { rows: [], rowCount: 0 }
   })
   let privateKey = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
-  let options = { origin: 'https://remote.example', googleClientId: 'fixture', pool: { query, connect: async () => ({ query, release: vi.fn() }) }, revoked: vi.fn(), env: { BMUX_APPLE_CLIENT_ID: 'fixture-client', BMUX_APPLE_TEAM_ID: 'fixture-team', BMUX_APPLE_KEY_ID: 'fixture-key', BMUX_APPLE_PRIVATE_KEY: privateKey } }
+  let options = { origin: 'https://remote.example', googleClientId: 'fixture', pool: { query, connect: async () => ({ query, release: vi.fn() }) }, revoked: vi.fn(), webRevoked: vi.fn(), env: { BMUX_APPLE_CLIENT_ID: 'fixture-client', BMUX_APPLE_TEAM_ID: 'fixture-team', BMUX_APPLE_KEY_ID: 'fixture-key', BMUX_APPLE_PRIVATE_KEY: privateKey } }
   let auth = createMobileAuth(options as unknown as Parameters<typeof createMobileAuth>[0])
   let route = (request: unknown, path: string) => auth.route(request as http.IncomingMessage, response as unknown as http.ServerResponse, new URL(path, options.origin), async () => ({}))
-  return { headers, response, query, route, status: () => status }
+  return { headers, response, query, route, webRevoked: options.webRevoked, status: () => status }
 }
+
+it.each(['authenticate', 'delete'])('keeps web logout retryable when the database fails during %s', async stage => {
+  let value = fixture()
+  if (stage === 'delete') {
+    value.query.mockResolvedValueOnce({ rows: [{ owner: 'fixture-owner' }], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 })
+  }
+  value.query.mockRejectedValueOnce(new Error('Database unavailable'))
+  await value.route({ method: 'POST', headers: { origin: 'https://remote.example', cookie: `bmux_session=${'a'.repeat(64)}` } }, '/api/logout')
+  expect(value.status()).toBe(503)
+  expect(value.response.end).toHaveBeenCalledWith(JSON.stringify({ error: 'Sign-out unavailable' }))
+  expect(value.headers.has('Set-Cookie')).toBe(false)
+  expect(value.webRevoked).not.toHaveBeenCalled()
+  if (stage === 'delete') expect(value.query).toHaveBeenCalledWith('ROLLBACK')
+})
 
 it('keeps the native PKCE flow available during the Apple cross-site form callback', async () => {
   let value = fixture()
