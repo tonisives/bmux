@@ -259,7 +259,11 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Page details', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toHaveCount(0)
     await expect(page.getByText('Watch', { exact: true })).toHaveCount(0)
-    await expect.poll(async () => (await page!.getByLabel('Remote browser viewport', { exact: true }).boundingBox())?.height ?? 0).toBeGreaterThan(650)
+    await expect.poll(async () => {
+      let bounds = await page!.getByLabel('Remote browser viewport', { exact: true }).boundingBox()
+      let viewport = await page!.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+      return !!bounds && bounds.y <= 54 && Math.abs(bounds.y + bounds.height - viewport.height) <= 1 && Math.abs(bounds.width - viewport.width) <= 1
+    }).toBe(true)
     await page.screenshot({ path: info.outputPath('companion-mobile-watch.png') })
     await resize(1280)
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()

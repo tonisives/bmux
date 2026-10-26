@@ -6,6 +6,7 @@ import { colors, radius, styles } from '../theme'
 
 export let Sheet = ({ title, visible, close, children }: { title: string; visible: boolean; close: () => void; children: ReactNode }) => {
   let insets = useSafeAreaInsets()
+  if (Platform.OS === 'web' && !visible) return null
   return (
   <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
     <KeyboardAvoidingView style={local.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
