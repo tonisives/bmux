@@ -372,7 +372,7 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
   let retryAfter = usage.retryAfter
   // Current tab URLs may come from manual browsing after automation stopped.
   let siteHosts = usage.siteHost ? [usage.siteHost] : [...new Set(actors.flatMap(actor => actor.hosts ?? []))]
-  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `${name} · Session limit`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [{ label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId, host: siteHost }) } }], paneLinks: paneLinks(siteHost) }))
+  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `${name} · Session limit`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost) }))
 })
 
 let profileDeviceLabel = (pane: { device?: { preset: DevicePreset; platform: DevicePlatform } }) => !pane.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: pane.device.platform === 'android' ? 'Android' : 'iOS' })[pane.device.preset]
@@ -475,7 +475,8 @@ let AgentButton = ({ agents, paneId, active = true, lastUsed }: { agents: Automa
   let locked = !!paneId && state.lockedAgentPanes?.includes(paneId)
   let title = paneId ? `${locked ? 'Agent controlling · page input locked · ' : active ? '' : 'Last agent · '}${actor.agentName ?? actor.agentId ?? 'Unidentified agent'}${actor.agentName && actor.agentId ? ` (${actor.agentId})` : ''}` : label
   let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
-  let identifier = agentIdentifier(actor, definition)
+  let agentPaneId = actor.agentData?.paneId ?? actor.agentOrigin?.paneId
+  let identifier = agentPaneId ? { label: 'Pane ID', value: agentPaneId } : agentIdentifier(actor, definition)
   return <button type="button" className={paneId ? `${css.navigationButton} ${css.paneAgentButton}` : undefined} aria-label={label} title={title} onClick={open}><AgentStatusIcon locked={locked} />{paneId && <><span className={css.paneAgentId} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>{lastUsed !== undefined && <AgentInteractionTime when={lastUsed} compact now={now} />}</>}</button>
 }
 
@@ -515,18 +516,18 @@ let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; col
     {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status" data-agent-alert={notice.profileId ? true : undefined}>
       {notice.warning && <AutomationPause detectedAt={notice.detectedAt} />}
       {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
-      {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
+      {notice.siteExclusion && <AutomationWebsiteSelect {...notice.siteExclusion} resetSession={!!notice.cooldown} />}
       <span className={css.notificationText}>{notice.text}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
       {notice.agents?.map(actor => <NotificationAgent key={`${actor.paneId}:${actor.agentId}`} actor={actor} />)}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
-      {notice.profileId && <button type="button" onClick={collapseAlerts} aria-label="Collapse agent alerts" title="Collapse agent alerts to status bar"><AlertChevron /></button>}
       {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
     </div>)}
     {automation.length > 0 && <div className={`${css.notification} ${css.notificationGeneral}`} role="group" aria-label="Bot settings">
       <span className={css.notificationText}>Bots · all agents and profiles</span>
       {state.automationSafety?.profiles.some(profile => profile.retryAfter) && <button type="button" className={css.notificationAction} disabled={resetting} onClick={resetAll}>Reset all bot sessions</button>}
       <button type="button" className={css.notificationSettings} onClick={openSettings} aria-label="Bot settings" title="Bot settings"><SettingsIcon /></button>
+      <button type="button" onClick={collapseAlerts} aria-label="Collapse agent alerts" title="Collapse agent alerts to status bar"><AlertChevron /></button>
     </div>}
   </div>
 }
@@ -2749,14 +2750,17 @@ let useAutomationExpiry = (safety?: AutomationSafetyState) => {
   }, [safety, now])
 }
 
-let ExcludeWebsiteSelect = ({ profileId, host }: { profileId: string; host: string }) => {
+let AutomationWebsiteSelect = ({ profileId, host, resetSession }: { profileId: string; host: string; resetSession: boolean }) => {
   let { run } = useUI(), [busy, setBusy] = useState(false)
-  let exclude = async (event: ChangeEvent<HTMLSelectElement>) => {
-    let durationMinutes = event.target.value === 'permanent' ? null : Number(event.target.value)
+  let choose = async (event: ChangeEvent<HTMLSelectElement>) => {
+    let action = event.target.value
     setBusy(true)
-    try { await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes }) } finally { setBusy(false) }
+    try {
+      if (action === 'reset') await run('automation.reset-session', { profile: profileId, host })
+      else await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes: action === 'permanent' ? null : Number(action) })
+    } finally { setBusy(false) }
   }
-  return <label className={css.notificationSiteExclusion}><span>{host}</span><span className={css.notificationSiteMenu}><select className={css.notificationAction} onChange={exclude} value="" disabled={busy} aria-label={`Disable Bot protection for ${host}`}><option value="" disabled hidden /><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></select><AlertChevron collapsed /></span></label>
+  return <label className={css.notificationSiteExclusion}><span>{host}</span><span className={css.notificationSiteMenu}><select className={css.notificationAction} onChange={choose} value="" disabled={busy} aria-label={`Automation actions for ${host}`}><option value="" disabled hidden />{resetSession && <option value="reset">Reset session</option>}<optgroup label="Disable Bot protection"><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></optgroup></select><AlertChevron collapsed /></span></label>
 }
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {

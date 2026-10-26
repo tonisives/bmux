@@ -287,13 +287,13 @@ Session minutes, break minutes, and social site delay are editable for the
 selected profile. Press Enter or leave the field to save. Changes apply
 immediately and preserve existing usage. Existing config values remain the
 defaults for profiles without overrides; editing one profile leaves others alone.
-The alert's collapse button moves agent alerts into the status bar. **Show agent alerts**
+The shared collapse button moves agent alerts into the status bar. **Show agent alerts**
 restores them without changing checks or resuming automation. The CLI cannot resume a
 warning pause or change these settings. Resuming does not clear session usage or
 bypass a cooldown.
 
 Reaching the session limit shows a UI alert with the retry time. Wait for that
-time, or choose **Reset session** on the alert to end that website's break.
+time, or choose **Reset session** in the alert's website dropdown to end that website's break.
 **Reset all bot sessions** in the general row ends cooldowns across every profile.
 The profile's **Bot** tab lists each paused website with its own **Reset session**
 control. **Reset profile sessions** stays available there after alerts are collapsed
