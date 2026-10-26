@@ -28,7 +28,7 @@ import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
 import { automationWebsiteHost, automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
-import type { AutomationActor, AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState } from '../shared/automation'
+import type { AutomationActor, AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState, AutomationWarning } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -70,7 +70,7 @@ type AgentDetails = { paneId: string } | { actors: AutomationActor[] } | { windo
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { session: string; title: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; warning?: AutomationWarning; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { label: string; title: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
@@ -360,20 +360,19 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
   let selectedPane = selection(state).pane
   let paneLinks = (host?: string) => actors.filter(actor => actor.paneId !== selectedPane?.id && (!host || actor.hosts?.includes(host))).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
-    let session = state.model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))
-    return { session: session?.name ?? actor.paneId, title: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
+    return { label, title: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
   })
   let name = profile?.name ?? usage.profileId
   let warningEnabled = host && eligiblePanes.some(pane => automationWarningEnabled(limits, usage.profileId, host, Date.now(), pane.id))
   if (usage.warning && host && warningEnabled) {
     let affectedPane = eligiblePanes.find(pane => automationWebsiteHost(pane.url)?.replace(/^www\./, '') === host.replace(/^www\./, ''))
-    return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `Automation paused for ${name}: ${automationWarningLabels[usage.warning].toLowerCase()} on ${host}.`, detectedAt: usage.warningAt, actions: affectedPane ? [{ label: 'Resume automation', title: 'Check the website again and resume if the warning has cleared', run: () => { void resumeAutomation(state, run, affectedPane.id) } }] : [], paneLinks: paneLinks(host) }]
+    return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, warning: usage.warning, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `${name} · ${automationWarningLabels[usage.warning]}`, detectedAt: usage.warningAt, actions: affectedPane ? [{ label: 'Resume automation', title: 'Check the website again and resume if the warning has cleared', run: () => { void resumeAutomation(state, run, affectedPane.id) } }] : [], paneLinks: paneLinks(host) }]
   }
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   let retryAfter = usage.retryAfter
   // Current tab URLs may come from manual browsing after automation stopped.
   let siteHosts = usage.siteHost ? [usage.siteHost] : [...new Set(actors.flatMap(actor => actor.hosts ?? []))]
-  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `Automation session limit reached for ${name}.`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [{ label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId, host: siteHost }) } }], paneLinks: paneLinks(siteHost) }))
+  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `${name} · Session limit`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, actions: [{ label: 'Reset session', run: () => { void run('automation.reset-session', { profile: usage.profileId, host: siteHost }) } }], paneLinks: paneLinks(siteHost) }))
 })
 
 let profileDeviceLabel = (pane: { device?: { preset: DevicePreset; platform: DevicePlatform } }) => !pane.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: pane.device.platform === 'android' ? 'Android' : 'iOS' })[pane.device.preset]
@@ -439,13 +438,24 @@ let CooldownTimer = ({ retryAfter, minutes }: { retryAfter: string; minutes: num
   </div>
 }
 
-let NotificationPaneLink = ({ session, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={css.notificationSegments} title={title} aria-label={title} onClick={run}>
-  <span className={css.notificationSegmentIcon}><svg viewBox="0 0 20 20" aria-hidden="true" data-bmux-icon><rect x="2" y="3" width="16" height="14" rx="1" /><path d="m5 7 3 3-3 3m5 0h5" /></svg></span>
-  <span className={css.notificationSegmentLabel}>{session}</span>
+let BmuxIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true" data-bmux-icon="lantern"><path d="M7 6V4a3 3 0 0 1 6 0v2M4 8l3-3h6l3 3H4Zm2 0L5 18h10L14 8M10 8v10m0-6h4" /></svg>
+
+let NotificationIdentifier = ({ value, title = value }: { value: string; title?: string }) => {
+  let location = /^(.*)( · %\d+)$/.exec(value)
+  return <span className={css.notificationSegmentLabel} title={title}>{location ? <><span className={css.notificationLocation}>{location[1]}</span><span className={css.notificationPaneId}>{location[2]}</span></> : value}</span>
+}
+
+let NotificationPaneLink = ({ label, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={css.notificationSegments} title={title} aria-label={title} onClick={run}>
+  <span className={css.notificationSegmentIcon}><BmuxIcon /></span>
+  <NotificationIdentifier value={label} />
   <span className={css.notificationSegmentIcon}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></span>
 </button>
 
 let AlertChevron = ({ collapsed = false }: { collapsed?: boolean }) => <svg className={css.alertChevron} viewBox="0 0 16 16" aria-hidden="true"><path d={collapsed ? 'm4 6 4 4 4-4' : 'm4 10 4-4 4 4'} /></svg>
+let AutomationPause = ({ detectedAt }: { detectedAt?: number }) => <span className={css.notificationPause} role="group" aria-label="Automation paused" title={detectedAt === undefined ? 'Automation paused' : `Automation paused · Detected ${new Date(detectedAt).toLocaleString()}`}>
+  <svg viewBox="0 0 20 20" aria-hidden="true" data-automation-paused><circle cx="10" cy="10" r="8" /><path d="M8 6v8m4-8v8" /></svg>
+  {detectedAt !== undefined && <time dateTime={new Date(detectedAt).toISOString()} aria-label={`Detected ${new Date(detectedAt).toLocaleString()}`}>{new Date(detectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</time>}
+</span>
 let AgentStatusIcon = ({ locked = false }: { locked?: boolean }) => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true">{locked ? <><rect x="4" y="8" width="12" height="9" rx="1" /><path d="M6 8V6a4 4 0 0 1 8 0v2" /></> : <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></>}</svg>
 
 let AgentInteractionTime = ({ when, compact = false, now }: { when: number; compact?: boolean; now?: number }) => <time className={compact ? css.windowActivity : undefined} data-age={compact ? activityAge(when, now) : undefined} dateTime={new Date(when).toISOString()} title={`Last agent interaction ${new Date(when).toLocaleString()}`}>{compact ? compactActivityLabel(when, now) : new Date(when).toLocaleString()}</time>
@@ -487,7 +497,7 @@ let NotificationAgent = ({ actor }: { actor: AutomationActor }) => {
   }
   return <span className={css.notificationSegments} role="group" aria-label={`Agent ${identifier.value}`}>
     <AgentButton agents={[actor]} />
-    <span className={css.notificationSegmentLabel} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>
+    <NotificationIdentifier value={identifier.value} title={`${identifier.label}: ${identifier.value}`} />
     {definition?.focusCommand && <button type="button" aria-label="Focus agent" title={`Focus agent ${identifier.value}`} disabled={focusing} onClick={() => { void focus() }}><FocusAgentIcon /></button>}
   </span>
 }
@@ -502,10 +512,11 @@ let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; col
     try { await run('automation.reset-all-sessions') } finally { setResetting(false) }
   }
   return <div className={css.notifications} aria-label="Notifications">
-    {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status">
-      {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
+    {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status" data-agent-alert={notice.profileId ? true : undefined}>
+      {notice.warning && <AutomationPause detectedAt={notice.detectedAt} />}
       {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
-      <span className={css.notificationText}>{notice.text}{notice.detectedAt !== undefined && <> <time dateTime={new Date(notice.detectedAt).toISOString()} title={`Detected ${new Date(notice.detectedAt).toLocaleString()}`}>Detected {new Date(notice.detectedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}.</time></>}</span>
+      {notice.siteExclusion && <ExcludeWebsiteSelect {...notice.siteExclusion} />}
+      <span className={css.notificationText}>{notice.text}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
       {notice.agents?.map(actor => <NotificationAgent key={`${actor.paneId}:${actor.agentId}`} actor={actor} />)}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
@@ -1538,7 +1549,7 @@ let AgentInformation = () => {
       <dl>{actor.agentName && actor.agentName !== actor.agentId && <><dt>Name</dt><dd>{actor.agentName}</dd></>}{actor.agentId && <><dt>Agent ID</dt><dd>{actor.agentId}</dd></>}{actor.agentPurpose && <><dt>Browsing reason</dt><dd>{actor.agentPurpose}</dd></>}
         <AgentInteractionField actor={actor} />
         {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
-        {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session', sessionName: 'Session', windowId: 'Window ID', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{key === sessionField ? actor.agentData?.sessionName ?? value : value}</dd></Fragment>)}
+        {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session', sessionName: 'Session', windowId: 'Window ID', windowIndex: 'Window number', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{key === sessionField ? actor.agentData?.sessionName ?? value : value}</dd></Fragment>)}
       </dl>
       <div className={css.agentActions}>
         {definition?.focusCommand && <button className={css.agentAction} type="button" disabled={busy !== null} onClick={() => { void focus(actor) }}><FocusAgentIcon />Focus agent</button>}

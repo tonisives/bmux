@@ -47,6 +47,18 @@ test('agent identifier configuration names an existing field', () => {
   }
 })
 
+test('tmux identifiers show the session, window number and pane while retaining fallbacks', () => {
+  let data = { sessionId: '$5', sessionName: 'publishing', windowId: '@52', windowIndex: '0', paneId: '%70' }
+  let actor: AgentInfo = { agentId: 'thread', agentType: 'tmux', agentData: data }
+  let definition = { identifierField: 'paneId', fields: { paneId: { label: 'Terminal pane', type: 'pane' as const } } }
+  expect(agentIdentifier(actor, definition)).toEqual({ label: 'Tmux location', value: 'publishing:0 · %70' })
+  expect(agentIdentifier({ ...actor, agentData: { ...data, sessionName: 'renamed', windowIndex: '12' } }).value).toBe('renamed:12 · %70')
+  expect(agentIdentifier({ ...actor, agentData: { sessionId: '$5', windowId: '@52', paneId: '%70' } }).value).toBe('$5:@52 · %70')
+  expect(agentIdentifier({ ...actor, agentData: { paneId: '%70' } }).value).toBe('%70')
+  expect(agentIdentifier({ ...actor, agentType: 'editor' }, definition)).toEqual({ label: 'Terminal pane', value: '%70' })
+  expect(agentIdentifier({ ...actor, agentType: 'terminal', agentOrigin: { type: 'tmux', paneId: '%70', panePid: '12345' } }).value).toBe('publishing:0 · %70')
+})
+
 test('identity errors describe configured required fields and follow settings changes', () => {
   let registry = createAgentRegistry([])
   expect(() => registry.resolve({}, parseAgentSettings(undefined), true)).toThrow('Agent ID required. Expected JSON: {"agentId":"<id>"}')

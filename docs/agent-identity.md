@@ -83,10 +83,14 @@ shell must opt in with `BMUX_AGENT_TYPE=tmux` or `--agent-type tmux`.
 
 `bmux agent context` prints the resolved context without starting BMUX. It
 prints JSON for inspection; it does not export variables or register an agent.
-Automatic tmux context uses `sessionId`, `sessionName`, `windowId`, and `paneId`; custom field
+Automatic tmux context uses `sessionId`, `sessionName`, `windowId`, `windowIndex`, and `paneId`; custom field
 names must be supplied explicitly. Supplied standard terminal IDs must agree
 with the resolved caller. The popup shows `sessionName` in place of the session
-ID; focus commands still receive the ID. Each CLI browser call refreshes the name.
+ID; focus commands still receive the ID. Each CLI browser call refreshes the name
+and window number. Agent buttons show `session:window · %pane` for tmux callers,
+using stable IDs when older context lacks a name or window number. Other agent
+types use their configured identifier, pane ID, or agent ID. Bmux alert links use
+the same `session:window · %pane` format for the browser pane.
 
 ## Config and errors
 

@@ -165,10 +165,10 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   let resume = (profileId: string, page: Page) => {
     ensureLedger()
     if (page.warning) throw safetyError('The page still shows an account warning or challenge')
-    let value = Object.values(usage).find(value => value.profileId === profileId && value.siteHost.replace(/^www\./, '') === new URL(page.url).hostname.replace(/^www\./, ''))
+    let values = Object.values(usage).filter(value => value.profileId === profileId && value.siteHost.replace(/^www\./, '') === new URL(page.url).hostname.replace(/^www\./, ''))
     let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning)
-    if (!value && warning) throw safetyError(`Open ${warning.warningHost} and resolve its warning before resuming automation`)
-    if (value) { delete value.warning; delete value.warningHost; delete value.warningAt; persist() }
+    if (!values.length && warning) throw safetyError(`Open ${warning.warningHost} and resolve its warning before resuming automation`)
+    if (values.length) { for (let value of values) { delete value.warning; delete value.warningHost; delete value.warningAt }; persist() }
     return { resumed: true }
   }
   let status = (): AutomationSafetyState => ({ enabled: options.settings().enabled, limits: options.settings(), ...(ledgerError ? { error: 'Automation safety ledger is unreadable; repair it before automating' } : {}), profiles: Object.values(usage).map(value => ({ ...value, retryAfter: reachedLimit(value) && now() < retryAt(value.profileId, value) ? new Date(retryAt(value.profileId, value)).toISOString() : null })) })

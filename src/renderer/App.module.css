@@ -72,13 +72,15 @@
 .notifications { position: relative; z-index: 101; order: -1; flex: 0 0 auto; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .app[data-status-bar="bottom"] .notifications { order: 2; }
 .notification { display: flex; flex-wrap: wrap; align-items: center; min-height: 28px; gap: 8px; padding: 4px 8px 4px 12px; border-top: 1px solid #493638; border-bottom: 1px solid #493638; background: #2a2022; color: #e6a69c; }
-.notificationText { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notificationText { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
 .notification button { display: grid; place-items: center; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #b98d89; }
 .notification button:hover { color: #f2c1bb; }
 .notificationAction { background: transparent; color: inherit; }
 .notificationSettings { flex: none; }
-.notification .notificationAction { display: block; width: auto; height: auto; flex-basis: auto; padding: 2px 6px; border: 1px solid #76565a; color: #f2c1bb; white-space: nowrap; }
+.notification .notificationAction { display: grid; place-items: center; width: auto; height: 24px; flex-basis: auto; padding: 0 6px; border: 1px solid #76565a; color: #f2c1bb; white-space: nowrap; }
 .notification svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.notificationPause { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 6px; line-height: 22px; white-space: nowrap; }
+.notificationPause svg { width: 16px; height: 16px; }
 .notificationSiteExclusion { display: inline-flex; align-items: center; gap: 8px; padding-left: 6px; border: 1px solid #76565a; }
 .notificationSiteExclusion > span { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notificationSiteExclusion .notificationAction { padding: 2px 6px; border: 0; border-left: 1px solid #76565a; }
@@ -92,7 +94,9 @@
 .notification .notificationSegments > button:disabled { opacity: .5; cursor: default; }
 .notification .notificationSegments > * + * { border-left: 1px solid #76565a; }
 .notificationSegments svg { width: 14px; height: 14px; }
-.notificationSegmentLabel { max-width: 160px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 22px; user-select: text; }
+.notificationSegmentLabel { display: inline-flex; align-items: center; max-width: 160px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 22px; user-select: text; }
+.notificationLocation { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.notificationPaneId { flex: 0 0 auto; }
 .notificationGeneral { min-height: 26px; padding-top: 3px; padding-bottom: 3px; background: #2a2022; border-color: #493638; color: #e6a69c; }
 .notificationGeneral .notificationAction { border-color: #735052; color: #e6a69c; }
 .notificationGeneral svg { width: 14px; height: 14px; }
