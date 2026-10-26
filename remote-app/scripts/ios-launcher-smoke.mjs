@@ -23,6 +23,7 @@ let metro = spawn('pnpm', ['exec', 'expo', 'start', '--dev-client', '--localhost
   env: { ...process.env, CI: '1', EXPO_PACKAGER_PROXY_URL: metroURL, EXPO_NO_TELEMETRY: '1' },
 })
 let result = { device, phase: 'metro', metroURL }
+metro.once('exit', (code, signal) => { result.metroExit = { code, signal, at: new Date().toISOString() } })
 try {
   await new Promise((resolve, reject) => { metro.once('spawn', resolve); metro.once('error', reject) })
   let deadline = Date.now() + 120_000
@@ -51,18 +52,34 @@ try {
   result.sourceTree = sourceTree
   result.phase = 'native-ui-tests'
   let log = await open(path.join(output, 'launcher-tests.log'), 'w')
+  let monitoring = true
+  result.metroHealth = { checks: 0, failures: [] }
+  let monitor = (async () => {
+    while (monitoring) {
+      let at = new Date().toISOString()
+      let ready = await fetch(`${metroURL}/status`, { signal: AbortSignal.timeout(2000) }).then(response => response.text()).then(text => text.includes('packager-status:running')).catch(() => false)
+      result.metroHealth.checks++
+      result.metroHealth.last = { at, ready }
+      if (!ready) result.metroHealth.failures.push({ at, exitCode: metro.exitCode, signalCode: metro.signalCode })
+      if (monitoring) await delay(1000)
+    }
+  })()
   try {
-    let test = spawn('xcodebuild', ['test', '-project', 'ios/launcher/BMUXLauncherTests.xcodeproj', '-scheme', 'BMUXLauncherTests', '-configuration', 'Debug', '-sdk', 'iphonesimulator', '-destination', `platform=iOS Simulator,id=${device}`, '-derivedDataPath', 'ios/launcher-build', '-resultBundlePath', testResults, '-jobs', '4', '-parallel-testing-enabled', 'NO', 'CODE_SIGNING_ALLOWED=NO', '-quiet'], { stdio: ['ignore', log.fd, log.fd], timeout: 480_000 })
-    let code = await new Promise((resolve, reject) => { test.once('error', reject); test.once('exit', resolve) })
-    assert.equal(code, 0, 'The native server chooser tests must pass; see launcher-tests.log')
-    let summary = JSON.parse((await execute('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', testResults])).stdout)
-    await writeFile(path.join(output, 'launcher-summary.json'), JSON.stringify(summary, null, 2))
+    let test = spawn('xcodebuild', ['test', '-project', 'ios/launcher/BMUXLauncherTests.xcodeproj', '-scheme', 'BMUXLauncherTests', '-configuration', 'Debug', '-sdk', 'iphonesimulator', '-destination', `platform=iOS Simulator,id=${device}`, '-derivedDataPath', 'ios/launcher-build', '-resultBundlePath', testResults, '-jobs', '4', '-parallel-testing-enabled', 'NO', 'CODE_SIGNING_ALLOWED=NO'], { stdio: ['ignore', log.fd, log.fd], timeout: 480_000 })
+    let startedAt = Date.now()
+    result.nativeTestProcess = await new Promise((resolve, reject) => { test.once('error', reject); test.once('exit', (code, signal) => resolve({ code, signal, elapsedMs: Date.now() - startedAt })) })
+    let summary = await execute('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', testResults]).then(({ stdout }) => JSON.parse(stdout)).catch(error => { result.summaryError = error.message })
+    if (summary) await writeFile(path.join(output, 'launcher-summary.json'), JSON.stringify(summary, null, 2))
+    assert.equal(result.nativeTestProcess.code, 0, `The native server chooser tests must pass (signal: ${result.nativeTestProcess.signal ?? 'none'}); see launcher-tests.log`)
+    assert.ok(summary, 'The native chooser test must produce a result summary')
     assert.equal(summary.totalTestCount, 1, 'The native chooser test must execute')
     assert.equal(summary.passedTests, 1)
     assert.equal(summary.failedTests, 0)
     assert.equal(summary.skippedTests, 0)
     result.phase = 'complete'
   } finally {
+    monitoring = false
+    await monitor
     await log.close()
   }
 } catch (error) {
@@ -70,6 +87,7 @@ try {
   throw error
 } finally {
   let cleanupError
+  result.metroBeforeCleanup = { exitCode: metro.exitCode, signalCode: metro.signalCode }
   if (metro.pid) {
     try { process.kill(-metro.pid, 'SIGTERM') } catch (error) {
       if (error.code !== 'ESRCH') { cleanupError = error; result.metroCleanupError = error.message }
