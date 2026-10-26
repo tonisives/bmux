@@ -67,7 +67,8 @@ let main = async () => {
   assert.equal(run.path, '.github/workflows/remote-app.yml')
   assert.equal(run.head_repository.full_name, repository)
   assert.match(run.head_sha, /^[a-f0-9]{40}$/)
-  await execute('git', ['fetch', '--no-tags', '--depth=1', 'origin', run.head_sha])
+  try { await execute('git', ['cat-file', '-e', `${run.head_sha}^{commit}`]) }
+  catch { await execute('git', ['fetch', '--no-tags', 'origin', run.head_sha]) }
   let target = (await execute('git', ['rev-parse', 'HEAD'])).stdout.trim()
   if (process.env.GITHUB_SHA) assert.equal(target, process.env.GITHUB_SHA)
   let changed = (await execute('git', ['diff', '--name-only', run.head_sha, target])).stdout.trim().split('\n').filter(Boolean)
