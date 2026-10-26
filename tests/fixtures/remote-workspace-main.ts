@@ -32,7 +32,7 @@ void app.whenReady().then(async () => {
   ipcMain.on('bounds', (event, bounds) => runtime.setBounds(event.sender.id, bounds))
   // Layout tests supply host snapshots directly; transport is covered by remote-host.
   ipcMain.handle('remote-client-selection', () => new Promise(() => {}))
-  app.on('open-url', (event, url) => { event.preventDefault(); void runtime.openExternalLink(runtime.model.lastFocusedClientId ?? runtime.model.clients[0].id, url) })
+  app.on('open-url', (event, url) => { event.preventDefault(); void runtime.openExternalLink(runtime.preferredClient()!.id, url) })
   app.on('will-quit', () => runtime.shutdown())
   await runtime.start(false)
 })
