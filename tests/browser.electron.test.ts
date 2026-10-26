@@ -2158,6 +2158,61 @@ test('reuses a closed numeric pane ID and remaps the reopened pane', async () =>
   await cli('kill-session', { session: session.id, confirm: true })
 })
 
+test('window switching restores each window’s zoomed pane', async () => {
+  let session = await cli('new-session', { name: 'window-zoom' })
+  let otherSession = await cli('new-session', { name: 'window-zoom-other' })
+  let first = session.windows[0]
+  await cli('rename-window', { window: first.id, name: 'zoom-first' })
+  await cli('navigate', { pane: first.panes[0].id, url: `${url}/window-zoom/first` })
+  let firstSplit = await cli('split-window', { pane: first.panes[0].id, url: `${url}/window-zoom/first-split` })
+  let second = await cli('new-window', { session: session.id, name: 'zoom-second', url: `${url}/window-zoom/second` })
+  let secondSplit = await cli('split-window', { pane: second.panes[0].id, url: `${url}/window-zoom/second-split` })
+  let client = await cli('attach-session', { session: session.id })
+  let chrome = await rendererForClient(client.id)
+  let expectSelection = async (windowId: string, paneIds: string[], zoomedPaneId: string | null) => {
+    await expect.poll(async () => (await cli('list-clients')).find((item: { id: string }) => item.id === client.id)).toMatchObject({ windowId, zoomedPaneId, ...(zoomedPaneId ? { paneId: zoomedPaneId } : {}) })
+    await expect(chrome.locator('[data-pane-id]')).toHaveCount(paneIds.length)
+    for (let id of paneIds) await expect(chrome.locator(`[data-pane-id="${id}"]`)).toBeVisible()
+    let panes = await cli('list-panes', { window: windowId })
+    let urls = panes.filter((pane: { id: string }) => paneIds.includes(pane.id)).map((pane: { url: string }) => pane.url).sort()
+    await expect.poll(() => application.evaluate(({ BaseWindow }, prefix) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).flatMap(view => {
+      let contents = (view as Electron.WebContentsView).webContents, bounds = view.getBounds()
+      return contents?.getURL().startsWith(prefix) && bounds.width > 0 && bounds.height > 0 ? [contents.getURL()] : []
+    }).sort(), `${url}/window-zoom/`)).toEqual(urls)
+  }
+  try {
+    for (let pane of [first.panes[0], firstSplit, second.panes[0], secondSplit]) await cli('wait', { pane: pane.id, selector: '#text' })
+    await cli('activate-client', { client: client.id })
+    await cli('select-pane', { client: client.id, pane: firstSplit.id })
+    await cli('toggle-pane-zoom', { client: client.id })
+    await expectSelection(first.id, [firstSplit.id], firstSplit.id)
+
+    await cli('new-window', { session: session.id, client: client.id, name: 'zoom-third', url })
+    await chrome.getByRole('button', { name: '1:zoom-first', exact: true }).click()
+    await expectSelection(first.id, [firstSplit.id], firstSplit.id)
+
+    await cli('cycle-window', { client: client.id, direction: 1 })
+    await expectSelection(second.id, [second.panes[0].id, secondSplit.id], null)
+    await cli('select-pane', { client: client.id, pane: secondSplit.id })
+    await cli('toggle-pane-zoom', { client: client.id })
+    await cli('cycle-window', { client: client.id, direction: -1 })
+    await expectSelection(first.id, [firstSplit.id], firstSplit.id)
+    await cli('select-window', { client: client.id, window: second.id })
+    await expectSelection(second.id, [secondSplit.id], secondSplit.id)
+
+    await cli('switch-client', { client: client.id, session: otherSession.id })
+    await cli('switch-client', { client: client.id, session: session.id })
+    await expectSelection(second.id, [secondSplit.id], secondSplit.id)
+    await cli('toggle-pane-zoom', { client: client.id })
+    await cli('select-window', { client: client.id, window: first.id })
+    await cli('select-window', { client: client.id, window: second.id })
+    await expectSelection(second.id, [second.panes[0].id, secondSplit.id], null)
+  } finally {
+    await cli('detach-client', { client: client.id })
+    for (let item of [session, otherSession]) await cli('kill-session', { session: item.id, confirm: true })
+  }
+})
+
 test('switching sessions restores each client’s last selected window', async () => {
   let alpha = await cli('new-session', { name: 'remember-alpha' })
   let beta = await cli('new-session', { name: 'remember-beta' })
