@@ -201,10 +201,13 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByRole('heading', { name: 'Account', level: 2, exact: true })).toBeVisible()
     await expect(page.getByText('Account ID:', { exact: false })).toBeVisible()
     logoutFailed = true
+    let previousDeviceKey = await page.evaluate(() => localStorage.getItem('bmux-device-key'))
+    expect(previousDeviceKey).not.toBeNull()
     await page.getByRole('button', { name: 'Sign out', exact: true }).click()
     await expect(page.getByRole('alert')).toContainText('Sign-out unavailable')
     await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeEnabled()
     await expect(page.getByText('Account ID:', { exact: false })).toBeVisible()
+    expect(await page.evaluate(() => localStorage.getItem('bmux-device-key'))).toBe(previousDeviceKey)
     logoutFailed = false
     let connectedBeforeLogout = connectRequests
     await page.getByRole('button', { name: 'Sign out', exact: true }).click()
@@ -213,6 +216,7 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByRole('button', { name: 'Account', exact: true })).toHaveCount(0)
     await expect(page.getByRole('complementary', { name: 'Sessions', exact: true })).toHaveCount(0)
     expect(await page.evaluate(() => localStorage.getItem('bmux-known-account'))).toBeNull()
+    expect(await page.evaluate(() => localStorage.getItem('bmux-device-key'))).toBeNull()
     await expect.poll(() => sockets.clients.size).toBe(0)
     await page.reload()
     await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeEnabled()

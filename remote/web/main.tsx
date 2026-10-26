@@ -71,6 +71,7 @@ let App = () => {
     try { await api('/api/logout', {}) }
     catch (error) { if (!(error instanceof Error) || error.message !== 'Sign in to continue') throw error }
     localStorage.removeItem('bmux-known-account')
+    localStorage.removeItem('bmux-device-key')
     location.replace('/')
   }
   let connect = async () => {
