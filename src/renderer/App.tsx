@@ -475,7 +475,8 @@ let AgentButton = ({ agents, paneId, active = true, lastUsed }: { agents: Automa
   let locked = !!paneId && state.lockedAgentPanes?.includes(paneId)
   let title = paneId ? `${locked ? 'Agent controlling · page input locked · ' : active ? '' : 'Last agent · '}${actor.agentName ?? actor.agentId ?? 'Unidentified agent'}${actor.agentName && actor.agentId ? ` (${actor.agentId})` : ''}` : label
   let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
-  let identifier = agentIdentifier(actor, definition)
+  let agentPaneId = actor.agentData?.paneId ?? actor.agentOrigin?.paneId
+  let identifier = agentPaneId ? { label: 'Pane ID', value: agentPaneId } : agentIdentifier(actor, definition)
   return <button type="button" className={paneId ? `${css.navigationButton} ${css.paneAgentButton}` : undefined} aria-label={label} title={title} onClick={open}><AgentStatusIcon locked={locked} />{paneId && <><span className={css.paneAgentId} title={`${identifier.label}: ${identifier.value}`}>{identifier.value}</span>{lastUsed !== undefined && <AgentInteractionTime when={lastUsed} compact now={now} />}</>}</button>
 }
 
