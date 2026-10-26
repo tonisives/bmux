@@ -40,6 +40,16 @@ if (process.argv[2] === 'prepare') {
   let device = await simctl('create', `bmux-launch-${process.pid}`, 'com.apple.CoreSimulator.SimDeviceType.iPhone-17', runtime.identifier)
   await writeFile(stateFile, JSON.stringify({ device, runtime: runtime.version, bundle, startedAt: new Date().toISOString() }))
   await simctl('boot', device)
+} else if (process.argv[2] === 'cleanup') {
+  let state = await readFile(stateFile, 'utf8').then(JSON.parse).catch(error => {
+    if (error.code !== 'ENOENT') throw error
+  })
+  if (state && !state.cleanedAt) {
+    await run('xcrun', ['simctl', 'shutdown', state.device], 30_000).catch(() => {})
+    await run('xcrun', ['simctl', 'delete', state.device], 30_000)
+    state.cleanedAt = new Date().toISOString()
+    await writeFile(stateFile, JSON.stringify(state, null, 2))
+  }
 } else {
   let state = JSON.parse(await readFile(stateFile, 'utf8'))
   let { device } = state
@@ -80,7 +90,5 @@ if (process.argv[2] === 'prepare') {
     if (!captured) await run('xcrun', ['simctl', 'io', device, 'screenshot', screenshot], 30_000).catch(() => {})
     result.completedAt = new Date().toISOString()
     await writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2))
-    await run('xcrun', ['simctl', 'shutdown', device], 30_000).catch(() => {})
-    await run('xcrun', ['simctl', 'delete', device], 30_000)
   }
 }

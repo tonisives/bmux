@@ -87,4 +87,10 @@ native projects. Its iOS 27 simulator smoke test launches the Release app, check
 that its process stays alive and saves a screenshot. Shared browser changes
 additionally require Check and Portable hosts on the final commit.
 
+The workflow runs `node scripts/ios-launch-smoke.mjs prepare` before dependencies
+and native compilation. `pnpm smoke:ios` requires that prepared simulator;
+`node scripts/ios-launch-smoke.mjs cleanup` runs even if setup or compilation
+fails. The `remote-app-ios-launch` artifact includes the screenshot, runtime
+inventory, command timings and boot/install diagnostics.
+
 Clawtab theme attribution is recorded in THIRD_PARTY_NOTICES.md.

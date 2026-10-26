@@ -115,6 +115,9 @@ jobs:
       - run: pod install --project-directory=ios
       - run: xcodebuild -workspace ios/bmuxremote.xcworkspace -scheme bmuxremote -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build -jobs 4 CODE_SIGNING_ALLOWED=NO -quiet build > ios-build.log 2>&1
       - run: pnpm smoke:ios
+      - name: Clean up iOS simulator
+        if: always()
+        run: node scripts/ios-launch-smoke.mjs cleanup
       - uses: actions/upload-artifact@v4
         if: always()
         with:
