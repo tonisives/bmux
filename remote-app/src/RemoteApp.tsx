@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Link } from 'expo-router'
@@ -40,6 +40,11 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let action = async (run: () => Promise<unknown>) => { setBusy(true); try { await run() } catch (value) { remote.setError((value as Error).message) } finally { setBusy(false) } }
   useEffect(() => { if (attentionId) { setDemo(false); remote.rememberAttention(attentionId); setSection('sessions') } }, [attentionId])
   useEffect(() => { if (remote.selection) setSection('sessions') }, [remote.selection])
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !remote.selection) return
+    let listener = BackHandler.addEventListener('hardwareBackPress', () => { remote.close(); setSection('sessions'); return true })
+    return () => listener.remove()
+  }, [remote.selection, remote.close])
   let openDemo = () => { remote.close(); setDemo(true) }
   let selectTab = (tab: RemoteTab) => {
     remote.close(); setSection(tab)
@@ -56,16 +61,19 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
       <HelpLinks />
     </View>
   </SafeAreaView>
+  let sessionSection = section === 'sessions' || section === 'search'
+  let navigation = <RemoteTabs active={section === 'attention' ? 'sessions' : section} select={selectTab} />
   let sessions = <View style={split ? local.sidebarWide : local.sidebar}>
     <SessionList hosts={remote.hosts} attention={remote.attention} selection={remote.selection} select={selection => void action(() => remote.watch(selection))} create={setNewHost} searchVisible={split || section === 'search'} focusSearch={focusSearch}
       empty={<View style={local.empty}><Text style={styles.secondary}>{remote.connecting ? 'Connecting…' : 'No sessions'}</Text><Button title="Connect a machine" onPress={() => setSetup(true)} /></View>}
     />
+    {split && navigation}
   </View>
-  let viewing = (section === 'sessions' || section === 'search') && !!remote.selection && !split
+  let viewing = sessionSection && !!remote.selection && !split
   return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
     {!viewing && <RemoteHeader notifications={pending.length} onNotifications={() => { remote.close(); setSection('attention'); void remote.refresh() }} />}
     {!!remote.error && <View style={local.error}><Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text><Button title="Reconnect" disabled={remote.connecting} onPress={remote.retry} /><Button title="Dismiss" onPress={() => remote.setError('')} /></View>}
-    {(section === 'sessions' || section === 'search') && <View style={local.body}>{(split || !remote.selection) && sessions}{remote.selection ? <View style={local.detail}><ViewerScreen /></View> : split && <View style={[local.detail, local.center]}><Text style={styles.secondary}>Select a session</Text></View>}</View>}
+    {sessionSection && <View style={local.body}>{(split || !remote.selection) && sessions}{remote.selection ? <View style={local.detail}><ViewerScreen /></View> : split && <View style={[local.detail, local.center]}><Text style={styles.secondary}>Select a session</Text></View>}</View>}
     {section === 'attention' && <AttentionInbox items={remote.attention} hosts={remote.hosts} open={openAttention} dismiss={id => void action(() => remote.markAttention(id, { dismissed: true }))} busy={busy} loading={remote.loadingAttention} loadMore={remote.attentionCursor ? () => void action(remote.loadMoreAttention) : undefined} />}
     {section === 'settings' && <ScrollView contentContainerStyle={local.content}>
       <Text style={styles.title}>Settings</Text>
@@ -79,7 +87,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
       <Button title="Demo" onPress={openDemo} />
       <HelpLinks />
     </ScrollView>}
-    {!viewing && <RemoteTabs active={section === 'attention' ? 'sessions' : section} select={selectTab} />}
+    {!viewing && !(split && sessionSection) && navigation}
     <Sheet title="Disconnect this view?" visible={!!disconnect} close={() => setDisconnect(undefined)}><Text style={styles.text}>The browser and its background work will keep running.</Text><Button title="Disconnect" primary busy={busy} onPress={() => disconnect && void action(async () => { await remote.disconnectView(disconnect); setDisconnect(undefined) })} /></Sheet>
     <NewSessionSheet host={newHost} close={() => { setNewHost(undefined); remote.close() }} created={() => setNewHost(undefined)} />
     <ProfilesSheet host={profileHost} close={() => { setProfileHost(undefined); remote.close() }} />
@@ -97,7 +105,7 @@ let HelpLinks = () => <View style={local.helpLinks}>
 let local = StyleSheet.create({
   helpLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 }, helpLink: { color: colors.secondary, fontSize: 13, minHeight: 44, paddingVertical: 12 },
   center: { alignItems: 'center', justifyContent: 'center', gap: 20 }, welcome: { width: '100%', maxWidth: 440, padding: 28, gap: 24 }, welcomeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  body: { flex: 1, flexDirection: 'row', minHeight: 0 }, sidebar: { flex: 1 }, sidebarWide: { width: 380, maxWidth: '45%', flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.border }, detail: { flex: 1, minWidth: 0 },
+  body: { flex: 1, flexDirection: 'row', minHeight: 0 }, sidebar: { flex: 1 }, sidebarWide: { width: 340, maxWidth: '45%', flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.border }, detail: { flex: 1, minWidth: 0 },
   connectionRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8 }, setupText: { color: colors.secondary, fontSize: 14, lineHeight: 22, textAlign: 'left' },
   content: { padding: 24, gap: 20, maxWidth: 680, width: '100%', alignSelf: 'center' }, sectionHeading: { justifyContent: 'space-between' }, empty: { padding: 28, gap: 14, alignItems: 'center' }, error: { backgroundColor: 'rgba(255,69,58,0.1)', padding: 12, flexDirection: 'row', gap: 12, alignItems: 'center' }, errorText: { color: colors.danger, fontSize: 14, flexShrink: 1 },
 })
