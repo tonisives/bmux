@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { colors, styles } from '../theme'
@@ -30,6 +30,12 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
   let notes = selection?.pane === 'demo-notes'
   let title = notes ? 'Notes' : 'Docs'
   let open = (value: Selection) => { setSelection(value); setControlling(false); setDetails(false) }
+  let back = () => { setSelection(undefined); setTab('sessions') }
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !selection || split) return
+    let subscription = BackHandler.addEventListener('hardwareBackPress', () => { setSelection(undefined); setTab('sessions'); return true })
+    return () => subscription.remove()
+  }, [selection, split])
   let selectTab = (value: RemoteTab) => { setTab(value); if (value === 'search') setFocusSearch(count => count + 1) }
   let list = <View style={split ? local.sidebar : local.list}>
     {tab === 'settings' ? <ScrollView contentContainerStyle={local.settings}>
@@ -45,12 +51,12 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
       {(split || !selection) && list}
       {selection ? <View style={local.detail}>
         <View style={local.titleBar}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Back to sessions" onPress={() => { setSelection(undefined); setTab('sessions') }} style={local.back}><Ionicons name="chevron-back" size={24} color={colors.text} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Back to sessions" onPress={back} style={local.back}><Ionicons name="chevron-back" size={24} color={colors.text} /></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Page details" onPress={() => setDetails(true)} style={local.pageTitle}>
             <Text style={local.title} numberOfLines={1}>{title}</Text><Text style={local.demo}>Demo</Text><Ionicons name="chevron-down" size={16} color={colors.secondary} />
           </Pressable>
         </View>
-        <ScrollView testID="demo-browser-page" style={local.page} contentContainerStyle={local.pageContent} keyboardShouldPersistTaps="handled">
+        <ScrollView testID="demo-browser-page" style={local.page} contentContainerStyle={local.pageContent} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
           {notes ? <>
             <Text style={local.contentTitle}>Notes</Text>
             <TextInput value={note} onChangeText={value => { setNote(value); setSaved(false) }} editable={controlling} accessibilityLabel="Demo note" accessibilityState={{ disabled: !controlling }} placeholder="Write a note" placeholderTextColor="#777777" multiline style={local.note} />
