@@ -114,4 +114,13 @@ test target, the built Debug app and the prepared simulator. Its Metro server
 runs only for that check and stops when the check finishes. The simulator app is
 uploaded after a successful compile even if a later launch or UI check fails.
 
+The chooser runner is a standalone XCTest project with no application build
+dependency. To verify harness changes against a retained Debug app, dispatch
+`remote-app.yml` with `retained_app_run` set to its build run ID. It invokes the
+separate Remote chooser workflow without cancelling a normal app build. Reuse
+requires successful native compilation and startup, an unchanged native build
+job and product/runtime inputs, and the original artifact's verified SHA-256
+digest. A fresh iOS 27 simulator runs the same launch and chooser assertions;
+the artifact includes provenance, screenshots, test counts and cleanup results.
+
 Clawtab theme attribution is recorded in THIRD_PARTY_NOTICES.md.

@@ -1,0 +1,61 @@
+name: Remote chooser
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'Run containing the compatible compiled iOS Debug app'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      source_run:
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: remote-chooser-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  ios:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    env:
+      BMUX_IOS_BUILD_CONFIGURATION: Debug
+      BMUX_RETAINED_APP_RUN: ${{ inputs.source_run }}
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        working-directory: remote-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '27.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: remote-app/pnpm-lock.yaml
+      - name: Verify and restore retained native app
+        run: node scripts/verify-ios-reused-app.mjs
+      - name: Prewarm iOS 27 simulator
+        run: node scripts/ios-launch-smoke.mjs prepare
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - name: Prepare standalone native launcher tests
+        shell: bash
+        run: ruby scripts/add-ios-launcher-tests.rb 2>&1 | tee ios-smoke/launcher-prepare.log
+      - run: pnpm smoke:ios
+      - run: pnpm smoke:ios:launcher
+      - name: Clean up iOS simulator
+        if: always()
+        run: node scripts/ios-launch-smoke.mjs cleanup
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: remote-app-ios-retained-chooser
+          path: remote-app/ios-smoke/

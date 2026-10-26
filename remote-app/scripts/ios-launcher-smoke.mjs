@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 let execute = promisify(execFile)
 let output = path.resolve('ios-smoke')
 let metroURL = 'http://localhost:19731'
+let testResults = 'ios/launcher-build/LauncherTests.xcresult'
 let { device } = JSON.parse(await readFile(path.join(output, 'device.json'), 'utf8'))
 let metroLog = await open(path.join(output, 'metro.log'), 'w')
 let metro = spawn('pnpm', ['exec', 'expo', 'start', '--dev-client', '--localhost', '--port', '19731', '--max-workers', '4'], {
@@ -29,9 +30,15 @@ try {
   result.phase = 'native-ui-tests'
   let log = await open(path.join(output, 'launcher-tests.log'), 'w')
   try {
-    let test = spawn('xcodebuild', ['test', '-workspace', 'ios/bmuxremote.xcworkspace', '-scheme', 'BMUXLauncherTests', '-configuration', 'Debug', '-sdk', 'iphonesimulator', '-destination', `platform=iOS Simulator,id=${device}`, '-derivedDataPath', 'ios/build', '-resultBundlePath', 'ios/build/LauncherTests.xcresult', '-jobs', '4', '-parallel-testing-enabled', 'NO', 'CODE_SIGNING_ALLOWED=NO', '-quiet'], { stdio: ['ignore', log.fd, log.fd], timeout: 480_000 })
+    let test = spawn('xcodebuild', ['test', '-project', 'ios/launcher/BMUXLauncherTests.xcodeproj', '-scheme', 'BMUXLauncherTests', '-configuration', 'Debug', '-sdk', 'iphonesimulator', '-destination', `platform=iOS Simulator,id=${device}`, '-derivedDataPath', 'ios/launcher-build', '-resultBundlePath', testResults, '-jobs', '4', '-parallel-testing-enabled', 'NO', 'CODE_SIGNING_ALLOWED=NO', '-quiet'], { stdio: ['ignore', log.fd, log.fd], timeout: 480_000 })
     let code = await new Promise((resolve, reject) => { test.once('error', reject); test.once('exit', resolve) })
     assert.equal(code, 0, 'The native server chooser tests must pass; see launcher-tests.log')
+    let summary = JSON.parse((await execute('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', testResults])).stdout)
+    await writeFile(path.join(output, 'launcher-summary.json'), JSON.stringify(summary, null, 2))
+    assert.equal(summary.totalTestCount, 1, 'The native chooser test must execute')
+    assert.equal(summary.passedTests, 1)
+    assert.equal(summary.failedTests, 0)
+    assert.equal(summary.skippedTests, 0)
     result.phase = 'complete'
   } finally {
     await log.close()
@@ -47,7 +54,7 @@ try {
     }
   }
   await metroLog.close()
-  await execute('xcrun', ['xcresulttool', 'export', 'attachments', '--path', 'ios/build/LauncherTests.xcresult', '--output-path', path.join(output, 'ui')], { timeout: 30_000 }).catch(error => { result.attachmentExportError = error.message })
+  await execute('xcrun', ['xcresulttool', 'export', 'attachments', '--path', testResults, '--output-path', path.join(output, 'ui')], { timeout: 30_000 }).catch(error => { result.attachmentExportError = error.message })
   result.completedAt = new Date().toISOString()
   await writeFile(path.join(output, 'launcher-result.json'), JSON.stringify(result, null, 2))
   if (cleanupError && result.phase === 'complete') throw cleanupError
