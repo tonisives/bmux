@@ -120,6 +120,7 @@ jobs:
       - run: pnpm verify:ios
       - name: Prepare native launcher tests with CocoaPods Ruby
         if: matrix.configuration == 'Debug'
+        shell: bash
         run: ruby scripts/add-ios-launcher-tests.rb 2>&1 | tee ios-smoke/launcher-prepare.log
       - run: pod install --project-directory=ios
       - id: ios-build
