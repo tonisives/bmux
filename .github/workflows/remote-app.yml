@@ -107,6 +107,8 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: remote-app/pnpm-lock.yaml
+      - name: Prewarm iOS 27 simulator
+        run: node scripts/ios-launch-smoke.mjs prepare
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm exec expo prebuild --clean --platform ios --no-install
       - run: pnpm verify:ios
