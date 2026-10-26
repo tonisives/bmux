@@ -5,6 +5,14 @@ final class BMUXLauncherTests: XCTestCase {
   private let remoteURL = "https://metro-mobile.bmux.cc"
   private let localURL = "http://127.0.0.1:19731"
 
+  private func serverEntries(_ url: String) -> XCUIElementQuery {
+    app.buttons.matching(NSPredicate(format: "label CONTAINS %@", url))
+  }
+
+  private var manualEntry: XCUIElement {
+    app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Enter URL manually")).firstMatch
+  }
+
   override func setUpWithError() throws {
     continueAfterFailure = false
     app.launchArguments = ["-EXDevMenuIsOnboardingFinished", "1", "-EXDevMenuShowsAtLaunch", "0"]
@@ -27,11 +35,12 @@ final class BMUXLauncherTests: XCTestCase {
 
   func testRemoteServerChoiceAndRememberedManualURL() throws {
     app.launch()
-    XCTAssertTrue(app.staticTexts[remoteURL].firstMatch.waitForExistence(timeout: 30))
-    let initialRemoteLabels = app.staticTexts[remoteURL].count
+    XCTAssertTrue(serverEntries(remoteURL).firstMatch.waitForExistence(timeout: 30))
+    XCTAssertTrue(serverEntries(remoteURL).firstMatch.isHittable)
+    let initialRemoteEntries = serverEntries(remoteURL).count
     capture("01-default-remote-server")
 
-    app.buttons["Enter URL manually"].tap()
+    manualEntry.tap()
     let field = app.textFields.firstMatch
     XCTAssertTrue(field.waitForExistence(timeout: 10))
     field.tap()
@@ -45,10 +54,10 @@ final class BMUXLauncherTests: XCTestCase {
     app.terminate()
     app.launch()
 
-    XCTAssertTrue(app.staticTexts[localURL].firstMatch.waitForExistence(timeout: 30))
-    XCTAssertTrue(app.staticTexts[remoteURL].firstMatch.exists)
-    XCTAssertEqual(app.staticTexts[remoteURL].count, initialRemoteLabels)
-    XCTAssertTrue(app.buttons["Enter URL manually"].exists)
+    XCTAssertTrue(serverEntries(localURL).firstMatch.waitForExistence(timeout: 30))
+    XCTAssertTrue(serverEntries(remoteURL).firstMatch.exists)
+    XCTAssertEqual(serverEntries(remoteURL).count, initialRemoteEntries)
+    XCTAssertTrue(manualEntry.exists)
     capture("04-remembered-server-choice")
   }
 }
