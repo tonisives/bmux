@@ -282,22 +282,25 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       await page.getByRole('tab', { name: 'Settings', exact: true }).click()
       await expect(page.getByRole('button', { name: 'Profiles', exact: true })).toBeVisible()
     }
-  } finally {
-    if (page && info.status !== info.expectedStatus) {
+  } catch (error) {
+    if (page) {
       await page.screenshot({ path: info.outputPath('companion-failure.png') }).catch(() => {})
-      let layout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, elements: [...document.querySelectorAll('[aria-label="Open Research"]')].map(element => {
+      let focusedWindow = await application?.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.id).catch(() => undefined)
+      let layout = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, focused: document.hasFocus(), activeElement: { label: document.activeElement?.getAttribute('aria-label'), role: document.activeElement?.getAttribute('role'), tag: document.activeElement?.tagName }, dialogs: document.querySelectorAll('[role="dialog"]').length, elements: [...document.querySelectorAll('[aria-label="Open Research"], [role="tab"], [aria-label="Search sessions"]')].map(element => {
         let ancestors = [], current: Element | null = element
         while (current && ancestors.length < 8) {
           let rect = current.getBoundingClientRect(), style = getComputedStyle(current)
-          ancestors.push({ tag: current.tagName, x: rect.x, y: rect.y, width: rect.width, height: rect.height, flex: style.flex, display: style.display, overflow: style.overflow })
+          ancestors.push({ tag: current.tagName, label: current.getAttribute('aria-label'), x: rect.x, y: rect.y, width: rect.width, height: rect.height, flex: style.flex, display: style.display, overflow: style.overflow })
           current = current.parentElement
         }
         return ancestors
       }) })).catch(() => ({}))
       let layoutFile = info.outputPath('companion-layout.json')
-      await fs.writeFile(layoutFile, JSON.stringify(layout, null, 2))
+      await fs.writeFile(layoutFile, JSON.stringify({ focusedWindow, ...layout }, null, 2))
       await info.attach('companion-layout', { path: layoutFile, contentType: 'application/json' })
     }
+    throw error
+  } finally {
     await closeTestApplication(application)
     for (let socket of sockets.clients) socket.terminate()
     sockets.close(); server.closeAllConnections()
