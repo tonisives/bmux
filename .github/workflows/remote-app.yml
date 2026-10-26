@@ -90,7 +90,13 @@ jobs:
           path: remote-app/android/app/build/outputs/apk/release/*.apk
   ios:
     runs-on: xcode-27
-    timeout-minutes: 30
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Release, Debug]
+    env:
+      BMUX_IOS_BUILD_CONFIGURATION: ${{ matrix.configuration }}
     defaults:
       run:
         working-directory: remote-app
@@ -113,22 +119,24 @@ jobs:
       - run: pnpm exec expo prebuild --clean --platform ios --no-install
       - run: pnpm verify:ios
       - run: pod install --project-directory=ios
-      - run: xcodebuild -workspace ios/bmuxremote.xcworkspace -scheme bmuxremote -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build -jobs 4 CODE_SIGNING_ALLOWED=NO -quiet build > ios-build.log 2>&1
+      - run: xcodebuild -workspace ios/bmuxremote.xcworkspace -scheme bmuxremote -configuration ${{ matrix.configuration }} -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build -jobs 4 CODE_SIGNING_ALLOWED=NO -quiet build > ios-build.log 2>&1
       - run: pnpm smoke:ios
+      - run: pnpm smoke:ios:launcher
+        if: matrix.configuration == 'Debug'
       - name: Clean up iOS simulator
         if: always()
         run: node scripts/ios-launch-smoke.mjs cleanup
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: remote-app-ios-launch
+          name: ${{ matrix.configuration == 'Debug' && 'remote-app-ios-dev-launcher' || 'remote-app-ios-launch' }}
           path: remote-app/ios-smoke/
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: remote-app-ios-build-log
+          name: remote-app-ios-${{ matrix.configuration }}-build-log
           path: remote-app/ios-build.log
       - uses: actions/upload-artifact@v4
         with:
-          name: remote-app-ios-simulator
-          path: remote-app/ios/build/Build/Products/Release-iphonesimulator/*.app/
+          name: ${{ matrix.configuration == 'Debug' && 'remote-app-ios-development-simulator' || 'remote-app-ios-simulator' }}
+          path: remote-app/ios/build/Build/Products/${{ matrix.configuration }}-iphonesimulator/*.app/

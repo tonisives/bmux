@@ -11,8 +11,9 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
-    "verify:ios": "node scripts/verify-ios-scenes.mjs",
+    "verify:ios": "node scripts/verify-ios-scenes.mjs && node scripts/verify-ios-metro.mjs",
     "smoke:ios": "node scripts/ios-launch-smoke.mjs",
+    "smoke:ios:launcher": "node scripts/ios-launcher-smoke.mjs",
     "test": "vitest run --maxWorkers=4",
     "check": "pnpm typecheck && pnpm test"
   },

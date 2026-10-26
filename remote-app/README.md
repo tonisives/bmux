@@ -34,6 +34,14 @@ iOS 27. Generate a fresh native project with
 `pnpm verify:ios` before installing pods or building. This checks the scene
 manifest, React Native window startup and app/development-client URL schemes.
 
+iOS development builds open Expo's native server chooser. The remote Metro
+server at `https://metro-mobile.bmux.cc` is available from the first launch;
+choose it or use **Enter URL manually** to connect to another server. Expo keeps
+successfully opened URLs in its native history. Reopening shows the chooser,
+and its Settings tab can enable automatic launch of the most recent server.
+`BMUX_DEV_METRO_URL` changes the built-in remote entry when generating the native
+project. Changes to this native setup require rebuilding the development app.
+
 ## Client behavior
 
 - Machines, sessions, windows and pages use the same tree layout across platforms.
@@ -84,7 +92,9 @@ parsing and native/browser signing interoperability. The parent viewer unit
 tests cover platform injection, signed offers and watch-only opening. The Remote
 app workflow exports web, checks the generated iOS scene setup and compiles both
 native projects. Its iOS 27 simulator smoke test launches the Release app, checks
-that its process stays alive and saves a screenshot. Shared browser changes
+that its process stays alive and saves a screenshot. A separate Debug build
+checks the actual native server chooser, editable URL, a connection to a
+disposable Metro server, and saved history after reopening. Shared browser changes
 additionally require Check and Portable hosts on the final commit.
 
 The workflow runs `node scripts/ios-launch-smoke.mjs prepare` before dependencies
@@ -92,5 +102,9 @@ and native compilation. `pnpm smoke:ios` requires that prepared simulator;
 `node scripts/ios-launch-smoke.mjs cleanup` runs even if setup or compilation
 fails. The `remote-app-ios-launch` artifact includes the screenshot, runtime
 inventory, command timings and boot/install diagnostics.
+The `remote-app-ios-dev-launcher` artifact includes the Debug launcher screenshot,
+native UI test screenshots and hierarchy, Metro log and test result. The Swift
+bootstrap check covers upgrade migration, preserving manually saved servers and
+launch preferences, duplicate entries and restoring an expired default entry.
 
 Clawtab theme attribution is recorded in THIRD_PARTY_NOTICES.md.
