@@ -19,6 +19,9 @@ dialog.showErrorBox = (title, content) => {
   fs.appendFileSync(`${process.env.BMUX_DATA_DIR}/test-native-errors.log`, `${title}\n${content}\n`.replace(/[a-f0-9]{24,}/gi, '[redacted]'), { mode: 0o600 })
   return Reflect.apply(showErrorBox, dialog, [title, content])
 }
+if (process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1') {
+  setInterval(() => fs.writeFileSync(`${process.env.BMUX_DATA_DIR}/test-main-heartbeat.json`, JSON.stringify({ time: Date.now() }), { mode: 0o600 }), 1000).unref()
+}
 app.on('child-process-gone', (_event, details) => {
   if (details.reason !== 'clean-exit') globalThis.captureProcessFailures.push({ type: details.type, reason: details.reason, exitCode: details.exitCode })
 })

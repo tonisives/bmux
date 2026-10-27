@@ -206,6 +206,8 @@ test('a GPU failure stops captures while the headless host stays available', asy
 
 for (let rendering of ['default', 'software']) test(`seven hidden panes keep streaming through reconnects and odd viewport sizes (${rendering})`, async () => {
   test.setTimeout(180000)
+  let phase = 'Launch the isolated headless capture host'
+  let step = async <T,>(title: string, body: () => Promise<T>) => { phase = title; return test.step(title, body) }
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-capture-stress-'))
   let server = http.createServer((_request, response) => {
     response.setHeader('Content-Type', 'text/html')
@@ -214,7 +216,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
-  let application = await test.step('Launch the isolated headless capture host', () => electron.launch({ timeout: 20000, args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1', BMUX_LAZY_RESTORE_BACKGROUND: '1', BMUX_TEST_SOFTWARE_RENDERING: rendering === 'software' ? '1' : '0' } })).catch(async error => {
+  let application = await step('Launch the isolated headless capture host', () => electron.launch({ timeout: 20000, args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1', BMUX_LAZY_RESTORE_BACKGROUND: '1', BMUX_TEST_SOFTWARE_RENDERING: rendering === 'software' ? '1' : '0' } })).catch(async error => {
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     throw error
@@ -222,6 +224,22 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
   let child = application.process()
   let nativeErrors = ''
   child.stderr?.on('data', data => { for (let line of String(data).split('\n')) if (/CopyOutput|DESERIALIZATION|gpu_process_host|gpu_data_manager|shared_memory|FATAL/.test(line)) nativeErrors = (nativeErrors + line + '\n').slice(-65536) })
+  let nativeDiagnostics: Promise<void> | undefined
+  let collectNativeDiagnostics = (reason: string) => nativeDiagnostics ??= (async () => {
+    if (nativeErrors) await test.info().attach('native-capture-errors', { body: nativeErrors, contentType: 'text/plain' })
+    let dialogs = await fs.readFile(path.join(directory, 'test-native-errors.log'), 'utf8').catch(() => undefined)
+    if (dialogs) await test.info().attach('native-dialog-errors', { body: dialogs, contentType: 'text/plain' })
+    let heartbeat = await fs.readFile(path.join(directory, 'test-main-heartbeat.json'), 'utf8').then(text => JSON.parse(text) as { time: number }).catch(() => undefined)
+    let processState = process.platform === 'linux' ? await fs.readFile(`/proc/${child.pid}/status`, 'utf8').then(text => text.split('\n').filter(line => /^(State|VmRSS|Threads|voluntary_ctxt_switches|nonvoluntary_ctxt_switches):/.test(line))).catch(() => undefined) : undefined
+    let state = { reason, phase, pid: child.pid, exitCode: child.exitCode, signalCode: child.signalCode, processState, nativeErrors: !!nativeErrors, dialogs: !!dialogs, heartbeatAgeMs: heartbeat ? Date.now() - heartbeat.time : undefined }
+    console.info(`Capture host process: ${JSON.stringify(state)}`)
+    await test.info().attach('native-main-state.json', { body: JSON.stringify(state), contentType: 'application/json' })
+    if (process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' && child.exitCode === null && child.signalCode === null) {
+      let trace = await promisify(execFile)('gdb', ['--batch', '-p', String(child.pid), '-ex', 'set print frame-arguments none', '-ex', 'thread apply all bt', '-ex', 'detach'], { timeout: 10000, maxBuffer: 4 * 1024 * 1024 }).then(result => result.stdout).catch(error => error.stdout || 'Native stack capture unavailable')
+      await test.info().attach('native-main-stack', { body: trace, contentType: 'text/plain' })
+    }
+  })().catch(error => { console.info(`Capture diagnostics: ${String(error)}`) })
+  let watchdog = process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' ? setTimeout(() => { void collectNativeDiagnostics('150 second watchdog').catch(error => console.info(`Capture watchdog: ${String(error)}`)) }, 150000) : undefined
   try {
     if (rendering === 'software') expect(await application.evaluate(({ app }) => app.isHardwareAccelerationEnabled())).toBe(false)
     if (process.platform === 'linux' && process.env.BMUX_TEST_WINDOW_MANAGER === 'none') expect(await application.evaluate(({ app }) => ({ diskSharedMemory: app.commandLine.hasSwitch('disable-dev-shm-usage'), forcedFeatures: app.commandLine.hasSwitch('enable-features') }))).toEqual({ diskSharedMemory: process.env.BMUX_DISK_SHARED_MEMORY === '1', forcedFeatures: false })
@@ -232,7 +250,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       return reply.result
     }
     let panes: string[] = [], urls: string[] = []
-    await test.step('Load all seven hidden fixture panes', async () => {
+    await step('Load all seven hidden fixture panes', async () => {
       for (let index = 0; index < 7; index++) {
         let session = index ? await command('new-session', '-s', `capture-${index}`) : (await command('status')).model.sessions[0]
         let pane = session.windows[0].panes[0].id, url = `${origin}/pane-${index}`
@@ -243,7 +261,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     })
     let frameCounts = async (viewer: import('@playwright/test').Page) => viewer.evaluate(() => [...document.querySelectorAll('video')].map(video => video.getVideoPlaybackQuality().totalVideoFrames))
     for (let round = 0; round < 2; round++) {
-      await test.step(`Create seven capture transports for round ${round}`, () => application.evaluate(async ({ webContents }, urls) => {
+      await step(`Create seven capture transports for round ${round}`, () => application.evaluate(async ({ webContents }, urls) => {
         let state = globalThis as any
         state.stressOffers = []; state.stressData = []; state.stressClosed = 0
         state.stressCaptures = await Promise.all(urls.map(async (url, index) => {
@@ -253,7 +271,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
         }))
       }, urls))
       await expect.poll(() => application.evaluate(() => (globalThis as any).stressOffers.filter(Boolean).length), { timeout: 20000 }).toBe(7)
-      let viewerId = await test.step(`Create the hidden viewer for round ${round}`, () => application.evaluate(async ({ BrowserWindow }, origin) => {
+      let viewerId = await step(`Create the hidden viewer for round ${round}`, () => application.evaluate(async ({ BrowserWindow }, origin) => {
         let viewer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
         await viewer.loadURL(origin + '/viewer')
         return viewer.id
@@ -261,7 +279,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       await expect.poll(() => application.context().pages().some(page => page.url() === origin + '/viewer')).toBe(true)
       let viewer = application.context().pages().find(page => page.url() === origin + '/viewer')!
       let offers = await application.evaluate(() => (globalThis as any).stressOffers)
-      let answers = await test.step(`Negotiate all seven peers for round ${round}`, () => viewer.evaluate(async offers => {
+      let answers = await step(`Negotiate all seven peers for round ${round}`, () => viewer.evaluate(async offers => {
         let peers: RTCPeerConnection[] = [], channels: RTCDataChannel[] = []
         ;(window as any).stressPeers = peers; (window as any).stressChannels = channels
         return Promise.all(offers.map(async (offer: RTCSessionDescriptionInit, index: number) => {
@@ -283,7 +301,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       await expect.poll(() => viewer.evaluate(() => (window as any).stressChannels.filter((channel: RTCDataChannel) => channel.readyState === 'open').length), { timeout: 15000 }).toBe(7)
       for (let [width, height] of [[641, 479], [1279, 719], [1919, 1079]]) {
         let before = await frameCounts(viewer)
-        await test.step(`Resize native panes to ${width} by ${height}`, () => application.evaluate(({ BaseWindow }, { urls, width, height }) => {
+        await step(`Resize native panes to ${width} by ${height}`, () => application.evaluate(({ BaseWindow }, { urls, width, height }) => {
           let children = (view: Electron.View): Electron.View[] => [view, ...view.children.flatMap(children)]
           let views = urls.map(url => BaseWindow.getAllWindows().flatMap(window => children(window.contentView)).find(view => (view as Electron.WebContentsView).webContents?.getURL() === url))
           if (views.some(view => !view)) throw new Error('Missing fixture native view')
@@ -291,14 +309,14 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
         }, { urls, width, height }))
         await expect.poll(() => application.evaluate(async ({ webContents }, urls) => Promise.all(urls.map(url => webContents.getAllWebContents().find(contents => contents.getURL() === url)!.executeJavaScript('({width:innerWidth,height:innerHeight})'))), urls), { timeout: 15000 }).toEqual(urls.map(() => ({ width, height })))
         // A normal agent screenshot shares Chromium's copy-output path with the streams.
-        await test.step(`Capture an agent screenshot at ${width} by ${height}`, () => command('screenshot', '-t', panes[round], '--viewport', '--output', path.join(directory, 'capture.png')))
+        await step(`Capture an agent screenshot at ${width} by ${height}`, () => command('screenshot', '-t', panes[round], '--viewport', '--output', path.join(directory, 'capture.png')))
         await expect.poll(async () => (await frameCounts(viewer)).filter((count, index) => count > before[index] + 2).length, { timeout: 30000 }).toBe(7)
         expect(await application.evaluate(() => (globalThis as any).captureProcessFailures)).toEqual([])
       }
       await viewer.evaluate(round => (window as any).stressChannels.forEach((channel: RTCDataChannel, index: number) => channel.send(`round-${round}-${index}`)), round)
       await expect.poll(() => application.evaluate(() => (globalThis as any).stressData), { timeout: 15000 }).toEqual(panes.map((_pane, index) => `round-${round}-${index}`))
       expect(await application.evaluate(() => (globalThis as any).stressClosed)).toBe(0)
-      await test.step(`Close all transports and the viewer for round ${round}`, async () => {
+      await step(`Close all transports and the viewer for round ${round}`, async () => {
         await application.evaluate(() => (globalThis as any).stressCaptures.forEach((capture: { close: () => void }) => capture.close()))
         await application.evaluate(({ BrowserWindow }, id) => { setImmediate(() => BrowserWindow.fromId(id)?.destroy()) }, viewerId)
         await expect.poll(() => application.evaluate(({ BrowserWindow }, id) => !!BrowserWindow.fromId(id), viewerId)).toBe(false)
@@ -310,23 +328,17 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     console.info(`Capture stress (${rendering}): ${JSON.stringify(result)}`)
     await test.info().attach('capture-rendering.json', { body: JSON.stringify(result), contentType: 'application/json' })
   } catch (error) {
-    if (nativeErrors) await test.info().attach('native-capture-errors', { body: nativeErrors, contentType: 'text/plain' })
-    let dialogs = await fs.readFile(path.join(directory, 'test-native-errors.log'), 'utf8').catch(() => undefined)
-    if (dialogs) await test.info().attach('native-dialog-errors', { body: dialogs, contentType: 'text/plain' })
-    let processState = process.platform === 'linux' ? await fs.readFile(`/proc/${child.pid}/status`, 'utf8').then(text => text.split('\n').filter(line => /^(State|VmRSS|Threads|voluntary_ctxt_switches|nonvoluntary_ctxt_switches):/.test(line))).catch(() => undefined) : undefined
-    console.info(`Capture host process: ${JSON.stringify({ pid: child.pid, exitCode: child.exitCode, signalCode: child.signalCode, processState, nativeErrors: !!nativeErrors, dialogs: !!dialogs })}`)
+    await collectNativeDiagnostics('test failure')
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       let diagnostics = await Promise.race([application.evaluate(({ webContents }) => ({ resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures, contents: webContents.getAllWebContents().map(contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading() })) })), new Promise(resolve => { timer = setTimeout(() => resolve({ error: 'Capture failure diagnostics timed out' }), 5000) })]).catch(() => null)
       console.info(`Capture stress failure (${rendering}): ${JSON.stringify(diagnostics)}`)
     } finally { clearTimeout(timer) }
-    if (process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' && child.exitCode === null && child.signalCode === null) {
-      let trace = await promisify(execFile)('gdb', ['--batch', '-p', String(child.pid), '-ex', 'set print frame-arguments none', '-ex', 'thread apply all bt', '-ex', 'detach'], { timeout: 10000, maxBuffer: 4 * 1024 * 1024 }).then(result => result.stdout).catch(error => error.stdout || 'Native stack capture unavailable')
-      await test.info().attach('native-main-stack', { body: trace, contentType: 'text/plain' })
-    }
     throw error
   } finally {
-    await test.step('Close the isolated capture host', () => closeTestApplication(application, child))
+    clearTimeout(watchdog)
+    await nativeDiagnostics
+    await step('Close the isolated capture host', () => closeTestApplication(application, child))
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
