@@ -1,6 +1,6 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
-import { capturePageFrame, createFrameCapture } from './frame-capture'
+import { assertFrameCapture, capturePageFrame, createFrameCapture, stopFrameCapture } from './frame-capture'
 import { randomUUID } from 'node:crypto'
 import { remoteStreamQuality, type RemoteStreamQuality } from '../shared/remote-management'
 
@@ -16,9 +16,18 @@ let encodeFrame = (frame: Electron.NativeImage) => {
   return `data:image/jpeg;base64,${frame.toJPEG(80).toString('base64')}`
 }
 let subscribe = createFrameCapture(encodeFrame)
+let activeCaptures = new Set<() => void>()
+app.on('child-process-gone', (_event, details) => {
+  if (details.type !== 'GPU' || details.reason === 'clean-exit') return
+  stopFrameCapture('Video capture unavailable after GPU failure')
+  for (let close of activeCaptures) close()
+})
 
 export let createRemoteCapture = async (options: CaptureOptions) => {
-  let sourceError = () => options.contents?.isDestroyed() ? new Error('Page closed') : options.contents?.isCrashed() ? new Error('Page process crashed. Reload to recover.') : undefined
+  let sourceError = () => {
+    if (!options.contents) return
+    try { assertFrameCapture(options.contents) } catch (error) { return error instanceof Error ? error : new Error('Video capture unavailable') }
+  }
   let error = sourceError()
   if (error) throw error
   // A hidden native window supports focus enumeration on Linux; an offscreen
@@ -50,6 +59,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   let close = () => {
     if (disposed) return
     disposed = true
+    activeCaptures.delete(close)
     options.contents?.off('destroyed', close)
     options.contents?.off('render-process-gone', close)
     for (let pending of pendingQuality.values()) { clearTimeout(pending.timer); pending.reject(new Error('Stream closed')) }; pendingQuality.clear()
@@ -81,6 +91,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     else if (message.type === 'error' || message.type === 'connection' && ['failed', 'closed'].includes(message.state ?? '')) close()
   }
   ipcMain.on('remote-message', receive)
+  if (options.contents) activeCaptures.add(close)
   options.contents?.once('destroyed', close)
   options.contents?.once('render-process-gone', close)
   window.webContents.once('render-process-gone', close)

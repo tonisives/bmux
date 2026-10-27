@@ -94,6 +94,7 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
   }
   let send = (message: unknown) => {
     if (channel?.readyState !== 'open' || channel.bufferedAmount >= 65536) return false
+    if (message && typeof message === 'object' && 'type' in message && message.type === 'switch') operation++
     channel.send(JSON.stringify(message))
     return true
   }
@@ -131,25 +132,26 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
       let current = options.peer ? options.peer({ iceServers }) : new RTCPeerConnection({ iceServers })
       let currentOperation = operation
       peer = current; connection = payload.connection
-      current.ontrack = event => { if (peer === current) events.stream(event.streams[0]) }
+      let active = () => peer === current && currentOperation === operation && currentRequest === request && !closed
+      current.ontrack = event => { if (active()) events.stream(event.streams[0]) }
       current.onconnectionstatechange = () => {
-        if (peer !== current || closed) return
+        if (!active()) return
         if (current.connectionState === 'failed') connectionLost(new Error('Video connection failed'))
-        else if (current.connectionState === 'disconnected') connectionLoss ??= setTimeout(() => { if (peer === current) connectionLost(new Error('Video connection lost')) }, 5000)
+        else if (current.connectionState === 'disconnected') connectionLoss ??= setTimeout(() => { if (active()) connectionLost(new Error('Video connection lost')) }, 5000)
         else { clearTimeout(connectionLoss); connectionLoss = undefined }
       }
       current.ondatachannel = event => {
-        if (peer !== current) return
+        if (!active()) return
         let currentChannel = event.channel
         channel = currentChannel
         currentChannel.onclose = () => {
-          if (peer === current && channel === currentChannel && currentOperation === operation && currentRequest === request) connectionLost(new Error('Video connection closed'))
+          if (active() && channel === currentChannel) connectionLost(new Error('Video connection closed'))
         }
-        let opened = () => { if (peer === current) { if (mode === 'manage') finish(); if (mode === 'open' || options.view) send({ type: 'state' }) } }
+        let opened = () => { if (active()) { if (mode === 'manage') finish(); if (mode === 'open' || options.view) send({ type: 'state' }) } }
         channel.onopen = opened
         if (channel.readyState === 'open') opened()
         channel.onmessage = event => {
-          if (peer !== current) return
+          if (!active()) return
           let message = JSON.parse(event.data)
           let operation=typeof message.request==='string'?operations.get(message.request):undefined
           if(operation && (message.type==='result'||message.type==='error')){clearTimeout(operation.timer);operations.delete(message.request);if(message.type==='result')operation.resolve(message.result);else operation.reject(Object.assign(new Error(message.error),{code:message.code}))}

@@ -25,6 +25,18 @@ on:
         default: 1g
         type: choice
         options: [1g, 256m]
+      window_manager:
+        description: Window manager for focused hidden-capture tests
+        required: false
+        default: openbox
+        type: choice
+        options: [openbox, none]
+      memory_limit:
+        description: Memory limit for the disposable Linux browser
+        required: false
+        default: unlimited
+        type: choice
+        options: [unlimited, 2g]
 jobs:
   linux:
     strategy:
@@ -49,6 +61,8 @@ jobs:
           REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
           BMUX_NATIVE_CRASH_DIAGNOSTICS: ${{ inputs.native_crashes && '1' || '0' }}
           BMUX_TEST_SHM_SIZE: ${{ inputs.shared_memory || '1g' }}
+          BMUX_TEST_WINDOW_MANAGER: ${{ inputs.window_manager || 'openbox' }}
+          BMUX_TEST_MEMORY_LIMIT: ${{ inputs.memory_limit == '2g' && '2g' || '0' }}
         run: |
           case "$REPEAT_EACH" in
             [1-9]|[12][0-9]|3[0-2]) ;;

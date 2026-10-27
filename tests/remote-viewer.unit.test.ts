@@ -89,13 +89,15 @@ it('reports a source channel closing while ICE is still connected and rejects pe
   value.viewer.close()
 })
 
-it.each(['stop', 'close', 'replace'] as const)('ignores old channel closure during intentional %s', async action => {
+it.each(['stop', 'close', 'replace', 'switch'] as const)('ignores old channel closure during intentional %s', async action => {
   let value = await watchingFixture(), closed = value.channel.onclose!
   value.peer.close.mockImplementation(() => closed())
   let replacing: Promise<unknown> | undefined
   if (action === 'replace') replacing = value.viewer.watch(value.host, 'session', 'next-pane').catch(() => undefined)
+  else if (action === 'switch') value.viewer.send({ type: 'switch', pane: 'next-pane' })
   else value.viewer[action]()
   closed()
+  value.peer.connectionState = 'failed'; value.peer.onconnectionstatechange!()
   expect(value.events.disconnected).not.toHaveBeenCalled()
   value.viewer.close()
   await replacing

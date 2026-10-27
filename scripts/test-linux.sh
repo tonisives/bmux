@@ -27,10 +27,12 @@ docker run -d --name "$turn" --network "container:${database}" coturn/coturn:4.6
   --no-cli --no-tls --no-dtls --fingerprint --use-auth-secret --static-auth-secret=fixture \
   --realm=bmux-fixture --allow-loopback-peers --no-multicast-peers >/dev/null
 docker run --name "$browser" --network "container:${database}" --shm-size="${BMUX_TEST_SHM_SIZE:-1g}" \
+  --memory="${BMUX_TEST_MEMORY_LIMIT:-0}" \
   $diagnostic_capability \
   --ulimit core="$core_limit" \
   --security-opt seccomp=containers/chromium-seccomp.json \
   -e BMUX_NATIVE_CRASH_DIAGNOSTICS="${BMUX_NATIVE_CRASH_DIAGNOSTICS:-0}" \
+  -e BMUX_TEST_WINDOW_MANAGER="${BMUX_TEST_WINDOW_MANAGER:-openbox}" \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
   "$image" node_modules/.bin/playwright test tests/remote-host.electron.test.ts tests/remote-capture.electron.test.ts tests/remote-layout.electron.test.ts tests/remote-workspace.electron.test.ts tests/host-proxy.electron.test.ts tests/startup-restore.electron.test.ts --output=/tmp/results "$@"
 docker run --rm --network "container:${database}" --entrypoint node \

@@ -71,7 +71,7 @@ import { createNavigationProxyHints } from './navigation-proxy-hints'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
 import { createRemoteCapture } from './remote-capture'
-import { capturePageFrame } from './frame-capture'
+import { assertFrameCapture, capturePageFrame, frameCaptureError } from './frame-capture'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
 import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
@@ -3180,7 +3180,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       owner.chrome.webContents.focus()
       return client
     }
-    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), filePickers: filePickers.snapshot(), processes: app.getAppMetrics() }
+    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, capture: { error: frameCaptureError() ?? null, panes: [...tabs].map(([pane, live]) => ({ pane, contentsId: live.contents.id, crashed: live.contents.isCrashed(), bounds: live.view.getBounds() })) }, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), filePickers: filePickers.snapshot(), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, args.session, 'Session')
@@ -3775,6 +3775,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         }
         if (method === 'cdp') return await cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined, false, true)
         if (method === 'screenshot') {
+          assertFrameCapture(contents)
           let target = path.resolve(required(args, 'output'))
           let params: Record<string, unknown> = { format: 'png', fromSurface: true, captureBeyondViewport: args.fullPage !== false }
           if (args.fullPage !== false) {

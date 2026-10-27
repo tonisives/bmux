@@ -131,13 +131,68 @@ test('background panes deliver static frames without a visible window', async ()
         } catch (error) { return { error: (error as Error).message, crashed: contents.isCrashed(), windowsUnchanged: BrowserWindow.getAllWindows().length === windows } }
       }, origin)
       expect(rejected).toEqual({ error: 'Page process crashed. Reload to recover.', crashed: true, windowsUnchanged: true })
-      expect((await command('status')).crashes[pane.id]).toContain('Page process crashed')
+      expect((await command('status')).crashes[pane.id]).toMatch(/Page process (?:crashed|killed)\. Reload to recover\./)
       expect(await application.evaluate(() => (globalThis as any).captureProcessFailures.filter((failure: { type: string }) => failure.type === 'GPU'))).toEqual([])
       await application.evaluate(() => (globalThis as any).remoteCapture.close())
       expect(await application.evaluate(() => (globalThis as any).remoteCaptureClosed)).toBe(1)
     })
   } finally {
     await closeTestApplication(application)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('a GPU failure stops captures while the headless host stays available', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-capture-gpu-'))
+  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>GPU fixture</title><body style="background:red">GPU capture fixture</body>') })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
+  let child = application.process()
+  try {
+    let command = async (...args: string[]) => JSON.parse((await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 })).stdout).result
+    let pane = (await command('status')).model.sessions[0].windows[0].panes[0].id
+    await command('navigate', '-t', pane, origin)
+    await command('wait', '-t', pane, '--selector', 'body')
+    await application.evaluate(async ({ webContents }, origin) => {
+      let state = globalThis as any, contents = webContents.getAllWebContents().find(contents => contents.getURL() === origin + '/')!
+      let capture = contents.capturePage.bind(contents)
+      state.gpuCaptureCalls = 0; state.gpuCaptureClosed = 0
+      contents.capturePage = (...args) => { state.gpuCaptureCalls++; return capture(...args) }
+      state.gpuCapture = await state.createTestCapture({ contents, iceServers: [], signal: () => {}, data: () => {}, closed: () => { state.gpuCaptureClosed++ } })
+    }, origin)
+    await expect.poll(() => application.evaluate(() => (globalThis as any).gpuCaptureCalls)).toBeGreaterThan(2)
+    await application.evaluate(({ app }) => {
+      let gpu = app.getAppMetrics().find(process => process.type === 'GPU')
+      if (!gpu) throw new Error('No disposable GPU process exists')
+      process.kill(gpu.pid, 'SIGKILL')
+    })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).gpuCaptureClosed)).toBe(1)
+    let calls = await application.evaluate(() => (globalThis as any).gpuCaptureCalls), stopped = Date.now()
+    await expect.poll(async () => {
+      expect(await application.evaluate(() => (globalThis as any).gpuCaptureCalls)).toBe(calls)
+      return Date.now() - stopped
+    }, { timeout: 2000, intervals: [100, 250] }).toBeGreaterThan(500)
+    let error = await application.evaluate(async ({ webContents }, origin) => {
+      let state = globalThis as any
+      try { await state.createTestCapture({ contents: webContents.getAllWebContents().find(contents => contents.getURL() === origin + '/')!, iceServers: [], signal: () => {}, data: () => {}, closed: () => {} }) }
+      catch (error) { return (error as Error).message }
+      return null
+    }, origin)
+    expect(error).toBe('Video capture unavailable after GPU failure')
+    expect((await command('status')).model.sessions).toHaveLength(1)
+    expect((await command('rpc', 'diagnostics', '{}')).capture.error).toBe('Video capture unavailable after GPU failure')
+    await application.evaluate(async () => {
+      let state = globalThis as any
+      state.managementOffer = undefined
+      state.managementCapture = await state.createTestCapture({ iceServers: [], signal: (sdp: RTCSessionDescriptionInit) => { state.managementOffer = sdp }, data: () => {}, closed: () => {} })
+    })
+    await expect.poll(() => application.evaluate(() => !!(globalThis as any).managementOffer), { timeout: 15000 }).toBe(true)
+    await application.evaluate(() => (globalThis as any).managementCapture.close())
+  } finally {
+    await closeTestApplication(application, child)
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
@@ -236,7 +291,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     }
     expect(await application.evaluate(() => (globalThis as any).captureProcessFailures)).toEqual([])
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
-    let result = await application.evaluate(({ app }) => ({ hardwareAcceleration: app.isHardwareAccelerationEnabled(), features: app.getGPUFeatureStatus(), failures: (globalThis as any).captureProcessFailures }))
+    let result = await application.evaluate(({ app }) => ({ hardwareAcceleration: app.isHardwareAccelerationEnabled(), features: app.getGPUFeatureStatus(), switches: Object.fromEntries(['disable-gpu', 'disable-gpu-compositing', 'disable-dev-shm-usage', 'in-process-gpu', 'use-angle', 'use-gl', 'ozone-platform'].filter(name => app.commandLine.hasSwitch(name)).map(name => [name, app.commandLine.getSwitchValue(name)])), versions: { electron: process.versions.electron, chrome: process.versions.chrome }, windowManager: process.env.BMUX_TEST_WINDOW_MANAGER ?? 'native', failures: (globalThis as any).captureProcessFailures }))
     console.info(`Capture stress (${rendering}): ${JSON.stringify(result)}`)
     await test.info().attach('capture-rendering.json', { body: JSON.stringify(result), contentType: 'application/json' })
   } finally {

@@ -3,11 +3,16 @@ type Contents<Frame> = Page<Frame> & { id: number; getBackgroundThrottling: () =
 type Capture = { listeners: Set<(data: string) => void>; throttled: boolean; timer?: ReturnType<typeof setInterval>; pending: boolean }
 
 let pendingFrames = new WeakMap<object, Promise<unknown>>()
+let failure: Error | undefined
+export let frameCaptureError = () => failure?.message
+export let stopFrameCapture = (reason: string) => { failure ??= new Error(reason) }
+export let assertFrameCapture = (contents: Page<unknown>) => {
+  if (failure) throw failure
+  if (contents.isDestroyed()) throw new Error('Page closed')
+  if (contents.isCrashed()) throw new Error('Page process crashed. Reload to recover.')
+}
 export let capturePageFrame = <Frame>(contents: Page<Frame>): Promise<Frame> => {
-  let available = () => {
-    if (contents.isDestroyed()) throw new Error('Page closed')
-    if (contents.isCrashed()) throw new Error('Page process crashed. Reload to recover.')
-  }
+  let available = () => assertFrameCapture(contents)
   try { available() } catch (error) { return Promise.reject(error) }
   let pending = pendingFrames.get(contents)
   if (pending) return pending as Promise<Frame>
@@ -30,7 +35,7 @@ export let createFrameCapture = <Frame>(encode: (frame: Frame) => string | undef
       contents.setBackgroundThrottling(false)
       let current = capture, previous = pendingFrames.get(contents)
       let poll = () => {
-        if (current.pending || contents.isDestroyed() || contents.isCrashed() || captures.get(contents.id) !== current) return
+        if (failure || current.pending || contents.isDestroyed() || contents.isCrashed() || captures.get(contents.id) !== current) return
         current.pending = true
         void Promise.resolve(previous).catch(() => undefined).then(() => {
           if (contents.isDestroyed() || contents.isCrashed() || captures.get(contents.id) !== current) return
