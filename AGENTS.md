@@ -24,3 +24,18 @@
 - Always verify UI changes by typing a real URL and pressing Enter (`pnpm test:ui`), checking visible native page rendering. Debug instances must use separate temporary profiles (`pnpm debug:ui`).
 - Keyboard preferences live in `~/.config/bmux/config.yaml` and reload live; preserve existing user edits. Test instances must use isolated config files.
 - Never block view attachment/detachment or human shortcuts on navigation, screenshots, or agent command queues.
+
+## Shared local builds
+
+On this Mac, finite builds and compilation-heavy checks use the shared macOS
+builder. All projects and worktrees share one queue, four CPUs and 8 GB RAM.
+Use the packaging targets that call `scripts/build-local.py`, or run
+`~/.agents/scripts/buildctl run --prepare-node -- pnpm build` from the
+project directory. Do not start a second build directly on the host.
+
+Source snapshots include working edits. Compiler and package caches persist
+inside the worker. Signing and installation stay on the host; development
+servers and running apps keep their existing lifecycle. CI and commands
+already inside the worker run normally. If the configured service is stopped,
+fix it rather than falling back to host compilation.
+See `~/.agents/scripts/build-service.md` for outputs, cancellation and setup.
