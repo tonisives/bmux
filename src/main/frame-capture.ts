@@ -1,12 +1,17 @@
-type Page<Frame> = { capturePage: (rect?: undefined, options?: { stayHidden: boolean }) => Promise<Frame> }
-type Contents<Frame> = Page<Frame> & { id: number; getBackgroundThrottling: () => boolean; setBackgroundThrottling: (enabled: boolean) => void; isDestroyed: () => boolean }
+type Page<Frame> = { capturePage: (rect?: undefined, options?: { stayHidden: boolean }) => Promise<Frame>; isDestroyed: () => boolean; isCrashed: () => boolean }
+type Contents<Frame> = Page<Frame> & { id: number; getBackgroundThrottling: () => boolean; setBackgroundThrottling: (enabled: boolean) => void }
 type Capture = { listeners: Set<(data: string) => void>; throttled: boolean; timer?: ReturnType<typeof setInterval>; pending: boolean }
 
 let pendingFrames = new WeakMap<object, Promise<unknown>>()
 export let capturePageFrame = <Frame>(contents: Page<Frame>): Promise<Frame> => {
+  let available = () => {
+    if (contents.isDestroyed()) throw new Error('Page closed')
+    if (contents.isCrashed()) throw new Error('Page process crashed. Reload to recover.')
+  }
+  try { available() } catch (error) { return Promise.reject(error) }
   let pending = pendingFrames.get(contents)
   if (pending) return pending as Promise<Frame>
-  let frame = Promise.resolve().then(() => contents.capturePage(undefined, { stayHidden: true })).finally(() => {
+  let frame = Promise.resolve().then(() => { available(); return contents.capturePage(undefined, { stayHidden: true }) }).then(frame => { available(); return frame }).finally(() => {
     if (pendingFrames.get(contents) === frame) pendingFrames.delete(contents)
   })
   pendingFrames.set(contents, frame)
@@ -25,13 +30,13 @@ export let createFrameCapture = <Frame>(encode: (frame: Frame) => string | undef
       contents.setBackgroundThrottling(false)
       let current = capture, previous = pendingFrames.get(contents)
       let poll = () => {
-        if (current.pending || contents.isDestroyed() || captures.get(contents.id) !== current) return
+        if (current.pending || contents.isDestroyed() || contents.isCrashed() || captures.get(contents.id) !== current) return
         current.pending = true
         void Promise.resolve(previous).catch(() => undefined).then(() => {
-          if (contents.isDestroyed() || captures.get(contents.id) !== current) return
+          if (contents.isDestroyed() || contents.isCrashed() || captures.get(contents.id) !== current) return
           return capturePageFrame(contents)
         }).then(frame => {
-          if (frame === undefined || contents.isDestroyed() || captures.get(contents.id) !== current) return
+          if (frame === undefined || contents.isDestroyed() || contents.isCrashed() || captures.get(contents.id) !== current) return
           let data = encode(frame)
           if (data === undefined) return
           for (let notify of current.listeners) notify(data)

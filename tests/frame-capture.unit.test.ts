@@ -4,7 +4,7 @@ import { capturePageFrame, createFrameCapture } from '../src/main/frame-capture'
 afterEach(() => { vi.useRealTimers() })
 let fixture = () => {
   vi.useFakeTimers()
-  let contents = { id: 1, capturePage: vi.fn(() => Promise.resolve('frame')), getBackgroundThrottling: () => true, setBackgroundThrottling: vi.fn(), isDestroyed: () => false }
+  let contents = { id: 1, capturePage: vi.fn(() => Promise.resolve('frame')), getBackgroundThrottling: () => true, setBackgroundThrottling: vi.fn(), isDestroyed: () => false, isCrashed: () => false }
   return { contents, subscribe: createFrameCapture((frame: string) => frame) }
 }
 
@@ -92,5 +92,35 @@ it('keeps the last video frame when navigation produces an empty capture', async
   expect(receive).not.toHaveBeenCalled()
   await vi.advanceTimersByTimeAsync(100)
   expect(receive).toHaveBeenCalledExactlyOnceWith('frame')
+  stop()
+})
+
+it('rejects a crashed page before starting or reusing native capture', async () => {
+  let { contents } = fixture(), crashed = false
+  contents.isCrashed = () => crashed
+  let finish!: (frame: string) => void
+  contents.capturePage.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  let pending = capturePageFrame(contents)
+  let result = expect(pending).rejects.toThrow('Page process crashed')
+  await vi.advanceTimersByTimeAsync(0)
+  crashed = true
+  await expect(capturePageFrame(contents)).rejects.toThrow('Page process crashed')
+  finish('obsolete')
+  await result
+  expect(contents.capturePage).toHaveBeenCalledOnce()
+})
+
+it('discards a frame completed after a crash and stops polling native capture', async () => {
+  let { contents, subscribe } = fixture(), receive = vi.fn(), crashed = false
+  contents.isCrashed = () => crashed
+  let finish!: (frame: string) => void
+  contents.capturePage.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  let stop = subscribe(contents, receive)
+  await vi.advanceTimersByTimeAsync(0)
+  crashed = true
+  finish('obsolete')
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(contents.capturePage).toHaveBeenCalledOnce()
+  expect(receive).not.toHaveBeenCalled()
   stop()
 })

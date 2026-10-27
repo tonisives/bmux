@@ -57,7 +57,11 @@ test('background panes deliver static frames without a visible window', async ()
       let capture = contents.capturePage.bind(contents)
       state.emptyRemoteFrames = 1
       state.remoteCaptureClosed = 0
-      contents.capturePage = (...args) => state.emptyRemoteFrames-- > 0 ? Promise.resolve(nativeImage.createEmpty()) : capture(...args)
+      state.remoteCaptureCalls = 0
+      contents.capturePage = (...args) => {
+        state.remoteCaptureCalls++
+        return state.emptyRemoteFrames-- > 0 ? Promise.resolve(nativeImage.createEmpty()) : capture(...args)
+      }
       state.remoteCapture = await state.createTestCapture({ contents, iceServers, relayOnly, signal: (sdp: unknown) => { state.remoteOffer = sdp }, data: (data: string) => { state.remoteData = data }, closed: () => { state.remoteCaptureClosed++ } })
     }, { url: origin, iceServers, relayOnly })
     await expect.poll(() => application.evaluate(() => !!(globalThis as any).remoteOffer)).toBe(true)
@@ -102,7 +106,36 @@ test('background panes deliver static frames without a visible window', async ()
       let selected = [...stats.values()].find((item: any) => item.type === 'candidate-pair' && item.state === 'succeeded' && item.nominated) as any
       return stats.get(selected?.localCandidateId)?.candidateType
     })).toBe('relay')
-    await application.evaluate(() => (globalThis as any).remoteCapture.close())
+    await test.step('A crashed source stops capture and rejects new watches without reloading', async () => {
+      await viewer.evaluate(() => {
+        ;(window as any).sourceCrashChannelClosed = false
+        ;(window as any).testChannel.onclose = () => { (window as any).sourceCrashChannelClosed = true }
+      })
+      await application.evaluate(({ webContents }, url) => webContents.getAllWebContents().find(contents => contents.getURL() === url + '/')!.forcefullyCrashRenderer(), origin)
+      await expect.poll(() => application.evaluate(() => (globalThis as any).remoteCaptureClosed)).toBe(1)
+      await expect.poll(() => viewer.evaluate(() => (window as any).sourceCrashChannelClosed), { timeout: 5000 }).toBe(true)
+      console.info(`Source crash viewer: ${JSON.stringify(await viewer.evaluate(() => ({ peer: (window as any).testPeer.connectionState, channel: (window as any).testChannel.readyState })))}`)
+      let calls = await application.evaluate(() => (globalThis as any).remoteCaptureCalls)
+      let stopped = Date.now()
+      await expect.poll(async () => {
+        expect(await application.evaluate(() => (globalThis as any).remoteCaptureCalls)).toBe(calls)
+        return Date.now() - stopped
+      }, { timeout: 2000, intervals: [100, 250] }).toBeGreaterThan(500)
+      let rejected = await application.evaluate(async ({ BrowserWindow, webContents }, url) => {
+        let state = globalThis as any, contents = webContents.getAllWebContents().find(contents => contents.getURL() === url + '/')!
+        let windows = BrowserWindow.getAllWindows().length
+        try {
+          let capture = await state.createTestCapture({ contents, iceServers: [], signal: () => {}, data: () => {}, closed: () => {} })
+          capture.close()
+          return { error: null }
+        } catch (error) { return { error: (error as Error).message, crashed: contents.isCrashed(), windowsUnchanged: BrowserWindow.getAllWindows().length === windows } }
+      }, origin)
+      expect(rejected).toEqual({ error: 'Page process crashed. Reload to recover.', crashed: true, windowsUnchanged: true })
+      expect((await command('status')).crashes[pane.id]).toContain('Page process crashed')
+      expect(await application.evaluate(() => (globalThis as any).captureProcessFailures.filter((failure: { type: string }) => failure.type === 'GPU'))).toEqual([])
+      await application.evaluate(() => (globalThis as any).remoteCapture.close())
+      expect(await application.evaluate(() => (globalThis as any).remoteCaptureClosed)).toBe(1)
+    })
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
@@ -155,6 +188,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
         await viewer.loadURL(origin + '/viewer')
         return viewer.id
       }, origin)
+      await expect.poll(() => application.context().pages().some(page => page.url() === origin + '/viewer')).toBe(true)
       let viewer = application.context().pages().find(page => page.url() === origin + '/viewer')!
       let offers = await application.evaluate(() => (globalThis as any).stressOffers)
       let answers = await viewer.evaluate(async offers => {

@@ -18,6 +18,9 @@ let encodeFrame = (frame: Electron.NativeImage) => {
 let subscribe = createFrameCapture(encodeFrame)
 
 export let createRemoteCapture = async (options: CaptureOptions) => {
+  let sourceError = () => options.contents?.isDestroyed() ? new Error('Page closed') : options.contents?.isCrashed() ? new Error('Page process crashed. Reload to recover.') : undefined
+  let error = sourceError()
+  if (error) throw error
   // A hidden native window supports focus enumeration on Linux; an offscreen
   // transport has no native view for Electron's global focus lookup.
   let window = new BrowserWindow({ show: false, width: 16, height: 16, webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: 'bmux-trusted-transport' } })
@@ -43,6 +46,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     disposed = true
     ipcMain.off('remote-message', receive)
     options.contents?.off('destroyed', close)
+    options.contents?.off('render-process-gone', close)
     for (let pending of pendingQuality.values()) { clearTimeout(pending.timer); pending.reject(new Error('Stream closed')) }; pendingQuality.clear()
     unsubscribe?.()
     if (!window.isDestroyed()) window.destroy()
@@ -68,9 +72,13 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   }
   ipcMain.on('remote-message', receive)
   options.contents?.once('destroyed', close)
+  options.contents?.once('render-process-gone', close)
+  window.webContents.once('render-process-gone', close)
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
-  try { await window.loadFile(path.join(import.meta.dirname, '../renderer/remote-peer.html')) } catch (error) { close(); throw error }
+  try { await window.loadFile(path.join(import.meta.dirname, '../renderer/remote-peer.html')) } catch (error) { close(); throw sourceError() ?? error }
+  error = sourceError()
+  if (error || disposed) { close(); throw error ?? new Error('Stream closed') }
   return { close, answer: (sdp: RTCSessionDescriptionInit) => send({ type: 'answer', sdp }), candidate: (candidate: RTCIceCandidateInit) => send({ type: 'candidate', candidate }), send: (data: string) => send({ type: 'data', data }), quality:(quality: RemoteStreamQuality) => new Promise<RemoteStreamQuality>((resolve,reject) => {
     if (disposed || !options.contents) { reject(new Error('QUALITY_UNAVAILABLE')); return }
     let request = randomUUID(), timer = setTimeout(() => { pendingQuality.delete(request); reject(new Error('QUALITY_UNAVAILABLE')) },5000)
