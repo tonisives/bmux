@@ -48,6 +48,16 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await application.evaluate(({ ipcMain }) => {
       let messages: unknown[] = []
       ;(globalThis as any).bmuxTestRemoteMessages = messages
+      let handlers = (ipcMain as any)._invokeHandlers as Map<string, (...args: any[]) => any>
+      for (let name of ['command', 'remote-client-update']) {
+        let handle = handlers.get(name)!
+        handlers.set(name, async (event, payload) => {
+          let entry = name === 'command' ? { type: 'command', method: payload.method, pane: payload.args?.pane, tab: payload.args?.tab, client: payload.args?.client, action: payload.args?.action } : { type: 'update', controlling: payload.controlling, connected: payload.connected }
+          messages.push({ ...entry, sender: event.sender.id, at: Date.now() })
+          try { return await handle(event, payload) }
+          catch (error) { messages.push({ type: 'command-error', method: payload.method, error: String(error), at: Date.now() }); throw error }
+        })
+      }
       ipcMain.on('remote-message', (_event, message) => {
         if (['ready', 'offer', 'connection', 'error'].includes(message?.type)) messages.push({ type: message.type, state: message.state, at: Date.now() })
       })
