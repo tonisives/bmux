@@ -1,6 +1,10 @@
 import { app } from 'electron'
 import { createRemoteCapture } from '../../out/main/remote-capture.js'
 
+if (process.platform === 'linux' && process.env.BMUX_TEST_WINDOW_MANAGER === 'none') {
+  app.commandLine.removeSwitch('disable-dev-shm-usage')
+  app.commandLine.removeSwitch('enable-features')
+}
 if (process.env.BMUX_TEST_SOFTWARE_RENDERING === '1') app.disableHardwareAcceleration()
 app.setAppPath(process.cwd())
 globalThis.createTestCapture = createRemoteCapture
