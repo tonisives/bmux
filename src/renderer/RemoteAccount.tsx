@@ -75,7 +75,7 @@ export let RemoteAccount = ({ api, visit, signIn, signOut, openBox, rent = false
   let resumeCheckout = (url: string) => { void act(async () => { await visit(url) }) }
   let openService = openBox ? (service: string) => { void act(() => openBox(service)) } : undefined
   if (!loaded) return <p role="status">Loading account…</p>
-  if (!account) return <section className={styles.account}>{error && <p>{error}</p>}<div className={styles.actions}><button onClick={authenticate} disabled={busy}>Sign in</button><button onClick={retry} disabled={busy}>Retry</button></div></section>
+  if (!account) return <section className={styles.account}>{error && <p>{error}</p>}<div className={styles.actions}><button onClick={authenticate} disabled={busy}>Sign in with Google</button><button onClick={retry} disabled={busy}>Retry</button></div></section>
   return <div className={styles.account} aria-label="Remote account" data-setting-id="remote-account">
     <div className={styles.heading}><span>{account.email || account.owner}</span>{!account.email && <button onClick={authenticate} disabled={busy}>Confirm billing email with Google</button>}{signOut && view === 'account' && <button onClick={logout} disabled={busy}>Sign out</button>}</div>
     {error && <div className={styles.error} role="alert">{error} <button onClick={retry} disabled={busy}>Retry</button></div>}

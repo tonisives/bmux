@@ -40,6 +40,7 @@ it('opens hosted S256 authorization and exchanges only the verified code and ver
   expect(url.searchParams.get('code_challenge')).toBe('p'.repeat(43))
   expect(url.searchParams.get('code_challenge_method')).toBe('S256')
   expect(url.searchParams.get('redirect_uri')).toBe('bmux-remote://auth/callback')
+  expect(url.searchParams.get('provider')).toBe('google')
   expect(String(fetcher.mock.calls[0][0])).toBe('https://remote.bmux.cc/api/auth/mobile/exchange')
   expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toEqual({ code: 'c'.repeat(64), codeVerifier: 'v'.repeat(64) })
   expect(persisted).toEqual(next)

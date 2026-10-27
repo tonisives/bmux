@@ -64,12 +64,12 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, webRevok
   let recordGoogleLogin = async (tokenHash: string, owner: string, reauthenticated: boolean) => {
     await pool.query('INSERT INTO bmux_web_auth(token_hash,owner,google_reauthenticated_at) VALUES($1,$2,$3)', [tokenHash, owner, reauthenticated ? new Date() : null])
   }
-  let signIn = (response: http.ServerResponse, nonceValue?: string, linking = false) => {
+  let signIn = (response: http.ServerResponse, { nonceValue, linking = false, destination = '/api/auth/mobile/complete', googleOnly = false, appleUnlinked = false }: { nonceValue?: string; linking?: boolean; destination?: '/api/auth/mobile/complete' | '/api/auth/providers/apple/link' | '/?view=account'; googleOnly?: boolean; appleUnlinked?: boolean } = {}) => {
     let nonce = randomBytes(18).toString('base64')
     let options = JSON.stringify({ client_id: googleClientId, auto_select: false, ...(nonceValue ? { nonce: nonceValue } : {}) }).replaceAll('<', '\\u003c')
-    let script = `let config=${options};config.callback=async({credential})=>{let r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential})});if(!r.ok){document.querySelector('#status').textContent='Sign-in failed. Try again.';return}${linking ? "let link=await fetch('/api/auth/providers/apple/link/start',{method:'POST'});if(!link.ok){document.querySelector('#status').textContent='Linking failed. Sign in again.';return}location.assign((await link.json()).url)" : "location.assign('/api/auth/mobile/complete')"}};google.accounts.id.initialize(config);google.accounts.id.renderButton(document.querySelector('#google'),{theme:'outline',size:'large'});`
+    let script = `let config=${options};config.callback=async({credential})=>{try{let r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential})});if(!r.ok)throw Error();${linking ? "let link=await fetch('/api/auth/providers/apple/link/start',{method:'POST'});if(!link.ok)throw Error();location.assign((await link.json()).url)" : `location.assign(${JSON.stringify(destination)})`}}catch{document.querySelector('#status').textContent='Sign-in failed. Try again.'}};google.accounts.id.initialize(config);google.accounts.id.renderButton(document.querySelector('#google'),{theme:'outline',size:'large',text:'signin_with'});`
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}' https://accounts.google.com/gsi/client; frame-src https://accounts.google.com; connect-src 'self' https://accounts.google.com; style-src 'nonce-${nonce}' https://accounts.google.com; img-src https://accounts.google.com; base-uri 'none'; frame-ancestors 'none'; form-action 'self'` })
-    response.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${linking ? 'Link Apple' : 'Sign in'} | bmux</title><style nonce="${nonce}">body{font:16px system-ui;margin:12vh auto;padding:24px;max-width:360px;color:#eee;background:#161616}a{color:inherit}p{line-height:1.5}</style></head><body><h1>${linking ? 'Link Apple' : 'bmux remote'}</h1><p>${linking ? 'Confirm your existing Google account, then link Apple.' : 'Sign in to connect your browsers.'}</p><div id="google"></div>${appleEnabled && !linking ? '<p><a href="/api/auth/apple/start">Continue with Apple</a></p>' : ''}<p id="status"></p><script nonce="${nonce}" src="https://accounts.google.com/gsi/client"></script><script nonce="${nonce}">${script}</script></body></html>`)
+    response.end(`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${linking ? 'Link Apple' : 'Sign in with Google'} | bmux</title><style nonce="${nonce}">body{font:16px system-ui;margin:12vh auto;padding:24px;max-width:360px;color:#eee;background:#161616}a{color:inherit}p{line-height:1.5}</style></head><body><h1>${linking ? 'Link Apple' : 'bmux remote'}</h1><p>${appleUnlinked ? 'This Apple account is not linked yet. Sign in with Google, then link Apple in account settings.' : linking ? 'Confirm your existing Google account, then link Apple.' : 'Sign in to connect your browsers.'}</p><div id="google"></div>${appleEnabled && !linking && !googleOnly ? '<p><a href="/api/auth/apple/start">Continue with Apple</a></p>' : ''}<p id="status" role="status"></p><script nonce="${nonce}" src="https://accounts.google.com/gsi/client"></script><script nonce="${nonce}">${script}</script></body></html>`)
   }
   let appleStart = async (request: http.IncomingMessage, response: http.ServerResponse, linking: boolean) => {
     if (!appleEnabled) throw invalid()
@@ -110,9 +110,9 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, webRevok
       let id = opaque()
       await pool.query("INSERT INTO bmux_mobile_flows(id_hash,state,challenge,redirect_uri,expires) VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [authHash(id), state, challenge, callback])
       setCookie(response, 'bmux_mobile_flow', id, 600, true)
-      redirect(response, '/api/auth/mobile/signin'); return true
+      redirect(response, '/api/auth/mobile/signin' + (url.searchParams.get('provider') === 'google' ? '?provider=google' : '')); return true
     }
-    if (method === 'GET' && path === '/api/auth/mobile/signin') { signIn(response); return true }
+    if (method === 'GET' && path === '/api/auth/mobile/signin') { signIn(response, { googleOnly: url.searchParams.get('provider') === 'google' }); return true }
     if (method === 'GET' && path === '/api/auth/mobile/complete') {
       let auth = await authenticate(request, true), flow = cookie(request, 'bmux_mobile_flow'), code = opaque()
       if (!flow) throw invalid()
@@ -156,14 +156,20 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, webRevok
       json(response, { ok: true }); return true
     }
     if (method === 'GET' && path === '/api/auth/providers') {
-      let auth = await authenticate(request, true)
+      let auth = await authenticate(request)
       json(response, { appleEnabled, appleLinked: !!(await pool.query("SELECT 1 FROM bmux_provider_identities WHERE provider='apple' AND owner=$1", [auth.owner])).rowCount }); return true
     }
     if (method === 'GET' && path === '/api/auth/providers/apple/link') {
       if (!appleEnabled) throw invalid()
-      let auth = await authenticate(request, true), id = opaque(), nonce = opaque()
+      let auth: LoginContext
+      try { auth = await authenticate(request, true) }
+      catch (error) {
+        if (!(error instanceof AuthenticationError)) throw error
+        signIn(response, { destination: '/api/auth/providers/apple/link', googleOnly: true }); return true
+      }
+      let id = opaque(), nonce = opaque()
       await pool.query("INSERT INTO bmux_provider_flows(id_hash,purpose,nonce,owner,login_hash,expires) VALUES($1,'google-reauth',$2,$3,$4,now()+interval '10 minutes')", [authHash(id), nonce, auth.owner, auth.tokenHash])
-      setCookie(response, 'bmux_google_reauth', id); signIn(response, nonce, true); return true
+      setCookie(response, 'bmux_google_reauth', id); signIn(response, { nonceValue: nonce, linking: true }); return true
     }
     if (method === 'POST' && path === '/api/auth/providers/apple/link/start') { await appleStart(request, response, true); return true }
     if (method === 'GET' && path === '/api/auth/apple/start') { await appleStart(request, response, false); return true }
@@ -192,10 +198,13 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, webRevok
         })
         if (!linked) { expiredApple(response); return true }
         if (!linked.rowCount) throw invalid()
-        redirect(response, '/'); return true
+        redirect(response, '/?view=account'); return true
       }
       let owner = (await pool.query("SELECT owner FROM bmux_provider_identities WHERE provider='apple' AND subject=$1", [payload.sub])).rows[0]?.owner
-      if (!owner) { response.writeHead(403, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); response.end('Sign in with Google, then link Apple in account settings.'); return true }
+      if (!owner) {
+        setCookie(response, 'bmux_apple_flow', '', 0)
+        signIn(response, { googleOnly: true, appleUnlinked: true, destination: cookie(request, 'bmux_mobile_flow') ? '/api/auth/mobile/complete' : '/?view=account' }); return true
+      }
       let loginToken = opaque()
       await pool.query("INSERT INTO bmux_logins(token_hash,owner,expires) VALUES($1,$2,now()+interval '30 days')", [authHash(loginToken), owner])
       response.setHeader('Set-Cookie', `bmux_session=${loginToken}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000; Secure`)

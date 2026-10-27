@@ -10,6 +10,7 @@ let endpoints = mobileAuthEndpoints(origin)
 let revision = 0
 let refreshing: Promise<string | undefined> | undefined
 let signingIn = false, signingOut = false
+export let prepareSignIn = async () => {}
 let exchange = async (endpoint: string, body: RemoteNativeExchange | RemoteNativeRefresh) => {
   let response = await fetch(endpoint, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) })
   if (!response.ok) throw Object.assign(new Error(response.status === 400 || response.status === 401 ? 'Sign in to continue.' : 'The account service is unavailable.'), { status: response.status })
@@ -24,7 +25,7 @@ export let signIn = async (): Promise<void> => {
     let config = await request.getAuthRequestConfigAsync()
     if (!config.codeChallenge || !request.codeVerifier) throw new Error('Sign-in could not be started.')
     let url = new URL(endpoints.start)
-    url.search = new URLSearchParams({ state: request.state, code_challenge: config.codeChallenge, code_challenge_method: 'S256', redirect_uri: authRedirect }).toString()
+    url.search = new URLSearchParams({ state: request.state, code_challenge: config.codeChallenge, code_challenge_method: 'S256', redirect_uri: authRedirect, provider: 'google' }).toString()
     let result = await request.promptAsync({ authorizationEndpoint: endpoints.start }, { url: url.href })
     if (result.type === 'cancel' || result.type === 'dismiss') return
     if (result.type !== 'success') throw new Error('Sign-in could not be verified. Please try again.')
