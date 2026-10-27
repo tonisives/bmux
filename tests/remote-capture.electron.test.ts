@@ -219,7 +219,11 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
-  let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1', BMUX_LAZY_RESTORE_BACKGROUND: '1', BMUX_TEST_SOFTWARE_RENDERING: rendering === 'software' ? '1' : '0' } })
+  let application = await test.step('Launch the isolated headless capture host', () => electron.launch({ timeout: 20000, args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1', BMUX_LAZY_RESTORE_BACKGROUND: '1', BMUX_TEST_SOFTWARE_RENDERING: rendering === 'software' ? '1' : '0' } })).catch(async error => {
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    throw error
+  })
   let child = application.process()
   try {
     if (rendering === 'software') expect(await application.evaluate(({ app }) => app.isHardwareAccelerationEnabled())).toBe(false)
@@ -231,16 +235,18 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       return reply.result
     }
     let panes: string[] = [], urls: string[] = []
-    for (let index = 0; index < 7; index++) {
-      let session = index ? await command('new-session', '-s', `capture-${index}`) : (await command('status')).model.sessions[0]
-      let pane = session.windows[0].panes[0].id, url = `${origin}/pane-${index}`
-      panes.push(pane); urls.push(url)
-      await command('navigate', '-t', pane, url)
-      await command('wait', '-t', pane, '--selector', 'canvas')
-    }
+    await test.step('Load all seven hidden fixture panes', async () => {
+      for (let index = 0; index < 7; index++) {
+        let session = index ? await command('new-session', '-s', `capture-${index}`) : (await command('status')).model.sessions[0]
+        let pane = session.windows[0].panes[0].id, url = `${origin}/pane-${index}`
+        panes.push(pane); urls.push(url)
+        await command('navigate', '-t', pane, url)
+        await command('wait', '-t', pane, '--selector', 'canvas')
+      }
+    })
     let frameCounts = async (viewer: import('@playwright/test').Page) => viewer.evaluate(() => [...document.querySelectorAll('video')].map(video => video.getVideoPlaybackQuality().totalVideoFrames))
     for (let round = 0; round < 2; round++) {
-      await application.evaluate(async ({ webContents }, urls) => {
+      await test.step(`Create seven capture transports for round ${round}`, () => application.evaluate(async ({ webContents }, urls) => {
         let state = globalThis as any
         state.stressOffers = []; state.stressData = []; state.stressClosed = 0
         state.stressCaptures = await Promise.all(urls.map(async (url, index) => {
@@ -248,17 +254,17 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
           if (!contents) throw new Error(`Missing fixture pane ${index}`)
           return state.createTestCapture({ contents, iceServers: [], signal: (sdp: RTCSessionDescriptionInit) => { state.stressOffers[index] = sdp }, data: (data: string) => { state.stressData[index] = data }, closed: () => { state.stressClosed++ } })
         }))
-      }, urls)
+      }, urls))
       await expect.poll(() => application.evaluate(() => (globalThis as any).stressOffers.filter(Boolean).length), { timeout: 20000 }).toBe(7)
-      let viewerId = await application.evaluate(async ({ BrowserWindow }, origin) => {
+      let viewerId = await test.step(`Create the hidden viewer for round ${round}`, () => application.evaluate(async ({ BrowserWindow }, origin) => {
         let viewer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
         await viewer.loadURL(origin + '/viewer')
         return viewer.id
-      }, origin)
+      }, origin))
       await expect.poll(() => application.context().pages().some(page => page.url() === origin + '/viewer')).toBe(true)
       let viewer = application.context().pages().find(page => page.url() === origin + '/viewer')!
       let offers = await application.evaluate(() => (globalThis as any).stressOffers)
-      let answers = await viewer.evaluate(async offers => {
+      let answers = await test.step(`Negotiate all seven peers for round ${round}`, () => viewer.evaluate(async offers => {
         let peers: RTCPeerConnection[] = [], channels: RTCDataChannel[] = []
         ;(window as any).stressPeers = peers; (window as any).stressChannels = channels
         return Promise.all(offers.map(async (offer: RTCSessionDescriptionInit, index: number) => {
@@ -274,32 +280,32 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
           })
           return peer.localDescription!.toJSON()
         }))
-      }, offers)
+      }, offers))
       await application.evaluate((_electron, answers) => answers.forEach((answer: RTCSessionDescriptionInit, index: number) => (globalThis as any).stressCaptures[index].answer(answer)), answers)
       await expect.poll(async () => (await frameCounts(viewer)).filter(count => count > 2).length, { timeout: 30000 }).toBe(7)
       await expect.poll(() => viewer.evaluate(() => (window as any).stressChannels.filter((channel: RTCDataChannel) => channel.readyState === 'open').length), { timeout: 15000 }).toBe(7)
       for (let [width, height] of [[641, 479], [1279, 719], [1919, 1079]]) {
         let before = await frameCounts(viewer)
-        await application.evaluate(({ BaseWindow }, { urls, width, height }) => {
+        await test.step(`Resize native panes to ${width} by ${height}`, () => application.evaluate(({ BaseWindow }, { urls, width, height }) => {
           let children = (view: Electron.View): Electron.View[] => [view, ...view.children.flatMap(children)]
-          let views = BaseWindow.getAllWindows().flatMap(window => children(window.contentView))
-          for (let url of urls) {
-            let view = views.find(view => (view as Electron.WebContentsView).webContents?.getURL() === url)
-            if (!view) throw new Error('Missing fixture native view')
-            view.setBounds({ ...view.getBounds(), width, height })
-          }
-        }, { urls, width, height })
+          let views = urls.map(url => BaseWindow.getAllWindows().flatMap(window => children(window.contentView)).find(view => (view as Electron.WebContentsView).webContents?.getURL() === url))
+          if (views.some(view => !view)) throw new Error('Missing fixture native view')
+          setImmediate(() => { for (let view of views) view!.setBounds({ ...view!.getBounds(), width, height }) })
+        }, { urls, width, height }))
         await expect.poll(() => application.evaluate(async ({ webContents }, urls) => Promise.all(urls.map(url => webContents.getAllWebContents().find(contents => contents.getURL() === url)!.executeJavaScript('({width:innerWidth,height:innerHeight})'))), urls), { timeout: 15000 }).toEqual(urls.map(() => ({ width, height })))
         // A normal agent screenshot shares Chromium's copy-output path with the streams.
-        await command('screenshot', '-t', panes[round], '--viewport', '--output', path.join(directory, 'capture.png'))
+        await test.step(`Capture an agent screenshot at ${width} by ${height}`, () => command('screenshot', '-t', panes[round], '--viewport', '--output', path.join(directory, 'capture.png')))
         await expect.poll(async () => (await frameCounts(viewer)).filter((count, index) => count > before[index] + 2).length, { timeout: 30000 }).toBe(7)
         expect(await application.evaluate(() => (globalThis as any).captureProcessFailures)).toEqual([])
       }
       await viewer.evaluate(round => (window as any).stressChannels.forEach((channel: RTCDataChannel, index: number) => channel.send(`round-${round}-${index}`)), round)
       await expect.poll(() => application.evaluate(() => (globalThis as any).stressData), { timeout: 15000 }).toEqual(panes.map((_pane, index) => `round-${round}-${index}`))
       expect(await application.evaluate(() => (globalThis as any).stressClosed)).toBe(0)
-      await application.evaluate(() => (globalThis as any).stressCaptures.forEach((capture: { close: () => void }) => capture.close()))
-      await application.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.destroy(), viewerId)
+      await test.step(`Close all transports and the viewer for round ${round}`, async () => {
+        await application.evaluate(() => (globalThis as any).stressCaptures.forEach((capture: { close: () => void }) => capture.close()))
+        await application.evaluate(({ BrowserWindow }, id) => { setImmediate(() => BrowserWindow.fromId(id)?.destroy()) }, viewerId)
+        await expect.poll(() => application.evaluate(({ BrowserWindow }, id) => !!BrowserWindow.fromId(id), viewerId)).toBe(false)
+      })
     }
     expect(await application.evaluate(() => (globalThis as any).captureProcessFailures)).toEqual([])
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
@@ -307,10 +313,14 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     console.info(`Capture stress (${rendering}): ${JSON.stringify(result)}`)
     await test.info().attach('capture-rendering.json', { body: JSON.stringify(result), contentType: 'application/json' })
   } catch (error) {
-    console.info(`Capture stress failure (${rendering}): ${JSON.stringify(await application.evaluate(({ webContents }) => ({ resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures, contents: webContents.getAllWebContents().map(contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading() })) })).catch(() => null))}`)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      let diagnostics = await Promise.race([application.evaluate(({ webContents }) => ({ resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures, contents: webContents.getAllWebContents().map(contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading() })) })), new Promise(resolve => { timer = setTimeout(() => resolve({ error: 'Capture failure diagnostics timed out' }), 5000) })]).catch(() => null)
+      console.info(`Capture stress failure (${rendering}): ${JSON.stringify(diagnostics)}`)
+    } finally { clearTimeout(timer) }
     throw error
   } finally {
-    await closeTestApplication(application, child)
+    await test.step('Close the isolated capture host', () => closeTestApplication(application, child))
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
