@@ -2024,7 +2024,7 @@ test('native click mode activates with Option taps and performs each click actio
     await expect(actions.getByRole('button')).toHaveCount(0)
     let bar = actions.locator('..')
     await expect(bar.getByRole('button')).toHaveCount(1)
-    await expect(bar.getByRole('button')).toHaveAccessibleName('Active agent')
+    await expect(bar.getByRole('button')).toHaveAccessibleName('Last agent')
     expect(await bar.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   }
   let keys = async (...keyCodes: string[]) => sendNativeKeys(application, keyCodes.map(keyCode => ({ keyCode })))
