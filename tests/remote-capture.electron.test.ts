@@ -116,11 +116,8 @@ test('background panes deliver static frames without a visible window', async ()
       await expect.poll(() => viewer.evaluate(() => (window as any).sourceCrashChannelClosed), { timeout: 5000 }).toBe(true)
       console.info(`Source crash viewer: ${JSON.stringify(await viewer.evaluate(() => ({ peer: (window as any).testPeer.connectionState, channel: (window as any).testChannel.readyState })))}`)
       let calls = await application.evaluate(() => (globalThis as any).remoteCaptureCalls)
-      let stopped = Date.now()
-      await expect.poll(async () => {
-        expect(await application.evaluate(() => (globalThis as any).remoteCaptureCalls)).toBe(calls)
-        return Date.now() - stopped
-      }, { timeout: 2000, intervals: [100, 250] }).toBeGreaterThan(500)
+      let after = await application.evaluate(async () => { await new Promise(resolve => setTimeout(resolve, 500)); return (globalThis as any).remoteCaptureCalls })
+      expect(after).toBe(calls)
       let rejected = await application.evaluate(async ({ BrowserWindow, webContents }, url) => {
         let state = globalThis as any, contents = webContents.getAllWebContents().find(contents => contents.getURL() === url + '/')!
         let windows = BrowserWindow.getAllWindows().length
@@ -178,11 +175,9 @@ test('a GPU failure stops captures while the headless host stays available', asy
       process.kill(gpu.pid, 'SIGKILL')
     })
     await expect.poll(() => application.evaluate(() => (globalThis as any).gpuCaptureClosed)).toBe(1)
-    let calls = await application.evaluate(() => (globalThis as any).gpuCaptureCalls), stopped = Date.now()
-    await expect.poll(async () => {
-      expect(await application.evaluate(() => (globalThis as any).gpuCaptureCalls)).toBe(calls)
-      return Date.now() - stopped
-    }, { timeout: 2000, intervals: [100, 250] }).toBeGreaterThan(500)
+    let calls = await application.evaluate(() => (globalThis as any).gpuCaptureCalls)
+    let after = await application.evaluate(async () => { await new Promise(resolve => setTimeout(resolve, 500)); return (globalThis as any).gpuCaptureCalls })
+    expect(after).toBe(calls)
     let error = await application.evaluate(async ({ webContents }, origin) => {
       let state = globalThis as any
       try { await state.createTestCapture({ contents: webContents.getAllWebContents().find(contents => contents.getURL() === origin + '/')!, iceServers: [], signal: () => {}, data: () => {}, closed: () => {} }) }
@@ -225,6 +220,8 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     throw error
   })
   let child = application.process()
+  let nativeErrors = ''
+  child.stderr?.on('data', data => { for (let line of String(data).split('\n')) if (/CopyOutput|DESERIALIZATION|gpu_process_host|gpu_data_manager|shared_memory|FATAL/.test(line)) nativeErrors = (nativeErrors + line + '\n').slice(-65536) })
   try {
     if (rendering === 'software') expect(await application.evaluate(({ app }) => app.isHardwareAccelerationEnabled())).toBe(false)
     if (process.platform === 'linux' && process.env.BMUX_TEST_WINDOW_MANAGER === 'none') expect(await application.evaluate(({ app }) => ({ diskSharedMemory: app.commandLine.hasSwitch('disable-dev-shm-usage'), forcedFeatures: app.commandLine.hasSwitch('enable-features') }))).toEqual({ diskSharedMemory: process.env.BMUX_DISK_SHARED_MEMORY === '1', forcedFeatures: false })
@@ -313,11 +310,20 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     console.info(`Capture stress (${rendering}): ${JSON.stringify(result)}`)
     await test.info().attach('capture-rendering.json', { body: JSON.stringify(result), contentType: 'application/json' })
   } catch (error) {
+    if (nativeErrors) await test.info().attach('native-capture-errors', { body: nativeErrors, contentType: 'text/plain' })
+    let dialogs = await fs.readFile(path.join(directory, 'test-native-errors.log'), 'utf8').catch(() => undefined)
+    if (dialogs) await test.info().attach('native-dialog-errors', { body: dialogs, contentType: 'text/plain' })
+    let processState = process.platform === 'linux' ? await fs.readFile(`/proc/${child.pid}/status`, 'utf8').then(text => text.split('\n').filter(line => /^(State|VmRSS|Threads|voluntary_ctxt_switches|nonvoluntary_ctxt_switches):/.test(line))).catch(() => undefined) : undefined
+    console.info(`Capture host process: ${JSON.stringify({ pid: child.pid, exitCode: child.exitCode, signalCode: child.signalCode, processState, nativeErrors: !!nativeErrors, dialogs: !!dialogs })}`)
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       let diagnostics = await Promise.race([application.evaluate(({ webContents }) => ({ resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures, contents: webContents.getAllWebContents().map(contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading() })) })), new Promise(resolve => { timer = setTimeout(() => resolve({ error: 'Capture failure diagnostics timed out' }), 5000) })]).catch(() => null)
       console.info(`Capture stress failure (${rendering}): ${JSON.stringify(diagnostics)}`)
     } finally { clearTimeout(timer) }
+    if (process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' && child.exitCode === null && child.signalCode === null) {
+      let trace = await promisify(execFile)('gdb', ['--batch', '-p', String(child.pid), '-ex', 'set print frame-arguments none', '-ex', 'thread apply all bt', '-ex', 'detach'], { timeout: 10000, maxBuffer: 4 * 1024 * 1024 }).then(result => result.stdout).catch(error => error.stdout || 'Native stack capture unavailable')
+      await test.info().attach('native-main-stack', { body: trace, contentType: 'text/plain' })
+    }
     throw error
   } finally {
     await test.step('Close the isolated capture host', () => closeTestApplication(application, child))
