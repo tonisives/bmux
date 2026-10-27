@@ -26,7 +26,7 @@ done
 docker run -d --name "$turn" --network "container:${database}" coturn/coturn:4.6.3 \
   --no-cli --no-tls --no-dtls --fingerprint --use-auth-secret --static-auth-secret=fixture \
   --realm=bmux-fixture --allow-loopback-peers --no-multicast-peers >/dev/null
-docker run --name "$browser" --network "container:${database}" --shm-size=1g \
+docker run --name "$browser" --network "container:${database}" --shm-size="${BMUX_TEST_SHM_SIZE:-1g}" \
   $diagnostic_capability \
   --ulimit core="$core_limit" \
   --security-opt seccomp=containers/chromium-seccomp.json \

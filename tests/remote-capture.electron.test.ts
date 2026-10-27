@@ -109,3 +109,105 @@ test('background panes deliver static frames without a visible window', async ()
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+for (let rendering of ['default', 'software']) test(`seven hidden panes keep streaming through reconnects and odd viewport sizes (${rendering})`, async () => {
+  test.setTimeout(180000)
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-capture-stress-'))
+  let server = http.createServer((_request, response) => {
+    response.setHeader('Content-Type', 'text/html')
+    response.end('<!doctype html><title>Capture stress fixture</title><style>body{margin:0}canvas{position:fixed;inset:0;width:100%;height:100%}</style><canvas></canvas><script>let n=0;setInterval(()=>{let c=document.querySelector("canvas");c.width=innerWidth;c.height=innerHeight;let x=c.getContext("2d");x.fillStyle=++n%2?"red":"blue";x.fillRect(0,0,c.width,c.height);x.fillStyle="white";x.fillRect(n%Math.max(1,c.width-40),20,40,40)},100)</script>')
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1', BMUX_LAZY_RESTORE_BACKGROUND: '1', BMUX_TEST_SOFTWARE_RENDERING: rendering === 'software' ? '1' : '0' } })
+  let child = application.process()
+  try {
+    if (rendering === 'software') expect(await application.evaluate(({ app }) => app.isHardwareAccelerationEnabled())).toBe(false)
+    let command = async (...args: string[]) => {
+      let output = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 })
+      let reply = JSON.parse(output.stdout)
+      if (!reply.ok) throw new Error(reply.error)
+      return reply.result
+    }
+    let panes: string[] = [], urls: string[] = []
+    for (let index = 0; index < 7; index++) {
+      let session = index ? await command('new-session', '-s', `capture-${index}`) : (await command('status')).model.sessions[0]
+      let pane = session.windows[0].panes[0].id, url = `${origin}/pane-${index}`
+      panes.push(pane); urls.push(url)
+      await command('navigate', '-t', pane, url)
+      await command('wait', '-t', pane, '--selector', 'canvas')
+    }
+    let frameCounts = async (viewer: import('@playwright/test').Page) => viewer.evaluate(() => [...document.querySelectorAll('video')].map(video => video.getVideoPlaybackQuality().totalVideoFrames))
+    for (let round = 0; round < 2; round++) {
+      await application.evaluate(async ({ webContents }, urls) => {
+        let state = globalThis as any
+        state.stressOffers = []; state.stressData = []; state.stressClosed = 0
+        state.stressCaptures = await Promise.all(urls.map(async (url, index) => {
+          let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url)
+          if (!contents) throw new Error(`Missing fixture pane ${index}`)
+          return state.createTestCapture({ contents, iceServers: [], signal: (sdp: RTCSessionDescriptionInit) => { state.stressOffers[index] = sdp }, data: (data: string) => { state.stressData[index] = data }, closed: () => { state.stressClosed++ } })
+        }))
+      }, urls)
+      await expect.poll(() => application.evaluate(() => (globalThis as any).stressOffers.filter(Boolean).length), { timeout: 20000 }).toBe(7)
+      let viewerId = await application.evaluate(async ({ BrowserWindow }, origin) => {
+        let viewer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+        await viewer.loadURL(origin + '/viewer')
+        return viewer.id
+      }, origin)
+      let viewer = application.context().pages().find(page => page.url() === origin + '/viewer')!
+      let offers = await application.evaluate(() => (globalThis as any).stressOffers)
+      let answers = await viewer.evaluate(async offers => {
+        let peers: RTCPeerConnection[] = [], channels: RTCDataChannel[] = []
+        ;(window as any).stressPeers = peers; (window as any).stressChannels = channels
+        return Promise.all(offers.map(async (offer: RTCSessionDescriptionInit, index: number) => {
+          let peer = new RTCPeerConnection(), video = document.createElement('video')
+          peers[index] = peer; video.muted = true; document.body.append(video)
+          peer.ontrack = event => { video.srcObject = event.streams[0]; void video.play() }
+          peer.ondatachannel = event => { channels[index] = event.channel }
+          await peer.setRemoteDescription(offer)
+          await peer.setLocalDescription(await peer.createAnswer())
+          if (peer.iceGatheringState !== 'complete') await new Promise<void>((resolve, reject) => {
+            let timer = setTimeout(() => reject(new Error('Fixture ICE gathering timed out')), 15000)
+            peer.onicegatheringstatechange = () => { if (peer.iceGatheringState === 'complete') { clearTimeout(timer); resolve() } }
+          })
+          return peer.localDescription!.toJSON()
+        }))
+      }, offers)
+      await application.evaluate((_electron, answers) => answers.forEach((answer: RTCSessionDescriptionInit, index: number) => (globalThis as any).stressCaptures[index].answer(answer)), answers)
+      await expect.poll(async () => (await frameCounts(viewer)).filter(count => count > 2).length, { timeout: 30000 }).toBe(7)
+      await expect.poll(() => viewer.evaluate(() => (window as any).stressChannels.filter((channel: RTCDataChannel) => channel.readyState === 'open').length), { timeout: 15000 }).toBe(7)
+      for (let [width, height] of [[641, 479], [1279, 719], [1919, 1079]]) {
+        let before = await frameCounts(viewer)
+        await application.evaluate(({ BaseWindow }, { urls, width, height }) => {
+          let children = (view: Electron.View): Electron.View[] => [view, ...view.children.flatMap(children)]
+          let views = BaseWindow.getAllWindows().flatMap(window => children(window.contentView))
+          for (let url of urls) {
+            let view = views.find(view => (view as Electron.WebContentsView).webContents?.getURL() === url)
+            if (!view) throw new Error('Missing fixture native view')
+            view.setBounds({ ...view.getBounds(), width, height })
+          }
+        }, { urls, width, height })
+        await expect.poll(() => application.evaluate(async ({ webContents }, urls) => Promise.all(urls.map(url => webContents.getAllWebContents().find(contents => contents.getURL() === url)!.executeJavaScript('({width:innerWidth,height:innerHeight})'))), urls), { timeout: 15000 }).toEqual(urls.map(() => ({ width, height })))
+        // A normal agent screenshot shares Chromium's copy-output path with the streams.
+        await command('screenshot', '-t', panes[round], '--viewport', '--output', path.join(directory, 'capture.png'))
+        await expect.poll(async () => (await frameCounts(viewer)).filter((count, index) => count > before[index] + 2).length, { timeout: 30000 }).toBe(7)
+        expect(await application.evaluate(() => (globalThis as any).captureProcessFailures)).toEqual([])
+      }
+      await viewer.evaluate(round => (window as any).stressChannels.forEach((channel: RTCDataChannel, index: number) => channel.send(`round-${round}-${index}`)), round)
+      await expect.poll(() => application.evaluate(() => (globalThis as any).stressData), { timeout: 15000 }).toEqual(panes.map((_pane, index) => `round-${round}-${index}`))
+      expect(await application.evaluate(() => (globalThis as any).stressClosed)).toBe(0)
+      await application.evaluate(() => (globalThis as any).stressCaptures.forEach((capture: { close: () => void }) => capture.close()))
+      await application.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.destroy(), viewerId)
+    }
+    expect(await application.evaluate(() => (globalThis as any).captureProcessFailures)).toEqual([])
+    expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
+    let result = await application.evaluate(({ app }) => ({ hardwareAcceleration: app.isHardwareAccelerationEnabled(), features: app.getGPUFeatureStatus(), failures: (globalThis as any).captureProcessFailures }))
+    console.info(`Capture stress (${rendering}): ${JSON.stringify(result)}`)
+    await test.info().attach('capture-rendering.json', { body: JSON.stringify(result), contentType: 'application/json' })
+  } finally {
+    await closeTestApplication(application, child)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})

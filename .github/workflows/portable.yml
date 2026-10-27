@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      test_pattern:
+        description: Run matching Linux Electron tests; leave empty for the full suite
+        required: false
+        type: string
       native_crashes:
         description: Collect native crash stacks in the disposable Linux runner
         required: false
@@ -15,6 +19,12 @@ on:
         required: false
         default: 1
         type: number
+      shared_memory:
+        description: Shared memory limit for the disposable Linux browser
+        required: false
+        default: 1g
+        type: choice
+        options: [1g, 256m]
 jobs:
   linux:
     strategy:
@@ -35,14 +45,20 @@ jobs:
         run: sudo sysctl -w kernel.core_pattern=/tmp/bmux-core.%p
       - name: Linux tests
         env:
+          TEST_PATTERN: ${{ inputs.test_pattern }}
           REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
           BMUX_NATIVE_CRASH_DIAGNOSTICS: ${{ inputs.native_crashes && '1' || '0' }}
+          BMUX_TEST_SHM_SIZE: ${{ inputs.shared_memory || '1g' }}
         run: |
           case "$REPEAT_EACH" in
             [1-9]|[12][0-9]|3[0-2]) ;;
             *) echo "repeat_each must be between 1 and 32"; exit 1 ;;
           esac
-          scripts/test-linux.sh --repeat-each "$REPEAT_EACH"
+          if [ -n "$TEST_PATTERN" ]; then
+            scripts/test-linux.sh --grep "$TEST_PATTERN" --repeat-each "$REPEAT_EACH"
+          else
+            scripts/test-linux.sh --repeat-each "$REPEAT_EACH"
+          fi
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
