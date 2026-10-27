@@ -26,6 +26,9 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       let route = new URL(request.url ?? '/', 'http://localhost').pathname
       let json = (body: unknown) => { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(body)) }
       requests.push(route)
+      if (route === '/api/config') { json({ googleClientId: 'fixture' }); return }
+      if (route === '/api/login' && request.method === 'POST') { signedIn = true; json({ ok: true }); return }
+      if (route === '/api/auth/providers') { json({ appleEnabled: true, appleLinked: false }); return }
       if (route === '/api/me') {
         if (!signedIn) { response.writeHead(401); response.end(); return }
         json({ owner: 'fixture-owner', name: 'Browser operator' }); return
@@ -67,6 +70,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     let config = path.join(directory, 'config.yaml')
     await fs.writeFile(config, 'browser:\n  autoUpdateFilters: false\n')
     application = await electron.launch({ args: [process.cwd(), '--background'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: config, BMUX_BACKGROUND: '1' } })
+    await application.context().route('https://accounts.google.com/gsi/client', route => route.fulfill({ contentType: 'application/javascript', body: 'window.google={accounts:{oauth2:{initTokenClient:({callback})=>({requestAccessToken(){callback({access_token:"fixture-google-token"})}})}}}' }))
     let windowId = await application.evaluate(async ({ app, BrowserWindow }, origin) => {
       let window = new BrowserWindow({ show: true, width: 1280, height: 800, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
       await window.loadURL(origin)
@@ -83,7 +87,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       if (height < 500) await expect.poll(() => page!.evaluate(() => innerHeight)).toBe(height)
       else await expect.poll(() => page!.evaluate(() => innerHeight)).toBeGreaterThanOrEqual(500)
     }
-    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
     await expect(page.getByRole('link', { name: 'Support', exact: true })).toHaveAttribute('href', 'https://tonis.dev/#contact')
     await page.screenshot({ path: info.outputPath('companion-welcome.png') })
@@ -148,12 +152,13 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     expect(signals).toHaveLength(0)
     expect(requests).not.toContain('/api/connect')
     await page.getByRole('button', { name: 'Exit demo', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeVisible()
     await resize(1280)
-    signedIn = true
-    await page.reload()
+    await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeEnabled()
+    await page.getByRole('button', { name: 'Sign in with Google', exact: true }).click()
     let machine = page.getByRole('button', { name: 'Machine Personal Mac', exact: true })
     await expect(machine).toBeVisible()
+    expect(requests).toContain('/api/login')
     await expect(page.getByRole('button', { name: 'Machine Research Linux', exact: true })).toBeVisible()
     await expect(page.getByRole('tab')).toHaveCount(3)
     await expect(page.getByRole('tab', { name: 'Sessions', exact: true })).toHaveAttribute('aria-selected', 'true')
@@ -213,6 +218,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
     await page.getByRole('tab', { name: 'Settings', exact: true }).click()
     await expect(page.getByText('Browser operator', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Link Apple', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Connect a machine', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Profiles', exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')

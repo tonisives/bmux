@@ -233,9 +233,9 @@ test('paid remote account connects a running computer and opens regional box che
     await expect(picker.getByRole('button',{name:'Manage billing'})).toBeVisible()
     expired = true
     await picker.getByRole('button',{name:'Manage billing'}).click()
-    await expect(picker.getByRole('button',{name:'Sign in',exact:true})).toBeVisible()
+    await expect(picker.getByRole('button',{name:'Sign in with Google',exact:true})).toBeVisible()
     await expect(picker.getByRole('button',{name:'Manage billing'})).toHaveCount(0)
-    await picker.getByRole('button',{name:'Sign in',exact:true}).click()
+    await picker.getByRole('button',{name:'Sign in with Google',exact:true}).click()
     await expect(picker).toHaveCount(0)
     await expect.poll(() => application!.context().pages().some(page => page.url() === `${origin}/`)).toBe(true)
     expect(await application.evaluate(({BaseWindow}) => BaseWindow.getAllWindows().length)).toBe(nativeWindows)

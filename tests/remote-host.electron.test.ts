@@ -198,7 +198,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await viewer.route('**/api/me', async route => { await accountCheck; await route.continue(); finishRoutedCheck?.() })
     await viewer.reload({waitUntil:'domcontentloaded'})
     await expect(viewer.getByRole('button',{name:'Account'})).toHaveAttribute('aria-busy','true')
-    await expect(viewer.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0)
+    await expect(viewer.getByRole('button',{name:'Sign in with Google',exact:true})).toHaveCount(0)
     finishAccountCheck?.()
     await routedCheck
     await viewer.unroute('**/api/me')
@@ -566,7 +566,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(viewer.getByText('Sign in to continue')).toBeVisible()
       await application!.evaluate(async ({session},origin)=>session.defaultSession.cookies.remove(origin,'bmux_session'),origin)
       await viewer.reload()
-      await expect(viewer.getByRole('button',{name:'Sign in',exact:true})).toBeVisible()
+      await expect(viewer.getByRole('button',{name:'Sign in with Google',exact:true})).toBeVisible()
       await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
       await expect(viewer.getByRole('complementary', { name: 'Sessions', exact: true })).toHaveCount(0)
     },{timeout:30000})

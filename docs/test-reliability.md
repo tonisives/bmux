@@ -1,5 +1,22 @@
 # Focused test verification
 
+## October 27 full-suite failures
+
+The full Check on `e8b8516` found two stale fixture assumptions. Profile settings
+retain the native page beneath a focused chrome overlay; the Bot settings case
+now verifies the attached page, native stacking, and chrome focus. Click mode
+also retains the page's last-agent button after manual input. Its fixture still
+requires no interactive click-action buttons and checks that the address bar's
+only button is Last agent, with the existing overflow and native input assertions
+intact.
+
+The 371-case serial suite reached case 257 at the 30-minute step deadline.
+Check now runs static checks once, then divides the complete Electron suite into
+two shards on separate disposable desktops. Each shard keeps one GUI worker,
+the existing deadlines, and zero retries. Focused dispatches run their selected
+tests once before applying `repeat_each`; they do not duplicate them across shards.
+Failure artifacts use `electron-test-results-1` and `electron-test-results-2`.
+
 ## Proxy guidance in failed panes
 
 Failed network loads in proxied panes show connection guidance beside Reload.
