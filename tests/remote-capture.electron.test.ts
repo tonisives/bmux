@@ -7,6 +7,8 @@ import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+let captureConfig = 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n'
+
 test('background panes deliver static frames without a visible window', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-capture-'))
   let server = http.createServer((_request, response) => {
@@ -15,11 +17,12 @@ test('background panes deliver static frames without a visible window', async ()
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), captureConfig)
   let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   try {
     let command = async (...args: string[]) => JSON.parse((await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory } })).stdout).result
     let status = await command('status')
+    expect(status.configError).toBeNull()
     let pane = status.model.sessions[0].windows[0].panes[0]
     await command('navigate', '-t', pane.id, origin)
     await command('wait', '-t', pane.id, '--selector', 'canvas')
@@ -133,6 +136,7 @@ test('background panes deliver static frames without a visible window', async ()
       await application.evaluate(() => (globalThis as any).remoteCapture.close())
       expect(await application.evaluate(() => (globalThis as any).remoteCaptureClosed)).toBe(1)
     })
+    expect(await application.evaluate(() => (globalThis as any).captureFetchCalls)).toBe(0)
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
@@ -145,7 +149,7 @@ test('a GPU failure stops captures while the headless host stays available', asy
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>GPU fixture</title><body style="background:red">GPU capture fixture</body>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), captureConfig)
   let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   let child = application.process()
   try {
@@ -155,7 +159,9 @@ test('a GPU failure stops captures while the headless host stays available', asy
       if (!reply.ok) throw new Error(reply.error)
       return reply.result
     }
-    let pane = (await command('status')).model.sessions[0].windows[0].panes[0].id
+    let status = await command('status')
+    expect(status.configError).toBeNull()
+    let pane = status.model.sessions[0].windows[0].panes[0].id
     await command('navigate', '-t', pane, origin)
     await command('wait', '-t', pane, '--selector', 'body')
     await application.evaluate(async ({ webContents }, origin) => {
@@ -197,6 +203,7 @@ test('a GPU failure stops captures while the headless host stays available', asy
     })
     await expect.poll(() => application.evaluate(() => !!(globalThis as any).managementOffer), { timeout: 15000 }).toBe(true)
     await application.evaluate(() => (globalThis as any).managementCapture.close())
+    expect(await application.evaluate(() => (globalThis as any).captureFetchCalls)).toBe(0)
   } finally {
     await closeTestApplication(application, child)
     await new Promise<void>(resolve => server.close(() => resolve()))
@@ -215,7 +222,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), captureConfig)
   let application = await step('Launch the isolated headless capture host', () => electron.launch({ timeout: 20000, args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1', BMUX_LAZY_RESTORE_BACKGROUND: '1', BMUX_TEST_SOFTWARE_RENDERING: rendering === 'software' ? '1' : '0' } })).catch(async error => {
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -226,17 +233,22 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
   child.stderr?.on('data', data => { for (let line of String(data).split('\n')) if (/CopyOutput|DESERIALIZATION|gpu_process_host|gpu_data_manager|shared_memory|FATAL/.test(line)) nativeErrors = (nativeErrors + line + '\n').slice(-65536) })
   let nativeDiagnostics: Promise<void> | undefined
   let collectNativeDiagnostics = (reason: string) => nativeDiagnostics ??= (async () => {
-    if (nativeErrors) await test.info().attach('native-capture-errors', { body: nativeErrors, contentType: 'text/plain' })
+    let attach = async (name: string, body: string, contentType = 'text/plain') => {
+      let output = test.info().outputPath(name)
+      await fs.writeFile(output, body, { mode: 0o600 })
+      await test.info().attach(name, { path: output, contentType })
+    }
+    if (nativeErrors) await attach('native-capture-errors.log', nativeErrors)
     let dialogs = await fs.readFile(path.join(directory, 'test-native-errors.log'), 'utf8').catch(() => undefined)
-    if (dialogs) await test.info().attach('native-dialog-errors', { body: dialogs, contentType: 'text/plain' })
+    if (dialogs) await attach('native-dialog-errors.log', dialogs)
     let heartbeat = await fs.readFile(path.join(directory, 'test-main-heartbeat.json'), 'utf8').then(text => JSON.parse(text) as { time: number }).catch(() => undefined)
     let processState = process.platform === 'linux' ? await fs.readFile(`/proc/${child.pid}/status`, 'utf8').then(text => text.split('\n').filter(line => /^(State|VmRSS|Threads|voluntary_ctxt_switches|nonvoluntary_ctxt_switches):/.test(line))).catch(() => undefined) : undefined
     let state = { reason, phase, pid: child.pid, exitCode: child.exitCode, signalCode: child.signalCode, processState, nativeErrors: !!nativeErrors, dialogs: !!dialogs, heartbeatAgeMs: heartbeat ? Date.now() - heartbeat.time : undefined }
     console.info(`Capture host process: ${JSON.stringify(state)}`)
-    await test.info().attach('native-main-state.json', { body: JSON.stringify(state), contentType: 'application/json' })
+    await attach('native-main-state.json', JSON.stringify(state), 'application/json')
     if (process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' && child.exitCode === null && child.signalCode === null) {
       let trace = await promisify(execFile)('gdb', ['--batch', '-p', String(child.pid), '-ex', 'set print frame-arguments none', '-ex', 'thread apply all bt', '-ex', 'detach'], { timeout: 10000, maxBuffer: 4 * 1024 * 1024 }).then(result => result.stdout).catch(error => error.stdout || 'Native stack capture unavailable')
-      await test.info().attach('native-main-stack', { body: trace, contentType: 'text/plain' })
+      await attach('native-main-stack.log', trace)
     }
   })().catch(error => { console.info(`Capture diagnostics: ${String(error)}`) })
   let watchdog = process.platform === 'linux' && process.env.BMUX_NATIVE_CRASH_DIAGNOSTICS === '1' ? setTimeout(() => { void collectNativeDiagnostics('150 second watchdog').catch(error => console.info(`Capture watchdog: ${String(error)}`)) }, 150000) : undefined
@@ -250,9 +262,11 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       return reply.result
     }
     let panes: string[] = [], urls: string[] = []
+    let status = await command('status')
+    expect(status.configError).toBeNull()
     await step('Load all seven hidden fixture panes', async () => {
       for (let index = 0; index < 7; index++) {
-        let session = index ? await command('new-session', '-s', `capture-${index}`) : (await command('status')).model.sessions[0]
+        let session = index ? await command('new-session', '-s', `capture-${index}`) : status.model.sessions[0]
         let pane = session.windows[0].panes[0].id, url = `${origin}/pane-${index}`
         panes.push(pane); urls.push(url)
         await command('navigate', '-t', pane, url)
@@ -323,6 +337,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       })
     }
     expect(await application.evaluate(() => (globalThis as any).captureProcessFailures)).toEqual([])
+    expect(await application.evaluate(() => (globalThis as any).captureFetchCalls)).toBe(0)
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
     let result = await application.evaluate(({ app }) => ({ hardwareAcceleration: app.isHardwareAccelerationEnabled(), features: app.getGPUFeatureStatus(), switches: Object.fromEntries(['disable-gpu', 'disable-gpu-compositing', 'disable-dev-shm-usage', 'in-process-gpu', 'use-angle', 'use-gl', 'ozone-platform', 'enable-features'].filter(name => app.commandLine.hasSwitch(name)).map(name => [name, app.commandLine.getSwitchValue(name)])), versions: { electron: process.versions.electron, chrome: process.versions.chrome }, windowManager: process.env.BMUX_TEST_WINDOW_MANAGER ?? 'native', resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures }))
     console.info(`Capture stress (${rendering}): ${JSON.stringify(result)}`)

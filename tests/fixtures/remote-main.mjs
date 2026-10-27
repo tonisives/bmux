@@ -10,6 +10,9 @@ if (process.env.BMUX_TEST_SOFTWARE_RENDERING === '1') app.disableHardwareAcceler
 app.setAppPath(process.cwd())
 globalThis.createTestCapture = createRemoteCapture
 globalThis.captureProcessFailures = []
+globalThis.captureFetchCalls = 0
+let fetch = globalThis.fetch
+globalThis.fetch = (...args) => { globalThis.captureFetchCalls++; return Reflect.apply(fetch, globalThis, args) }
 globalThis.captureResources = () => process.platform !== 'linux' ? undefined : {
   filesystems: Object.fromEntries(['/dev/shm', '/tmp'].map(directory => { let status = fs.statfsSync(directory); return [directory, { type: status.type.toString(16), totalBytes: status.bsize * status.blocks, availableBytes: status.bsize * status.bavail }] })),
   memory: Object.fromEntries(['memory.current', 'memory.max', 'memory.peak', 'memory.events'].filter(name => fs.existsSync(`/sys/fs/cgroup/${name}`)).map(name => [name, fs.readFileSync(`/sys/fs/cgroup/${name}`, 'utf8').trim()])),
