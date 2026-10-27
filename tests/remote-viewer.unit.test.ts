@@ -9,13 +9,14 @@ let fixture = async (view?: string) => {
   let events: ViewerEvents = { hosts: vi.fn(), state: vi.fn(), stream: vi.fn(), error: vi.fn(), disconnected: vi.fn(), message: vi.fn() }
   let identity: ViewerIdentity = { publicKey: { x: 'viewer' }, fingerprint: async key => key.x!, sign: vi.fn(async () => 'signature'), verify: vi.fn(async () => true) }
   let observe = vi.fn(() => vi.fn())
-  let promise = createViewer(events, { view, origin: 'https://fixture.test', identity, connect: async () => ({ ticket: 'one-use-ticket', iceServers: [] }), socket: () => socket as unknown as WebSocket, peer: () => peer as unknown as RTCPeerConnection, uuid: () => 'fixture-request-12345', observe })
+  let createPeer = vi.fn((_configuration: RTCConfiguration) => peer as unknown as RTCPeerConnection)
+  let promise = createViewer(events, { view, origin: 'https://fixture.test', identity, connect: async () => ({ ticket: 'one-use-ticket', iceServers: [] }), socket: () => socket as unknown as WebSocket, peer: createPeer, uuid: () => 'fixture-request-12345', observe })
   await vi.waitFor(() => expect(socket.onopen).toBeTypeOf('function'))
   socket.onopen!()
   let viewer = await promise
   let host: Host = { id: 'host', generation: 'runtime', service: 'Computer', key: { x: 'host' }, permission: 'control', sessions: [{ id: 'session', name: 'Work', panes: [{ id: 'pane', title: 'Page' }] }] }
   let receive = (payload: unknown) => socket.onmessage!({ data: JSON.stringify({ type: 'signal', from: host.id, envelope: { version: 1, from: host.id, to: viewer.id, generation: host.generation, nonce: crypto.randomUUID(), expires: Date.now() + 30000, payload: JSON.stringify(payload), signature: 'host signature' } }) })
-  return { socket, channel, peer, events, viewer, host, receive, identity, observe }
+  return { socket, channel, peer, events, viewer, host, receive, identity, observe, createPeer }
 }
 afterEach(() => vi.useRealTimers())
 
@@ -40,6 +41,26 @@ it('keeps the viewer connected when its video connection recovers from a brief i
   await vi.advanceTimersByTimeAsync(6000)
   expect(value.events.disconnected).not.toHaveBeenCalled()
   expect(value.viewer.send({ type: 'renew', session: 'session', generation: 1 })).toBe(true)
+  value.viewer.close()
+})
+
+it('uses renewed TURN credentials for the next stream without closing the current stream', async () => {
+  let value = await watchingFixture()
+  vi.useFakeTimers()
+  await vi.advanceTimersByTimeAsync(17 * 60 * 60 * 1000)
+  let iceServers = [{ urls: ['turn:fixture.test'], username: 'renewed-viewer', credential: 'renewed-credential' }]
+  value.socket.onmessage!({ data: JSON.stringify({ type: 'ready', id: value.viewer.id, iceServers, streamPermits: true }) })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(value.peer.close).not.toHaveBeenCalled()
+  expect(value.events.disconnected).not.toHaveBeenCalled()
+  let watching = value.viewer.watch(value.host, 'session', 'pane')
+  await vi.advanceTimersByTimeAsync(0)
+  value.receive({ type: 'offer', sdp: { type: 'offer', sdp: 'next-offer' } })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(value.createPeer).toHaveBeenLastCalledWith({ iceServers })
+  value.peer.ondatachannel!({ channel: value.channel })
+  value.channel.onmessage!({ data: JSON.stringify({ type: 'state', pane: 'pane', viewports: {}, sessions: [], controls: {} }) })
+  await watching
   value.viewer.close()
 })
 

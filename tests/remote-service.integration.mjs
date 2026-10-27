@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash, randomBytes, generateKeyPairSync } from 'node:crypto'
+import { createHash, createHmac, randomBytes, generateKeyPairSync } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { Pool } from 'pg'
 import { WebSocket } from 'ws'
@@ -18,7 +18,7 @@ await pool.query('INSERT INTO bmux_services (id,owner,token_hash,public_key) VAL
 await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '1 hour')", [digest(login),owner])
 await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '1 hour')", [digest(guestLogin),guest])
 await pool.query("INSERT INTO bmux_entitlements VALUES($1,now()+interval '1 hour',2,'manual')",[owner])
-let server = spawn(process.execPath, ['--import','tsx','remote/server.ts'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: url, PORT:'18888', BMUX_PUBLIC_ORIGIN: origin, BMUX_GOOGLE_CLIENT_ID:'fixture', BMUX_TURN_SECRET:'fixture-only', BMUX_TURN_URLS:'turn:127.0.0.1:3478', BMUX_MANAGED_BILLING:'true' }, stdio: ['ignore','ignore','pipe'] })
+let server = spawn(process.execPath, ['--import',new URL('./fixtures/remote-relay-clock.mjs',import.meta.url).href,'--import','tsx','remote/server.ts'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: url, PORT:'18888', BMUX_PUBLIC_ORIGIN: origin, BMUX_GOOGLE_CLIENT_ID:'fixture', BMUX_TURN_SECRET:'fixture-only', BMUX_TURN_URLS:'turn:127.0.0.1:3478', BMUX_MANAGED_BILLING:'true' }, stdio: ['ignore','ignore','pipe','ipc'] })
 let recoveryServer, proxy
 let failures = ''
 server.stderr.on('data', data => { failures += data })
@@ -33,6 +33,10 @@ let connect = (address, options) => new Promise((resolve,reject) => {
 })
 let until = async predicate => { for (let n=0;n<100;n++) { if (await predicate()) return; await wait(100) }; throw new Error('Timed out') }
 let post = (endpoint, session, value) => fetch(`${origin}${endpoint}`, { method:'POST', headers:{ Origin:origin, Cookie:`bmux_session=${session}`, 'Content-Type':'application/json' }, body:JSON.stringify(value) })
+let setClock = offset => new Promise(resolve => {
+  let received = message => { if (message.type === 'clock-offset' && message.offset === offset) { server.off('message',received); resolve() } }
+  server.on('message',received); server.send({type:'clock-offset',offset})
+})
 try {
   await until(async () => { try { return (await fetch(`${origin}/health`)).ok } catch { return false } })
   let recoveryUrl = new URL(url); recoveryUrl.port = '18891'
@@ -71,6 +75,23 @@ try {
   let { ticket } = await response.json()
   let viewer = await connect(`ws://127.0.0.1:18888/connect?ticket=${ticket}`, { origin })
   await until(() => viewer.messages.some(m=>m.type==='hosts' && m.hosts.some(h=>h.id===host)))
+  let initialHostIce = browser.messages.find(message=>message.type==='ready')
+  let initialViewerIce = viewer.messages.find(message=>message.type==='ready')
+  let elapsed = 17 * 60 * 60 * 1000
+  await setClock(elapsed)
+  viewer.socket.send(JSON.stringify({type:'signal',to:host,envelope:{from:digest(key.x),nonce:'after-idle'}}))
+  await until(()=>browser.messages.some(message=>message.type==='signal'&&message.envelope.nonce==='after-idle'))
+  await until(()=>viewer.messages.filter(message=>message.type==='ready').length===2)
+  for (let [client, initial] of [[browser,initialHostIce],[viewer,initialViewerIce]]) {
+    let renewed = client.messages.filter(message=>message.type==='ready').at(-1)
+    assert(renewed.iceExpiresAt > initial.iceExpiresAt + elapsed - 1000,'Idle hosts and viewers receive fresh TURN credentials')
+    assert(renewed.iceExpiresAt > Date.now() + elapsed,'Renewed credentials are valid at connection time')
+    assert.notEqual(renewed.iceServers[0].username,initial.iceServers[0].username)
+    assert.equal(renewed.iceServers[0].credential,createHmac('sha1','fixture-only').update(renewed.iceServers[0].username).digest('base64'))
+    assert.equal(client.socket.readyState,WebSocket.OPEN,'Credential renewal keeps the signaling connection open')
+  }
+  assert(browser.messages.findIndex(message=>message===browser.messages.filter(message=>message.type==='ready').at(-1)) < browser.messages.findIndex(message=>message.type==='signal'&&message.envelope.nonce==='after-idle'),'The host receives fresh credentials before the new connection request')
+  await setClock(0)
   let machine = { name:'Research Linux', platform:'linux', arch:'arm64', version:'0.1.10', revision:'fixture' }
   browser.socket.send(JSON.stringify({ type:'sessions', machine, sessions:[{ id:'session-one', name:'TikTok', lastActivityAt:123456, canClose:true, canClosePages:true, panes:[{ id:'pane-one', title:'TikTok - Make Your Day' }] }] }))
   await until(() => viewer.messages.some(m=>m.type==='hosts' && m.hosts.some(h=>h.id===host && h.sessions.some(s=>s.name==='TikTok'))))

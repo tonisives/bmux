@@ -40,7 +40,7 @@ let keyId = (key: { kty?: string; crv?: string; x?: string }) => {
   return digest(key.x)
 }
 type ListedSession = { canClose?: boolean; canClosePages?: boolean; id: string; name: string; lastActivityAt?: number; panes: { id: string; title: string }[] }
-type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; sessions?: ListedSession[]; machine?: RemoteMachine; tokenHash?: string; nativeSession?: string; capabilities?: RemoteCapabilities; kind?: string }
+type Peer = { socket: WebSocket; owner: string; id: string; role: 'host' | 'viewer'; service?: string; generation?: string; key: unknown; alive: boolean; iceExpiresAt?: number; sessions?: ListedSession[]; machine?: RemoteMachine; tokenHash?: string; nativeSession?: string; capabilities?: RemoteCapabilities; kind?: string }
 let peers = new Map<string, Peer>()
 let tickets = new Map<string, { owner: string; id: string; key: unknown; expires: number; desktop: boolean; tokenHash: string; nativeSession?: string }>()
 let revokedWebLogins = new Map<string, number>()
@@ -52,7 +52,7 @@ let mobileAuth = createMobileAuth({ pool, origin: publicOrigin, googleClientId: 
   for (let [ticket, value] of tickets) if (value.tokenHash === tokenHash) tickets.delete(ticket)
   for (let peer of peers.values()) if (peer.role === 'viewer' && peer.tokenHash === tokenHash) peer.socket.terminate()
 } })
-let send = (peer: Peer, value: unknown) => { if (peer.socket.readyState === WebSocket.OPEN && peer.socket.bufferedAmount < 262144) peer.socket.send(JSON.stringify(value)) }
+let send = (peer: Peer, value: unknown) => { if (peer.socket.readyState !== WebSocket.OPEN || peer.socket.bufferedAmount >= 262144) return false; peer.socket.send(JSON.stringify(value)); return true }
 let permission = async (user: string, host: Peer): Promise<'watch' | 'control' | undefined> => {
   if (user === host.owner) return 'control'
   if (host.kind === 'included') return undefined
@@ -79,7 +79,16 @@ let body = async (request: http.IncomingMessage) => {
   for await (let chunk of request) { text += chunk; if (text.length > 131072) throw new Error('Request too large') }
   return JSON.parse(text || '{}')
 }
-let ice = (id: string) => { let username = `${Math.floor(Date.now() / 1000) + 600}:${id}`; return [{ urls: turnUrls, username, credential: createHmac('sha1', turnSecret).update(username).digest('base64') }] }
+let ice = (id: string) => {
+  let expires = Math.floor(Date.now() / 1000) + 600, username = `${expires}:${id}`
+  return { iceExpiresAt: expires * 1000, iceServers: [{ urls: turnUrls, username, credential: createHmac('sha1', turnSecret).update(username).digest('base64') }] }
+}
+let refreshIce = (peer: Peer) => {
+  if ((peer.iceExpiresAt ?? 0) > Date.now() + 120000) return
+  let configuration = ice(peer.id)
+  // Running hosts already accept ready messages; renewal does not replace their streams.
+  if (send(peer, { type: 'ready', id: peer.id, ...configuration, streamPermits: true })) peer.iceExpiresAt = configuration.iceExpiresAt
+}
 let server = http.createServer((request, response) => {
   let connectionDeadline = Date.now() + 30000
   let json = (status: number, value: unknown) => { response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(value)) }
@@ -188,7 +197,7 @@ let server = http.createServer((request, response) => {
         if (tickets.size >= 10000) throw new Error('Connection capacity reached')
         if (connectionDeadline <= Date.now() || revokedWebLogins.has(auth.tokenHash)) throw new Error('Session revoked')
         tickets.set(ticket, { owner, id, key: publicKey, expires: connectionDeadline, tokenHash: auth.tokenHash, nativeSession: auth.nativeSession, desktop: !auth.nativeSession && request.headers['x-bmux-desktop'] === '1' })
-        json(200, { ticket, iceServers: ice(id) }); return
+        json(200, { ticket, ...ice(id) }); return
       }
       if (request.method === 'GET' && url.pathname === '/api/usage') {
         let result = await pool.query("SELECT u.service,sum(u.started)::float AS started,sum(u.succeeded)::float AS succeeded,sum(u.failed)::float AS failed,sum(u.browser_ms)::float AS browser_ms FROM bmux_usage u JOIN bmux_services s ON s.id=u.service WHERE s.owner=$1 AND u.day>=CURRENT_DATE-29 GROUP BY u.service", [owner])
@@ -258,7 +267,7 @@ server.on('upgrade', (request, socket, head) => {
       peers.set(current.id, current)
       connection.on('pong', () => { current.alive = true; if (current.role === 'host') void pool.query('UPDATE bmux_host_presence SET seen=now() WHERE host=$1 AND generation=$2', [current.id,current.generation]).catch(() => connection.close(1011, 'Presence unavailable')) })
       connection.on('error', () => undefined)
-      send(current, { type: 'ready', id: current.id, iceServers: ice(current.id), streamPermits: true })
+      refreshIce(current)
       void publish().catch(() => undefined)
       connection.on('message', raw => {
         void (async () => {
@@ -285,6 +294,7 @@ server.on('upgrade', (request, socket, head) => {
             let viewer = current.role === 'viewer' ? current : target
             let access = await permission(viewer.owner, host)
             if (!access) { send(current, { type: 'signal-error', to: target.id, error: 'Access revoked' }); return }
+            refreshIce(host); refreshIce(viewer)
             if (current.role === 'viewer') send(host, { type: 'authorized', id: viewer.id, key: viewer.key, permission: access, owner: viewer.owner === host.owner })
             send(target, { type: 'signal', from: current.id, envelope: message.envelope }); return
           }
@@ -335,7 +345,7 @@ let timer = setInterval(() => {
   if (!ready) return
   for (let [ticket, value] of tickets) if (value.expires <= Date.now()) tickets.delete(ticket)
   for (let [hash, expires] of revokedWebLogins) if (expires <= Date.now()) revokedWebLogins.delete(hash)
-  for (let peer of peers.values()) { if (!peer.alive) peer.socket.terminate(); else { peer.alive = false; peer.socket.ping() } }
+  for (let peer of peers.values()) { if (!peer.alive) peer.socket.terminate(); else { refreshIce(peer); peer.alive = false; peer.socket.ping() } }
   void leases.expire().then(rows => { for (let lease of rows) { let host = peers.get(lease.host); if (host?.generation === lease.generation) send(host, { type: 'stream-revoked', connection: lease.connection }) } }).catch(() => { for (let peer of peers.values()) if (peer.role === 'host') peer.socket.close(1011, 'Stream permits unavailable') })
   void pool.query("DELETE FROM bmux_usage WHERE recorded<now()-interval '30 days'; DELETE FROM bmux_logins WHERE expires<now()").catch(() => undefined)
   void pool.query('SELECT id FROM bmux_services WHERE revoked').then(result => { for (let row of result.rows) for (let peer of peers.values()) if (peer.service === row.id) peer.socket.close(1008, 'Revoked') }).catch(() => { for (let peer of peers.values()) peer.socket.close(1011, 'Authorization unavailable') })

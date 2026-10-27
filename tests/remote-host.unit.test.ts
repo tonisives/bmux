@@ -58,6 +58,24 @@ let setup = (request?: string, open = true, streamPermits = false) => {
   return { peer, resolveCapture, capture, deliver, offers, offer, signalOffer, signalCandidate, runtime, viewer, socket }
 }
 
+it('renews TURN credentials on a running host without interrupting its live stream', async () => {
+  let { socket, deliver, capture, resolveCapture, peer, offers, runtime } = setup(undefined, false)
+  let initial = [{ urls: 'turn:fixture.test', username: 'initial-host', credential: 'initial-credential' }]
+  socket.emit('message', JSON.stringify({ type: 'ready', iceServers: initial }))
+  deliver({ type: 'open', session: 'session', pane: 'pane' })
+  await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce(), { interval: 1 })
+  expect(capture).toHaveBeenCalledWith('pane', expect.objectContaining({ iceServers: initial }))
+  resolveCapture(peer)
+  await vi.waitFor(() => expect(offers()).toHaveLength(1), { interval: 1 })
+  let renewed = [{ urls: 'turn:fixture.test', username: 'renewed-host', credential: 'renewed-credential' }]
+  socket.emit('message', JSON.stringify({ type: 'ready', iceServers: renewed }))
+  expect(peer.close).not.toHaveBeenCalled()
+  deliver({ type: 'manage', session: 'session', view: 'workspace' })
+  await vi.waitFor(() => expect(runtime.remote.manage).toHaveBeenCalledOnce(), { interval: 1 })
+  expect(runtime.remote.manage).toHaveBeenCalledWith(expect.objectContaining({ iceServers: renewed }))
+  expect(peer.close).not.toHaveBeenCalled()
+})
+
 it('requires a central permit before capture and closes the stream when its permit is revoked', async () => {
   let { socket, capture, resolveCapture, peer, offers } = setup('managed',true,true)
   expect(capture).not.toHaveBeenCalled()

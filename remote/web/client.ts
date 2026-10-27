@@ -102,6 +102,7 @@ export let createViewer = async (events: ViewerEvents, options: ViewerOptions = 
     let currentRequest = request
     incoming = incoming.then(async () => {
       let message = JSON.parse(event.data)
+      if (message.type === 'ready') { iceServers = message.iceServers; return }
       if (message.type === 'hosts') { events.hosts(message.hosts); return }
       if (message.type === 'disconnected' && message.id === host?.id) { peer?.close(); connectionLost(new Error('Host disconnected')); return }
       if (message.type === 'signal-error' && message.to === host?.id) { finish(new Error(message.error)); return }
