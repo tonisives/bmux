@@ -54,6 +54,16 @@ it('does not exchange a callback from a different authorization attempt', async 
   expect(fetcher).not.toHaveBeenCalled()
   expect(persisted).toBeUndefined()
 })
+it('keeps Apple sign-in available with the same PKCE return flow', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => response(session())))
+  mocks.prompt.mockResolvedValueOnce({ type: 'success', url: 'bmux-remote://auth/callback?state=fixture-auth-state-1234567890&code=' + 'c'.repeat(64) })
+  let auth = await import('../src/auth.native')
+  await auth.signIn('apple')
+  let url = new URL(mocks.prompt.mock.calls[0][1].url)
+  expect(url.searchParams.get('provider')).toBe('apple')
+  expect(url.searchParams.get('code_challenge_method')).toBe('S256')
+  expect(persisted?.owner).toBe('owner')
+})
 it('coalesces concurrent refreshes so rotating tokens are used once', async () => {
   persisted = { ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() }
   let next = { ...session(), accessToken: 'd'.repeat(64), refreshToken: 'e'.repeat(64) }

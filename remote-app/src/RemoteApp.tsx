@@ -33,6 +33,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let [setup, setSetup] = useState(false)
   let [busy, setBusy] = useState(false)
   let [signInReady, setSignInReady] = useState(false)
+  let [appleEnabled, setAppleEnabled] = useState(false)
   let [signInAttempt, setSignInAttempt] = useState(0)
   let [signInFailed, setSignInFailed] = useState(false)
   let [disconnect, setDisconnect] = useState<string>()
@@ -46,7 +47,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   useEffect(() => {
     let active = true
     setSignInFailed(false)
-    void prepareSignIn().then(() => { if (active) setSignInReady(true) }).catch(value => { if (active) { setSignInFailed(true); remote.setError(value.message) } })
+    void prepareSignIn().then(config => { if (active) { setSignInReady(true); setAppleEnabled(config.appleEnabled) } }).catch(value => { if (active) { setSignInFailed(true); remote.setError(value.message) } })
     return () => { active = false }
   }, [signInAttempt])
   useEffect(() => { if (attentionId) { setDemo(false); remote.rememberAttention(attentionId); setSection('sessions') } }, [attentionId])
@@ -68,6 +69,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
     <View style={local.welcome}>
       <Brand />
       <View style={local.welcomeActions}><Button title="Sign in with Google" primary busy={busy} disabled={!signInReady} onPress={() => void action(remote.login)} /><Button title="Demo" onPress={openDemo} /></View>
+      {appleEnabled && <Button title="Sign in with Apple" busy={busy} onPress={() => void action(() => remote.login('apple'))} />}
       {signInFailed && <Button title="Retry sign-in" onPress={() => setSignInAttempt(value => value + 1)} />}
       {!!remote.error && <Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text>}
       <HelpLinks />

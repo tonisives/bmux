@@ -10,13 +10,18 @@ let endpoints = mobileAuthEndpoints(origin)
 let revision = 0
 let refreshing: Promise<string | undefined> | undefined
 let signingIn = false, signingOut = false
-export let prepareSignIn = async () => {}
+export let prepareSignIn = async () => {
+  let response = await fetch(new URL('/api/config', origin), { credentials: 'omit', signal: AbortSignal.timeout(15000) })
+  if (!response.ok) throw new Error('Sign-in unavailable.')
+  let config = await response.json() as { appleEnabled?: boolean }
+  return { appleEnabled: config.appleEnabled === true }
+}
 let exchange = async (endpoint: string, body: RemoteNativeExchange | RemoteNativeRefresh) => {
   let response = await fetch(endpoint, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15000) })
   if (!response.ok) throw Object.assign(new Error(response.status === 400 || response.status === 401 ? 'Sign in to continue.' : 'The account service is unavailable.'), { status: response.status })
   return response.json() as Promise<unknown>
 }
-export let signIn = async (): Promise<void> => {
+export let signIn = async (provider: 'google' | 'apple' = 'google'): Promise<void> => {
   if (signingIn || signingOut) return
   signingIn = true
   let attempt = ++revision
@@ -25,7 +30,7 @@ export let signIn = async (): Promise<void> => {
     let config = await request.getAuthRequestConfigAsync()
     if (!config.codeChallenge || !request.codeVerifier) throw new Error('Sign-in could not be started.')
     let url = new URL(endpoints.start)
-    url.search = new URLSearchParams({ state: request.state, code_challenge: config.codeChallenge, code_challenge_method: 'S256', redirect_uri: authRedirect, provider: 'google' }).toString()
+    url.search = new URLSearchParams({ state: request.state, code_challenge: config.codeChallenge, code_challenge_method: 'S256', redirect_uri: authRedirect, provider }).toString()
     let result = await request.promptAsync({ authorizationEndpoint: endpoints.start }, { url: url.href })
     if (result.type === 'cancel' || result.type === 'dismiss') return
     if (result.type !== 'success') throw new Error('Sign-in could not be verified. Please try again.')

@@ -57,6 +57,12 @@ it('keeps an explicit native Google sign-in on the Google provider', async () =>
   expect(html).toContain("text:'signin_with'")
   expect(html).not.toContain('Continue with Apple')
 })
+it('starts Apple sign-in after saving the native PKCE flow', async () => {
+  let value = fixture()
+  await value.route({ method: 'GET', headers: {} }, '/api/auth/mobile/start?' + new URLSearchParams({ state: 's'.repeat(32), code_challenge: 'c'.repeat(43), code_challenge_method: 'S256', redirect_uri: 'bmux-remote://auth/callback', provider: 'apple' }))
+  expect(value.headers.get('Location')).toBe('/api/auth/apple/start')
+  expect(value.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO bmux_mobile_flows'), [expect.any(String), 's'.repeat(32), 'c'.repeat(43), 'bmux-remote://auth/callback'])
+})
 
 it.each([false, true])('recovers an unlinked Apple account with Google and retains the native flow: %s', async native => {
   let value = fixture(), state = 'a'.repeat(64)

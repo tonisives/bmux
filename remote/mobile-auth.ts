@@ -108,9 +108,11 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, webRevok
       let state = url.searchParams.get('state'), challenge = url.searchParams.get('code_challenge')
       if (!state || !/^[A-Za-z0-9._~-]{16,256}$/.test(state) || !challenge || !/^[A-Za-z0-9_-]{43}$/.test(challenge) || url.searchParams.get('code_challenge_method') !== 'S256' || url.searchParams.get('redirect_uri') !== callback) throw invalid()
       let id = opaque()
+      let provider = url.searchParams.get('provider')
+      if (provider === 'apple' && !appleEnabled) throw invalid()
       await pool.query("INSERT INTO bmux_mobile_flows(id_hash,state,challenge,redirect_uri,expires) VALUES($1,$2,$3,$4,now()+interval '10 minutes')", [authHash(id), state, challenge, callback])
       setCookie(response, 'bmux_mobile_flow', id, 600, true)
-      redirect(response, '/api/auth/mobile/signin' + (url.searchParams.get('provider') === 'google' ? '?provider=google' : '')); return true
+      redirect(response, provider === 'apple' ? '/api/auth/apple/start' : '/api/auth/mobile/signin' + (provider === 'google' ? '?provider=google' : '')); return true
     }
     if (method === 'GET' && path === '/api/auth/mobile/signin') { signIn(response, { googleOnly: url.searchParams.get('provider') === 'google' }); return true }
     if (method === 'GET' && path === '/api/auth/mobile/complete') {
