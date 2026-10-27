@@ -223,7 +223,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
   let child = application.process()
   try {
     if (rendering === 'software') expect(await application.evaluate(({ app }) => app.isHardwareAccelerationEnabled())).toBe(false)
-    if (process.platform === 'linux' && process.env.BMUX_TEST_WINDOW_MANAGER === 'none') expect(await application.evaluate(({ app }) => ['disable-dev-shm-usage', 'enable-features'].some(name => app.commandLine.hasSwitch(name)))).toBe(false)
+    if (process.platform === 'linux' && process.env.BMUX_TEST_WINDOW_MANAGER === 'none') expect(await application.evaluate(({ app }) => ({ diskSharedMemory: app.commandLine.hasSwitch('disable-dev-shm-usage'), forcedFeatures: app.commandLine.hasSwitch('enable-features') }))).toEqual({ diskSharedMemory: process.env.BMUX_TEST_DISK_SHARED_MEMORY === '1', forcedFeatures: false })
     let command = async (...args: string[]) => {
       let output = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => { if (error.stdout) return { stdout: error.stdout }; throw error })
       let reply = JSON.parse(output.stdout)
@@ -303,11 +303,11 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     }
     expect(await application.evaluate(() => (globalThis as any).captureProcessFailures)).toEqual([])
     expect(await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible()))).toBe(false)
-    let result = await application.evaluate(({ app }) => ({ hardwareAcceleration: app.isHardwareAccelerationEnabled(), features: app.getGPUFeatureStatus(), switches: Object.fromEntries(['disable-gpu', 'disable-gpu-compositing', 'disable-dev-shm-usage', 'in-process-gpu', 'use-angle', 'use-gl', 'ozone-platform', 'enable-features'].filter(name => app.commandLine.hasSwitch(name)).map(name => [name, app.commandLine.getSwitchValue(name)])), versions: { electron: process.versions.electron, chrome: process.versions.chrome }, windowManager: process.env.BMUX_TEST_WINDOW_MANAGER ?? 'native', failures: (globalThis as any).captureProcessFailures }))
+    let result = await application.evaluate(({ app }) => ({ hardwareAcceleration: app.isHardwareAccelerationEnabled(), features: app.getGPUFeatureStatus(), switches: Object.fromEntries(['disable-gpu', 'disable-gpu-compositing', 'disable-dev-shm-usage', 'in-process-gpu', 'use-angle', 'use-gl', 'ozone-platform', 'enable-features'].filter(name => app.commandLine.hasSwitch(name)).map(name => [name, app.commandLine.getSwitchValue(name)])), versions: { electron: process.versions.electron, chrome: process.versions.chrome }, windowManager: process.env.BMUX_TEST_WINDOW_MANAGER ?? 'native', resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures }))
     console.info(`Capture stress (${rendering}): ${JSON.stringify(result)}`)
     await test.info().attach('capture-rendering.json', { body: JSON.stringify(result), contentType: 'application/json' })
   } catch (error) {
-    console.info(`Capture stress failure (${rendering}): ${JSON.stringify(await application.evaluate(({ webContents }) => ({ failures: (globalThis as any).captureProcessFailures, contents: webContents.getAllWebContents().map(contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading() })) })).catch(() => null))}`)
+    console.info(`Capture stress failure (${rendering}): ${JSON.stringify(await application.evaluate(({ webContents }) => ({ resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures, contents: webContents.getAllWebContents().map(contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading() })) })).catch(() => null))}`)
     throw error
   } finally {
     await closeTestApplication(application, child)

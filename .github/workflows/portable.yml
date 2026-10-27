@@ -37,6 +37,11 @@ on:
         default: unlimited
         type: choice
         options: [unlimited, 2g]
+      disk_shared_memory:
+        description: Use disk shared memory in the focused no-window-manager comparison
+        required: false
+        default: false
+        type: boolean
 jobs:
   linux:
     strategy:
@@ -63,6 +68,7 @@ jobs:
           BMUX_TEST_SHM_SIZE: ${{ inputs.shared_memory || '1g' }}
           BMUX_TEST_WINDOW_MANAGER: ${{ inputs.window_manager || 'openbox' }}
           BMUX_TEST_MEMORY_LIMIT: ${{ inputs.memory_limit == '2g' && '2g' || '0' }}
+          BMUX_TEST_DISK_SHARED_MEMORY: ${{ inputs.disk_shared_memory && '1' || '0' }}
         run: |
           case "$REPEAT_EACH" in
             [1-9]|[12][0-9]|3[0-2]) ;;
