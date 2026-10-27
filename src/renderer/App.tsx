@@ -719,7 +719,7 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
   let hideTooltip = () => {
     clearTimeout(tooltipTimer.current)
     tooltipTimer.current = undefined
-    void run('client.tooltip', { visible: false })
+    void run('client.tooltip', { visible: false, window: window.id })
   }
   let showTooltip = (event: MouseEvent<HTMLButtonElement>) => {
     clearTimeout(tooltipTimer.current)
@@ -730,7 +730,7 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
     let y = state.statusBar === 'bottom' ? bounds.top - 30 : bounds.bottom + 2
     tooltipTimer.current = setTimeout(() => { void run('client.tooltip', { visible: true, window: window.id, x: bounds.left, y, width }) }, 250)
   }
-  useEffect(() => () => { clearTimeout(tooltipTimer.current); void run('client.tooltip', { visible: false }) }, [run])
+  useEffect(() => () => { clearTimeout(tooltipTimer.current); void run('client.tooltip', { visible: false, window: window.id }) }, [run, window.id])
   let select = () => { hideTooltip(); void run('select-window', { client: state.clientId, window: window.id }) }
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
