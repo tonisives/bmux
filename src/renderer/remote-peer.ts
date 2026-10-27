@@ -9,6 +9,7 @@ let peer: RTCPeerConnection | undefined
 let channel: RTCDataChannel | undefined
 let track: CanvasCaptureMediaStreamTrack | undefined
 let drawing = false
+let stopped = false
 let latestFrame: HTMLImageElement | undefined
 let candidates: RTCIceCandidateInit[] = []
 let quality = remoteStreamQuality('quality'), lastFrameAt = 0
@@ -33,11 +34,22 @@ let connected = () => {
   bridge.send({ type: 'connection', state: peer?.connectionState })
 }
 setInterval(() => {
-  if (peer?.connectionState !== 'connected' || !latestFrame) return
+  if (stopped || peer?.connectionState !== 'connected' || !latestFrame) return
   paint()
 }, 100)
 bridge.receive(message => {
   void (async () => {
+    if (message.type === 'stop') {
+      stopped = true; latestFrame = undefined; track?.stop()
+      if (channel && channel.readyState !== 'closed') await new Promise<void>(resolve => {
+        channel!.addEventListener('close', () => resolve(), { once: true })
+        channel!.close()
+      })
+      peer?.close()
+      bridge.send({ type: 'stopped' })
+      return
+    }
+    if (stopped) return
     if (message.type === 'start') {
       peer?.close()
       candidates = []

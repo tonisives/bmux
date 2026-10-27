@@ -26,6 +26,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   let window = new BrowserWindow({ show: false, width: 16, height: 16, webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: 'bmux-trusted-transport' } })
   window.webContents.setWebRTCIPHandlingPolicy('default')
   let framePending = false, disposed = false
+  let shutdown: ReturnType<typeof setTimeout> | undefined
   let unsubscribe: (() => void) | undefined
   let pendingQuality = new Map<string, { resolve:(quality: RemoteStreamQuality) => void; reject:(error: Error) => void; timer:ReturnType<typeof setTimeout> }>()
   let send = (message: unknown) => { if (!disposed && !window.isDestroyed()) window.webContents.send('remote-message', message) }
@@ -41,19 +42,28 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     let data = frame && encodeFrame(frame)
     if (data) sendFrame(data)
   }
+  let destroy = () => {
+    clearTimeout(shutdown)
+    ipcMain.off('remote-message', receive)
+    if (!window.isDestroyed()) window.destroy()
+  }
   let close = () => {
     if (disposed) return
     disposed = true
-    ipcMain.off('remote-message', receive)
     options.contents?.off('destroyed', close)
     options.contents?.off('render-process-gone', close)
     for (let pending of pendingQuality.values()) { clearTimeout(pending.timer); pending.reject(new Error('Stream closed')) }; pendingQuality.clear()
     unsubscribe?.()
-    if (!window.isDestroyed()) window.destroy()
+    // Keep the transport alive long enough to send SCTP closure to the viewer.
+    if (!window.isDestroyed() && !window.webContents.isCrashed()) {
+      shutdown = setTimeout(destroy, 1000)
+      window.webContents.send('remote-message', { type: 'stop' })
+    } else destroy()
     options.closed()
   }
   let receive = (event: Electron.IpcMainEvent, message: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; data?: string; state?: string; request?: string; quality?: RemoteStreamQuality; error?: string }) => {
-    if (event.sender !== window.webContents || !message || typeof message.type !== 'string') return
+    if (window.isDestroyed() || event.sender !== window.webContents || !message || typeof message.type !== 'string') return
+    if (disposed) { if (message.type === 'stopped') destroy(); return }
     if (message.type === 'ready') {
       if (options.contents) void capturePageFrame(options.contents).then(start).catch(() => start())
       else start()
@@ -74,6 +84,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   options.contents?.once('destroyed', close)
   options.contents?.once('render-process-gone', close)
   window.webContents.once('render-process-gone', close)
+  window.once('closed', close)
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
   try { await window.loadFile(path.join(import.meta.dirname, '../renderer/remote-peer.html')) } catch (error) { close(); throw sourceError() ?? error }

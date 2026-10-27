@@ -4,7 +4,7 @@ import type { Host, ViewerEvents, ViewerIdentity } from '../remote/web/client'
 
 let fixture = async (view?: string) => {
   let socket = { readyState: 1, bufferedAmount: 0, send: vi.fn(), close: vi.fn(), onopen: undefined as (() => void) | undefined, onmessage: undefined as ((event: { data: string }) => void) | undefined }
-  let channel = { readyState: 'open', bufferedAmount: 0, send: vi.fn(), onopen: undefined as (() => void) | undefined, onmessage: undefined as ((event: { data: string }) => void) | undefined }
+  let channel = { readyState: 'open', bufferedAmount: 0, send: vi.fn(), onopen: undefined as (() => void) | undefined, onclose: undefined as (() => void) | undefined, onmessage: undefined as ((event: { data: string }) => void) | undefined }
   let peer = { close: vi.fn(), connectionState: 'connected', onconnectionstatechange: undefined as (() => void) | undefined, remoteDescription: undefined as unknown, localDescription: { toJSON: () => ({ type: 'answer', sdp: 'answer' }) }, iceGatheringState: 'complete', ondatachannel: undefined as ((event: { channel: unknown }) => void) | undefined, setRemoteDescription: vi.fn(async (value: unknown) => { peer.remoteDescription = value }), setLocalDescription: vi.fn(async () => {}), createAnswer: vi.fn(async () => ({ type: 'answer', sdp: 'answer' })), addIceCandidate: vi.fn() }
   let events: ViewerEvents = { hosts: vi.fn(), state: vi.fn(), stream: vi.fn(), error: vi.fn(), disconnected: vi.fn(), message: vi.fn() }
   let identity: ViewerIdentity = { publicKey: { x: 'viewer' }, fingerprint: async key => key.x!, sign: vi.fn(async () => 'signature'), verify: vi.fn(async () => true) }
@@ -73,6 +73,41 @@ it('reports a sustained connection loss once even if the host disconnects too', 
   value.socket.onmessage!({ data: JSON.stringify({ type: 'disconnected', id: value.host.id }) })
   await vi.advanceTimersByTimeAsync(0)
   expect(value.events.disconnected).toHaveBeenCalledOnce()
+  value.viewer.close()
+})
+
+it('reports a source channel closing while ICE is still connected and rejects pending requests', async () => {
+  let value = await watchingFixture()
+  let pending = value.viewer.request({ type: 'quality' }).catch(error => error.message)
+  value.channel.readyState = 'closed'
+  value.channel.onclose!()
+  expect(value.peer.connectionState).toBe('connected')
+  expect(value.events.disconnected).toHaveBeenCalledOnce()
+  expect(await pending).toBe('Connection closed')
+  value.peer.connectionState = 'failed'; value.peer.onconnectionstatechange!()
+  expect(value.events.disconnected).toHaveBeenCalledOnce()
+  value.viewer.close()
+})
+
+it.each(['stop', 'close', 'replace'] as const)('ignores old channel closure during intentional %s', async action => {
+  let value = await watchingFixture(), closed = value.channel.onclose!
+  value.peer.close.mockImplementation(() => closed())
+  let replacing: Promise<unknown> | undefined
+  if (action === 'replace') replacing = value.viewer.watch(value.host, 'session', 'next-pane').catch(() => undefined)
+  else value.viewer[action]()
+  closed()
+  expect(value.events.disconnected).not.toHaveBeenCalled()
+  value.viewer.close()
+  await replacing
+})
+
+it('surfaces a crashed source rejection without creating a muted peer', async () => {
+  let value = await fixture()
+  let watching = value.viewer.watch(value.host, 'session', 'pane').catch(error => error.message)
+  await vi.waitFor(() => expect(value.socket.send).toHaveBeenCalled())
+  value.receive({ type: 'error', error: 'Page process crashed. Reload to recover.' })
+  expect(await watching).toBe('Page process crashed. Reload to recover.')
+  expect(value.createPeer).not.toHaveBeenCalled()
   value.viewer.close()
 })
 

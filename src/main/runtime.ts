@@ -4029,7 +4029,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return { session, profiles: model.profiles.map(({ id, name }) => ({ id, name })), selection: { windowId: window.id, paneId: client?.paneId ?? window.panes[0]?.id ?? null, zoomedPaneId: client?.zoomedPaneId } }
     },
     manage: (options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture(options),
-    capture: async (pane: string, options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents }),
+    capture: async (pane: string, options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => {
+      let contents = tabs.get(pane)?.contents
+      if (contents && !contents.isDestroyed() && contents.isCrashed()) throw new Error('Page process crashed. Reload to recover.')
+      return createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents })
+    },
     acquire: (session: string, owner: string, takeover: boolean) => { resolve(model.sessions, session, 'Session'); let lease = controls.acquire(session, owner, takeover); publish(); return lease },
     renew: controls.renew,
     release: (session: string, owner?: string) => { controls.release(session, owner); clearRemoteSizes(); publish() },
