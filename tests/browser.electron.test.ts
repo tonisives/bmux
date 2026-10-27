@@ -3823,7 +3823,9 @@ test('session picker toggles sound for background sessions and windows in tree a
     await expect(audio(tree)).toHaveCount(0)
     await cli('eval', { tab: media.id, expression: 'document.querySelector("video").loop = true; document.querySelector("video").play()' })
     await expect(audio(windowRow)).toHaveAttribute('data-muted', 'false')
+    await expect(audio(windowRow)).toHaveAccessibleName(/^Mute window /)
     await expect(audio(sessionRow)).toHaveAttribute('data-muted', 'false')
+    await expect(audio(sessionRow)).toHaveAccessibleName('Mute session session-audio')
     await expect(audio(picker.locator(`[data-window-row="${background.id}"]`).locator('..'))).toHaveCount(0)
     await alignedAudio()
     await tree.getByRole('button', { name: 'Collapse windows in session-audio', exact: true }).click()
@@ -3841,7 +3843,9 @@ test('session picker toggles sound for background sessions and windows in tree a
     await alignedAudio()
     await clickAudio(windowRow)
     await expect(audio(windowRow)).toHaveAttribute('data-muted', 'true')
+    await expect(audio(windowRow)).toHaveAccessibleName(/^Unmute window /)
     await expect(audio(otherRow)).toHaveAttribute('data-muted', 'false')
+    await expect.poll(async () => (await cli('state')).audio[other.panes[0].id]?.muted).toBe(false)
     await expect(audio(sessionRow)).toHaveAttribute('data-muted', 'false')
     await clickAudio(sessionRow)
     await expect.poll(async () => (await cli('state')).audio[other.panes[0].id]?.muted).toBe(true)
@@ -3853,6 +3857,7 @@ test('session picker toggles sound for background sessions and windows in tree a
     await alignedAudio()
     await clickAudio(windowRow)
     await expect.poll(async () => (await cli('state')).audio[media.id]?.muted).toBe(true)
+    await expect(audio(otherRow)).toHaveAttribute('data-muted', 'false')
     await clickAudio(windowRow)
     await expect.poll(async () => (await cli('state')).audio[media.id]?.muted).toBe(false)
     await unchangedSelection()
@@ -3870,28 +3875,72 @@ test('session picker toggles sound for background sessions and windows in tree a
   }
 })
 
-test('window audio control appears during playback and toggles sound', async () => {
+for (let pinned of [false, true]) test(`${pinned ? 'pinned ' : ''}window audio control mutes only its own window during playback`, async ({}, info) => {
   let session = await cli('new-session', { name: 'window-audio' })
   let client = await cli('attach-session', { session: session.id })
   let window = session.windows[0], tab = window.panes[0].id
   let chrome = await rendererForClient(client.id)
   let controls = chrome.locator(`[data-window-id="${window.id}"]`)
-  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
-  await cli('navigate', { tab, url: pathToFileURL(path.join(root, 'tests/fixtures/local-media.html')).href })
-  await cli('eval', { tab, expression: 'document.querySelector("video").loop = true; document.querySelector("video").play()' })
-  await expect(controls.getByRole('button', { name: 'Mute Local media fixture', exact: true })).toBeVisible()
-  await controls.getByRole('button', { name: 'Mute Local media fixture', exact: true }).click()
-  await expect.poll(async () => (await cli('state')).audio[tab]?.muted).toBe(true)
-  await expect(controls.getByRole('button', { name: 'Unmute Local media fixture', exact: true })).toBeVisible()
-  await cli('eval', { tab, expression: 'document.querySelector("video").pause()' })
-  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
-  await cli('eval', { tab, expression: 'document.querySelector("video").play()' })
-  await expect(controls.getByRole('button', { name: 'Unmute Local media fixture', exact: true })).toBeVisible()
-  await controls.getByRole('button', { name: 'Unmute Local media fixture', exact: true }).click()
-  await expect.poll(async () => (await cli('state')).audio[tab]?.muted).toBe(false)
-  await cli('eval', { tab, expression: 'document.querySelector("video").pause()' })
-  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
-  await cli('detach-client', { client: client.id })
+  try {
+    await cli('select-window', { client: client.id, window: window.id })
+    if (pinned) await cli('toggle-window-pin', { window: window.id })
+    await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+    let mediaUrl = pathToFileURL(path.join(root, 'tests/fixtures/local-media.html')).href
+    await cli('navigate', { tab, url: mediaUrl })
+    let split = await cli('split-window', { pane: tab, url: mediaUrl })
+    let other = await cli('new-window', { session: session.id, name: 'Other audio', url: mediaUrl })
+    let otherTab = other.panes[0].id
+    expect(other.panes[0].profileId).toBe(window.panes[0].profileId)
+    let otherControls = chrome.locator(`[data-window-id="${other.id}"]`)
+    let panes = [tab, split.id, otherTab]
+    for (let pane of panes) await cli('eval', { tab: pane, expression: 'document.querySelector("video").loop = true; document.querySelector("video").play()' })
+    await expect(controls.getByRole('button', { name: 'Mute window Local media fixture', exact: true })).toBeVisible()
+    await expect(otherControls.getByRole('button', { name: 'Mute window Other audio', exact: true })).toBeVisible()
+    await expect.poll(async () => {
+      let state = await cli('state')
+      return panes.map(pane => state.audio[pane]?.playing)
+    }).toEqual([true, true, true])
+    let diagnostics = await cli('diagnostics')
+    let contentsIds = panes.map(pane => diagnostics.capture.panes.find((item: { pane: string }) => item.pane === pane).contentsId)
+    let muted = () => application.evaluate(({ webContents }, ids) => ids.map(id => webContents.fromId(id)!.isAudioMuted()), contentsIds)
+    let unchangedSelection = async () => {
+      await expect(controls).toHaveAttribute('data-selected', 'true')
+      expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(window.id)
+    }
+    if (pinned) {
+      await expect(controls).toHaveAttribute('data-pinned', 'true')
+      await expect.poll(async () => (await controls.boundingBox())!.width).toBe(46)
+      let select = (await controls.locator('button[data-active]').boundingBox())!
+      let audio = (await controls.locator('button[data-muted]').boundingBox())!
+      expect(select.width).toBe(26)
+      expect(audio.x).toBeGreaterThanOrEqual(select.x + select.width)
+    }
+    await controls.getByRole('button', { name: 'Mute window Local media fixture', exact: true }).click()
+    await expect.poll(muted).toEqual([true, true, false])
+    await unchangedSelection()
+    await chrome.screenshot({ path: info.outputPath('window-audio.png') })
+    await otherControls.getByRole('button', { name: 'Mute window Other audio', exact: true }).click()
+    await expect.poll(muted).toEqual([true, true, true])
+    await unchangedSelection()
+    await controls.getByRole('button', { name: 'Unmute window Local media fixture', exact: true }).click()
+    await expect.poll(muted).toEqual([false, false, true])
+    await otherControls.getByRole('button', { name: 'Unmute window Other audio', exact: true }).click()
+    await expect.poll(muted).toEqual([false, false, false])
+    await unchangedSelection()
+    await controls.getByRole('button', { name: 'Mute window Local media fixture', exact: true }).click()
+    for (let pane of [tab, split.id]) await cli('eval', { tab: pane, expression: 'document.querySelector("video").pause()' })
+    await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+    if (pinned) await expect.poll(async () => (await controls.boundingBox())!.width).toBe(28)
+    await cli('eval', { tab, expression: 'document.querySelector("video").play()' })
+    await expect(controls.getByRole('button', { name: 'Unmute window Local media fixture', exact: true })).toBeVisible()
+    await controls.getByRole('button', { name: 'Unmute window Local media fixture', exact: true }).click()
+    await expect.poll(muted).toEqual([false, false, false])
+    await cli('eval', { tab, expression: 'document.querySelector("video").pause()' })
+    await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+  } finally {
+    await cli('detach-client', { client: client.id })
+    await cli('kill-session', { session: session.id, confirm: true })
+  }
 })
 
 test('open command renders a local HTML file given relative to home', async () => {

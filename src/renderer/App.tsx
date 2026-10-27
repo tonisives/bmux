@@ -741,7 +741,7 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
       {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last activity ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
     </button>
-    {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
+    {playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} window ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} window ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
     {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} disabled={remote} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
   </span>
 }
@@ -2392,7 +2392,7 @@ let SessionAudio = ({ window, sessionId }: { window?: InternalWindow; sessionId?
   let playing = panes.filter(pane => state.audio[pane.id]?.playing)
   if (!playing.length) return null
   let muted = playing.every(pane => state.audio[pane.id].muted)
-  let label = `${muted ? 'Unmute' : 'Mute'} sound in ${window?.name ?? session?.name}`
+  let label = `${muted ? 'Unmute' : 'Mute'} ${window ? 'window' : 'session'} ${window?.name ?? session?.name}`
   let toggle = () => { void run(window ? 'window.audio.toggle' : 'session.audio.toggle', window ? { window: window.id } : { session: sessionId }) }
   return <button type="button" className={css.sessionAudio} data-picker-action onClick={toggle} aria-label={label} title={label} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>
 }
