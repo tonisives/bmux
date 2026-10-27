@@ -794,6 +794,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false, automatedMouse = false) => {
     let live = await ensureLiveTab(tabId)
+    if (method === 'Page.captureScreenshot' || method === 'Page.startScreencast') assertFrameCapture(live.contents)
     if (!readOnly && !['Page.captureScreenshot', 'Page.getLayoutMetrics'].includes(method)) checkControl('cdp', { tab: tabId })
     if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
     let debuggerApi = live.contents.debugger

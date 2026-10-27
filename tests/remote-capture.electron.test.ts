@@ -152,7 +152,12 @@ test('a GPU failure stops captures while the headless host stays available', asy
   let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   let child = application.process()
   try {
-    let command = async (...args: string[]) => JSON.parse((await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 })).stdout).result
+    let command = async (...args: string[]) => {
+      let output = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => { if (error.stdout) return { stdout: error.stdout }; throw error })
+      let reply = JSON.parse(output.stdout)
+      if (!reply.ok) throw new Error(reply.error)
+      return reply.result
+    }
     let pane = (await command('status')).model.sessions[0].windows[0].panes[0].id
     await command('navigate', '-t', pane, origin)
     await command('wait', '-t', pane, '--selector', 'body')
@@ -161,6 +166,9 @@ test('a GPU failure stops captures while the headless host stays available', asy
       let capture = contents.capturePage.bind(contents)
       state.gpuCaptureCalls = 0; state.gpuCaptureClosed = 0
       contents.capturePage = (...args) => { state.gpuCaptureCalls++; return capture(...args) }
+      let send = contents.debugger.sendCommand.bind(contents.debugger)
+      state.gpuCDPCaptureCalls = 0
+      contents.debugger.sendCommand = (method, ...args) => { if (method === 'Page.captureScreenshot' || method === 'Page.startScreencast') state.gpuCDPCaptureCalls++; return send(method, ...args) }
       state.gpuCapture = await state.createTestCapture({ contents, iceServers: [], signal: () => {}, data: () => {}, closed: () => { state.gpuCaptureClosed++ } })
     }, origin)
     await expect.poll(() => application.evaluate(() => (globalThis as any).gpuCaptureCalls)).toBeGreaterThan(2)
@@ -182,6 +190,9 @@ test('a GPU failure stops captures while the headless host stays available', asy
       return null
     }, origin)
     expect(error).toBe('Video capture unavailable after GPU failure')
+    for (let method of ['Page.captureScreenshot', 'Page.startScreencast']) await expect(command('cdp', '-t', pane, method)).rejects.toThrow('Video capture unavailable after GPU failure')
+    await expect(command('screenshot', '-t', pane, '--output', path.join(directory, 'failed.png'))).rejects.toThrow('Video capture unavailable after GPU failure')
+    expect(await application.evaluate(() => (globalThis as any).gpuCDPCaptureCalls)).toBe(0)
     expect((await command('status')).model.sessions).toHaveLength(1)
     expect((await command('rpc', 'diagnostics', '{}')).capture.error).toBe('Video capture unavailable after GPU failure')
     await application.evaluate(async () => {
