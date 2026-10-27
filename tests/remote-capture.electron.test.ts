@@ -223,7 +223,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
   let child = application.process()
   try {
     if (rendering === 'software') expect(await application.evaluate(({ app }) => app.isHardwareAccelerationEnabled())).toBe(false)
-    if (process.platform === 'linux' && process.env.BMUX_TEST_WINDOW_MANAGER === 'none') expect(await application.evaluate(({ app }) => ({ diskSharedMemory: app.commandLine.hasSwitch('disable-dev-shm-usage'), forcedFeatures: app.commandLine.hasSwitch('enable-features') }))).toEqual({ diskSharedMemory: process.env.BMUX_TEST_DISK_SHARED_MEMORY === '1', forcedFeatures: false })
+    if (process.platform === 'linux' && process.env.BMUX_TEST_WINDOW_MANAGER === 'none') expect(await application.evaluate(({ app }) => ({ diskSharedMemory: app.commandLine.hasSwitch('disable-dev-shm-usage'), forcedFeatures: app.commandLine.hasSwitch('enable-features') }))).toEqual({ diskSharedMemory: process.env.BMUX_DISK_SHARED_MEMORY === '1', forcedFeatures: false })
     let command = async (...args: string[]) => {
       let output = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => { if (error.stdout) return { stdout: error.stdout }; throw error })
       let reply = JSON.parse(output.stdout)

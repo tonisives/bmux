@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { createRemoteCapture } from '../../out/main/remote-capture.js'
 
 if (process.platform === 'linux' && process.env.BMUX_TEST_WINDOW_MANAGER === 'none') {
-  if (process.env.BMUX_TEST_DISK_SHARED_MEMORY !== '1') app.commandLine.removeSwitch('disable-dev-shm-usage')
+  app.commandLine.removeSwitch('disable-dev-shm-usage')
   app.commandLine.removeSwitch('enable-features')
 }
 if (process.env.BMUX_TEST_SOFTWARE_RENDERING === '1') app.disableHardwareAcceleration()

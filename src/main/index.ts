@@ -23,6 +23,7 @@ let background = process.env.BMUX_BACKGROUND === '1' || process.env.BROWMUX_BACK
 app.setName('bmux')
 for (let signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => app.quit())
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp')
+if (process.platform === 'linux' && process.env.BMUX_DISK_SHARED_MEMORY === '1') app.commandLine.appendSwitch('disable-dev-shm-usage')
 app.setPath('userData', dataDirectory)
 fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
 let socketPath = controlSocketPath(dataDirectory)
