@@ -267,8 +267,17 @@ for (let route of ['history', 'noopener']) test(`native trackpad holds a scrolle
   await rpc('focus-page', { client: client.id })
   let page = application.context().pages().find(page => page.url() === `${origin}/preview-one`)!
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(page.url())
-  await page.evaluate(() => scrollTo(0, 400))
-  await expect.poll(() => page.evaluate(() => scrollY)).toBe(400)
+  let scrollPage = async (color: number[]) => {
+    await page.evaluate(() => scrollTo(0, 400))
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(400)
+    // The scroll offset updates before the compositor frame used by swipe capture.
+    await expect.poll(() => application.evaluate(async ({ webContents }, url) => {
+      let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url)!
+      let pixels = (await contents.capturePage({ x: 180, y: 180, width: 1, height: 1 })).toBitmap()
+      return [pixels[2], pixels[1], pixels[0]]
+    }, page.url())).toEqual(color)
+  }
+  await scrollPage([0xcc, 0x44, 0x55])
   let location = await application.evaluate(({ BaseWindow }, url) => {
     let window = BaseWindow.getAllWindows().find(window => window.isFocused())!
     let view = window.contentView.children.find(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url)!
@@ -305,8 +314,7 @@ for (let route of ['history', 'noopener']) test(`native trackpad holds a scrolle
   await expect(page).toHaveURL(`${origin}/preview-two`)
   await rpc('focus-page', { client: client.id })
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${origin}/preview-two`)
-  await page.evaluate(() => scrollTo(0, 400))
-  await expect.poll(() => page.evaluate(() => scrollY)).toBe(400)
+  await scrollPage([0xd9, 0xe7, 0xee])
   await wheel('begin', 70, -6)
   // No more wheel events while fingers rest: this exceeds the old idle timeout.
   await page.waitForFunction(() => (window as any).wheels > 0 && performance.now() - (window as any).lastWheel > 1200)

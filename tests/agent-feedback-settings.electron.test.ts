@@ -106,7 +106,13 @@ test('cursor appearance and feedback timers save and apply live without renewing
     await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
     let profile = chrome.getByRole('dialog', { name: 'Profile', exact: true })
     await profile.getByRole('tab', { name: 'Bot', exact: true }).click()
-    await expect.poll(() => application!.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL() === url).every(view => !view.getVisible()), url)).toBe(true)
+    await expect.poll(() => application!.evaluate(({ BaseWindow, WebContentsView }, url) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isVisible() && window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === url))
+      let children = window?.contentView.children ?? []
+      let page = children.find(view => view instanceof WebContentsView && view.webContents.getURL() === url)
+      let chrome = children.find(view => view instanceof WebContentsView && view.webContents.getURL().endsWith('/renderer/index.html')) as Electron.WebContentsView | undefined
+      return { pageVisible: page?.getVisible(), chromeVisible: chrome?.getVisible(), chromeFocused: chrome?.webContents.isFocused(), pageBehindChrome: !!page && !!chrome && children.indexOf(page) < children.indexOf(chrome) }
+    }, url)).toEqual({ pageVisible: true, chromeVisible: true, chromeFocused: true, pageBehindChrome: true })
     await profile.screenshot({ path: testInfo.outputPath('profile-bot-overview.png') })
     let botTabs = profile.getByRole('tablist', { name: 'Bot sections', exact: true })
     await expect(botTabs.getByRole('tab')).toHaveText(['Protection', 'Appearance', 'Timing'])
