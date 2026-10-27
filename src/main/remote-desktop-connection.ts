@@ -6,30 +6,38 @@ import type { Host } from '../../remote/web/client'
 
 export let createRemoteDesktopConnection = (origin: string, host: Host, connect: (key: JsonWebKey) => Promise<{ ticket: string; iceServers: RTCIceServer[] }>, identity = createRemoteIdentity()) => {
   let workspaceView = `workspace:${randomUUID()}`
-  let socket: WebSocket | undefined, pending: Promise<{ ticket: string; iceServers: RTCIceServer[] }> | undefined
+  let socket: WebSocket | undefined, pending: Promise<void> | undefined
   let receivers = new Map<WebContents, string>(), hosts: string | undefined, closed = false
+  let configuration: { iceServers: RTCIceServer[]; ready?: string } | undefined
+  let clear = () => { pending = undefined; hosts = undefined; configuration = undefined }
   let broadcast = (event: { type: 'message'; data: string } | { type: 'close' }) => {
     for (let contents of receivers.keys()) if (!contents.isDestroyed()) contents.send('remote-client-socket', event)
   }
-  let open = () => {
-    if (closed) return Promise.reject(new Error('Remote view closed'))
-    if (pending) return pending
-    pending = connect(identity.publicKey).then(async result => {
+  let open = async () => {
+    if (closed) throw new Error('Remote view closed')
+    pending ??= connect(identity.publicKey).then(async result => {
       if (closed) throw new Error('Remote view closed')
+      configuration = { iceServers: result.iceServers }
       let url = new URL('/connect', origin); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('ticket', result.ticket)
       let current = new WebSocket(url, { origin: 'file://', maxPayload: 262144, handshakeTimeout: 10000 }); socket = current
       current.on('error', () => undefined)
       current.on('message', raw => {
         if (socket !== current || closed) return
         let data = raw.toString()
-        try { if (JSON.parse(data).type === 'hosts') hosts = data } catch { return }
+        try {
+          let message = JSON.parse(data)
+          if (message.type === 'hosts') hosts = data
+          else if (message.type === 'ready') configuration = { iceServers: message.iceServers, ready: data }
+        } catch { return }
         broadcast({ type: 'message', data })
       })
-      current.on('close', () => { if (socket === current) { pending = undefined; hosts = undefined; socket = undefined; broadcast({ type: 'close' }) } })
+      current.on('close', () => { if (socket === current) { clear(); socket = undefined; broadcast({ type: 'close' }) } })
       await new Promise<void>((resolve, reject) => { current.once('open', resolve); current.once('error', () => reject(new Error('Remote connection unavailable'))); current.once('close', () => reject(new Error('Remote connection closed'))) })
-      return { ...result, ticket: 'desktop' }
-    }).catch(error => { pending = undefined; throw error })
-    return pending
+    }).catch(error => { clear(); throw error })
+    await pending
+    if (closed) throw new Error('Remote view closed')
+    if (!configuration || socket?.readyState !== WebSocket.OPEN) throw new Error('Remote connection closed')
+    return { ticket: 'desktop', iceServers: configuration.iceServers }
   }
   let seal = (contents: WebContents, payload: Record<string, unknown>) => {
     let view = receivers.get(contents)
@@ -41,10 +49,11 @@ export let createRemoteDesktopConnection = (origin: string, host: Host, connect:
     if (view && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'signal', to: host.id, envelope: identity.seal(host.id, host.generation, { type: 'close', view }) }))
     if (detach) receivers.delete(contents)
   }
+  let close = () => { closed = true; clear(); for (let contents of receivers.keys()) stop(contents); socket?.close() }
   return {
     publicKey: identity.publicKey, open, seal,
-    attach: (contents: WebContents, metadata: boolean) => { let view = metadata ? workspaceView : `pane:${contents.id}`; receivers.set(contents, view); contents.once('destroyed', () => { stop(contents); if (metadata) { closed = true; socket?.close() } }); return view },
-    initial: () => hosts ? [hosts] : [],
+    attach: (contents: WebContents, metadata: boolean) => { let view = metadata ? workspaceView : `pane:${contents.id}`; receivers.set(contents, view); contents.once('destroyed', () => { stop(contents); if (metadata) { closed = true; clear(); socket?.close() } }); return view },
+    initial: () => [...(configuration?.ready ? [configuration.ready] : []), ...(hosts ? [hosts] : [])],
     send: (contents: WebContents, data: string) => {
       if (!receivers.has(contents) || socket?.readyState !== WebSocket.OPEN || data.length > 262144) throw new Error('Remote connection closed')
       let message = JSON.parse(data)
@@ -53,6 +62,6 @@ export let createRemoteDesktopConnection = (origin: string, host: Host, connect:
     },
     stop,
     release: (contents: WebContents) => stop(contents, false),
-    close: () => { closed = true; for (let contents of receivers.keys()) stop(contents); socket?.close() },
+    close,
   }
 }
