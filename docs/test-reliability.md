@@ -1,5 +1,14 @@
 # Focused test verification
 
+## Pane movement setup
+
+The full Check on `3e8d834` found the pane-movement fixture starting with another
+pane focused after its split pages initialized. The case now selects its intended
+pane after loading those pages and waits for native focus before moving them.
+Its layout, retained selection, live-page identity, profile, and native attachment
+assertions keep their existing deadlines. Repeat it with the adjacent pane-join
+and window-movement cases.
+
 ## October 27 full-suite failures
 
 The full Check on `e8b8516` found two stale fixture assumptions. Profile settings

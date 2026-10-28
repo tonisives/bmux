@@ -441,6 +441,11 @@ test('pane movement commands preserve live pages through same-window joins, swap
     let b = await rpc('split-window', { client: client.id, pane: a.id, profile: 'bot', url })
     let c = await rpc('split-window', { client: client.id, pane: a.id, url, axis: 'vertical' })
     for (let pane of [a, b, c]) { await rpc('wait', { pane: pane.id, selector: 'h1' }); await rpc('eval', { pane: pane.id, expression: `window.bmuxMovement = ${JSON.stringify(pane.id)}` }) }
+    await rpc('select-pane', { client: client.id, pane: c.id })
+    await expect.poll(() => application.evaluate(({ webContents }, url) => {
+      let focused = webContents.getFocusedWebContents()
+      return focused?.getURL() === url ? focused.executeJavaScript('window.bmuxMovement') : undefined
+    }, url)).toBe(c.id)
     await expect(chrome.locator(`[data-pane-id="${c.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
     await cli('movep', '-s', b.id, '-t', ':1.0', '-bdh')
     expect(ids((await window()).layout)).toEqual([b.id, a.id, c.id])
