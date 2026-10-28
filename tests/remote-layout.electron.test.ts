@@ -38,6 +38,8 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let current = await state(), client = current.model.clients.find((client: { id: string }) => client.id === current.clientId)
     await rpc('activate-client', { client: client.id })
+    await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setSize(1000, 700))
+    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(1000)
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await address.fill(url); await address.press('Enter')
@@ -146,7 +148,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await fs.writeFile(info.outputPath('viewport-scroll.json'), JSON.stringify(details, null, 2))
       throw error
     }
-    await nativeResize(1400, 1000)
+    await nativeResize(1280, 850)
     for (let [pane, page] of [[client.paneId, first], [added.id, second]] as const) {
       await expect.poll(() => size(page)).toEqual(locked[pane])
       await expect.poll(() => content(pane).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
