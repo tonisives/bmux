@@ -4,7 +4,7 @@ import { DEFAULT_KEYBOARD } from '../src/shared/keyboard'
 import { COMMAND_ALIASES } from '../src/shared/command-line'
 
 test('session closing and previously hidden commands are discoverable and preserve typed arguments', () => {
-  for (let command of ['kill-session', 'kill-window', 'resize-pane', 'swap-pane', 'rotate-window', 'automation status', 'automation safety', 'automation resume']) {
+  for (let command of ['kill-session', 'kill-window', 'lock-viewport', 'unlock-viewport', 'resize-pane', 'swap-pane', 'rotate-window', 'automation status', 'automation safety', 'automation resume']) {
     expect(searchCommands(COMMANDS, command)[0].command.trim()).toMatch(new RegExp(`^${command}( |$)`))
     expect(literalCommand(command)).toBe(true)
   }

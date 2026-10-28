@@ -24,6 +24,7 @@ let fixture = () => {
 it('projects host window numbers, splits, floating panes and private state with per-client identities', () => {
   let { snapshot, source, window } = fixture()
   snapshot.session.private = true
+  window.lockedViewports = { [window.panes[0].id]: { width: 900, height: 600 } }
   let first = projectRemoteWorkspace(snapshot, source, 'local-profile'), second = projectRemoteWorkspace(snapshot, { ...source, clientId: 'viewer-two' }, 'local-profile')
   expect(first).toMatchObject({ name: snapshot.session.name, ephemeral: true, private: true, remote: source, defaultProfileId: 'local-profile' })
   expect(first.windows[0]).toMatchObject({ number: 7, pinned: true, layout: { kind: 'split', axis: 'vertical', ratio: .3 }, floating: [{ x: 42, y: 53, width: 400, height: 300 }] })
@@ -34,6 +35,7 @@ it('projects host window numbers, splits, floating panes and private state with 
   expect(first.windows[0].id).not.toBe(second.windows[0].id)
   expect(first.windows[0].panes[0].id).not.toBe(second.windows[0].panes[0].id)
   expect(window.layout).toMatchObject({ id: 'host-split' })
+  expect(first.windows[0].lockedViewports).toBeUndefined()
 })
 it('returns OS links to the latest surviving local session, including a local session named remote', () => {
   let { model, snapshot, source } = fixture(), local = newSession('remote', model.profiles[0].id, false, model)
@@ -69,7 +71,7 @@ it('identifies remote destinations as well as sources before applying structural
   model.sessions.push(remote)
   expect(remoteWorkspaceTargets(model, { pane: model.sessions[0].windows[0].panes[0].id, destination: remote.windows[0].panes[0].id })).toEqual([remote])
   expect(remoteWorkspaceTargets(model, { window: model.sessions[0].windows[0].id, session: remote.id })).toEqual([remote])
-  for (let command of ['new-session', 'new-window', 'split-window', 'move-pane', 'reopen-closed', 'restore-layout', 'float.bounds']) expect(remoteWorkspaceMutation(command), command).toBe(true)
+  for (let command of ['new-session', 'new-window', 'split-window', 'move-pane', 'reopen-closed', 'restore-layout', 'float.bounds', 'lock-viewport', 'unlock-viewport']) expect(remoteWorkspaceMutation(command), command).toBe(true)
   for (let shortcut of ['split-right', 'new-client', 'close-pane-or-window', 'rename-window', 'layout-tiled']) expect(remoteWorkspaceShortcut(shortcut), shortcut).toBe(true)
   for (let command of ['select-window', 'cycle-pane', 'toggle-pane-zoom', 'remote.action', 'navigate']) expect(remoteWorkspaceMutation(command), command).toBe(false)
 })

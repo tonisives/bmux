@@ -25,6 +25,7 @@ Clients:  attach-session -t SESSION | list-clients | detach-client -c CLIENT | a
           switch-client -c CLIENT -t SESSION | select-window -c CLIENT -t WINDOW
 Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t SESSION
           rename-window -t WINDOW -n NAME | kill-window -t WINDOW [--confirm]
+          lock-viewport -t WINDOW | unlock-viewport -t WINDOW
           movew [-c CLIENT] [-s WINDOW] -t [SESSION:]INDEX [-a|-b] [-d]
           swapw [-c CLIENT] [-s WINDOW] -t WINDOW [-d]
 Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
@@ -152,7 +153,7 @@ let parseCommand = () => {
   if (['extension.open', 'extension.options', 'extension.enable', 'extension.disable', 'extension.remove'].includes(method)) args.id = positional[0]
   let targetKeys = {
     'rename-session': 'session', 'kill-session': 'session', 'attach-session': 'session', 'switch-client': 'session', 'new-window': 'session', 'list-windows': 'session',
-    'select-layout': 'window', 'maximize-pane': 'pane', 'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window', 'move-window': 'position',
+    'select-layout': 'window', 'maximize-pane': 'pane', 'select-window': 'window', 'rename-window': 'window', 'kill-window': 'window', 'lock-viewport': 'window', 'unlock-viewport': 'window', 'list-panes': 'window', 'save-layout': 'window', 'restore-layout': 'window', 'resize-pane': 'window', 'move-window': 'position',
     'split-window': 'pane', 'select-pane': 'pane', 'move-pane': 'pane', 'kill-pane': 'pane', 'new-pane': 'pane', 'break-pane': 'pane', 'join-pane': 'pane',
   }
   if (method === 'select-layout') args.layout = positional[0]

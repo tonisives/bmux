@@ -13,6 +13,7 @@ export let projectRemoteWorkspace = (snapshot: RemoteWorkspaceSnapshot, source: 
       ...window, id: scoped('window', window.id), layout: window.layout && layout(window.layout),
       floating: window.floating?.map(item => ({ ...item, paneId: scoped('pane', item.paneId), dock: item.dock && { ...item.dock, siblingIds: item.dock.siblingIds.map(id => scoped('pane', id)) } })),
       lastFloating: undefined,
+      lockedViewports: undefined,
       panes: window.panes.map(({ bookmarkSource: _bookmark, ...pane }) => ({ ...pane, id: scoped('pane', pane.id), profileId, connectionId: undefined, openerPaneId: pane.openerPaneId ? scoped('pane', pane.openerPaneId) : undefined })),
     })),
   }
@@ -27,7 +28,7 @@ export let latestLocalSession = (model: Model, client: Client) => {
 
 let mutations = new Set([
   'new-session', 'new-window', 'new-pane', 'split-window', 'tab.create', 'tab.close', 'tab.move', 'duplicate-window', 'reopen-closed', 'reopen-closed-tab',
-  'kill-pane', 'kill-window', 'kill-session', 'rename-session', 'rename-window', 'toggle-window-pin',
+  'kill-pane', 'kill-window', 'kill-session', 'rename-session', 'rename-window', 'toggle-window-pin', 'lock-viewport', 'unlock-viewport',
   'move-window', 'swap-window', 'reorder-window', 'renumber-windows', 'move-pane', 'swap-pane',
   'break-pane', 'join-pane', 'rotate-window', 'resize-pane', 'layout.apply', 'layout.save', 'layout.remove',
   'float.bounds', 'pane.close', 'pane.profile.set', 'session.profile.set', 'window.audio.toggle', 'session.audio.toggle',
