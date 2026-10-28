@@ -2599,7 +2599,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         { label: 'New Window', click: () => invoke('new-window', { session: session.id, client: client.id }) },
         { label: window.pinned ? 'Unpin Window' : 'Pin Window', click: () => invoke('toggle-window-pin', { window: window.id }) },
         { label: window.locked ? 'Unlock Window' : 'Lock Window', click: () => invoke(window.locked ? 'unlock-window' : 'lock-window', { window: window.id }) },
-        { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id }) },
+        { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id, client: client.id }) },
         { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
         { type: 'separator' },
         { label: 'Move Left', enabled: index > 0 && !!session.windows[index - 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
@@ -3280,9 +3280,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = resolveWindow(model, args.window)
       if (method === 'unlock-viewport') delete window.lockedViewports
       else if (!window.lockedViewports) {
+        let client = model.clients.find(client => client.id === (sourceClientId ?? args.client) && client.windowId === window.id)
+        let owner = client && clients.get(client.id)
         window.lockedViewports = Object.fromEntries(window.panes.flatMap(pane => {
-          let bounds = tabs.get(pane.id)?.view.getBounds()
-          return bounds ? [[pane.id, { width: bounds.width, height: bounds.height }]] : []
+          // A prompt can move the native page to another client while it is open.
+          let reported = owner?.bounds.find(bounds => bounds.paneId === pane.id)
+          let bounds = reported ? pane.device ? fittedDeviceBounds(reported, pane.device) : reported : tabs.get(pane.id)?.view.getBounds()
+          return bounds ? [[pane.id, { width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) }]] : []
         }))
       }
       // A released lock returns to client sizing, including after a remote lease.
