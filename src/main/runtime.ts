@@ -1941,7 +1941,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         }
       }
       if (fixedSize) {
-        if (!live.remoteFrame) {
+        let area = target === viewer?.live.window && bounds ? bounds : { x: 0, y: 0, ...fixedSize }
+        let width = Math.max(1, Math.round(area.width)), height = Math.max(1, Math.round(area.height))
+        let fits = width >= fixedSize.width && height >= fixedSize.height
+        if (fits) removeRemoteFrame(live)
+        if (!fits && !live.remoteFrame) {
           live.remoteFrame = new View()
           // A backing layer is required for Electron to mask native child layers.
           live.remoteFrame.setBackgroundBlur(0)
@@ -1950,12 +1954,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           live.remoteFrame.addChildView(live.view)
           live.parent.contentView.addChildView(live.remoteFrame)
         }
-        let area = target === viewer?.live.window && bounds ? bounds : { x: 0, y: 0, ...fixedSize }
-        let width = Math.max(1, Math.round(area.width)), height = Math.max(1, Math.round(area.height))
         let scrollX = Math.min(Math.max(0, bounds?.scrollX ?? 0), Math.max(0, fixedSize.width - width))
         let scrollY = Math.min(Math.max(0, bounds?.scrollY ?? 0), Math.max(0, fixedSize.height - height))
-        live.remoteFrame.setBounds({ x: Math.round(area.x), y: Math.round(area.y), width, height })
-        live.view.setBounds({ x: Math.max(0, Math.round((width - fixedSize.width) / 2)) - Math.round(scrollX), y: Math.max(0, Math.round((height - fixedSize.height) / 2)) - Math.round(scrollY), width: fixedSize.width, height: fixedSize.height })
+        live.remoteFrame?.setBounds({ x: Math.round(area.x), y: Math.round(area.y), width, height })
+        live.view.setBounds({ x: (fits ? Math.round(area.x) : 0) + Math.max(0, Math.round((width - fixedSize.width) / 2)) - Math.round(scrollX), y: (fits ? Math.round(area.y) : 0) + Math.max(0, Math.round((height - fixedSize.height) / 2)) - Math.round(scrollY), width: fixedSize.width, height: fixedSize.height })
       }
       live.inputLock?.refresh()
     }

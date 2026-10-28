@@ -100,10 +100,10 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(() => content(pane).evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
     }
     let native = () => application.evaluate(({ BaseWindow }, url) => {
-      let visit = (parent: Electron.View): any => {
+      let visit = (parent: Electron.View, root = parent): any => {
         for (let view of parent.children) {
-          if ('webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url) return { page: view.getBounds(), clip: parent.getBounds() }
-          let found = visit(view)
+          if ('webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url) return { page: view.getBounds(), clip: parent.getBounds(), clipped: parent !== root }
+          let found = visit(view, root)
           if (found) return found
         }
       }
@@ -156,7 +156,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     }
     await expect.poll(async () => {
       let bounds = await native()
-      return bounds.page.x >= 0 && bounds.page.y >= 0 && bounds.page.x + bounds.page.width <= bounds.clip.width && bounds.page.y + bounds.page.height <= bounds.clip.height
+      return !bounds.clipped && bounds.page.x >= 0 && bounds.page.y >= 0 && bounds.page.x + bounds.page.width <= bounds.clip.width && bounds.page.y + bounds.page.height <= bounds.clip.height
     }).toBe(true)
     await chrome.screenshot({ path: info.outputPath('grown-locked-viewport.png') })
     let other = await rpc('attach-session', { session: client.sessionId })
