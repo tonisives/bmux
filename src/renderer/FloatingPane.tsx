@@ -3,9 +3,9 @@ import { VimCursor } from './VimCursor'
 import vimCss from './VimCursor.module.css'
 import { useAddressVim } from './useAddressVim'
 import { ConnectionIndicator } from './ConnectionIndicator'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
-import type { Bridge, FloatingPane as Placement, PublicState } from '../shared/types'
+import type { Bridge, FloatingPane as Placement, PublicState, ViewportSize } from '../shared/types'
 import { clampFloat } from '../shared/floating'
 import css from './FloatingPane.module.css'
 import { CloseButton } from './CloseButton'
@@ -26,6 +26,8 @@ export let FloatingPane = () => {
   let tab = pane
   let remote = state?.remoteViews?.[paneId]
   let placement = windowState?.floating?.find(item => item.paneId === paneId)
+  let fixedSize = windowState?.lockedViewports?.[paneId] ?? state?.remoteSizes?.[paneId]
+  let viewport = useFixedViewport(fixedSize)
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args: { client: state?.clientId, pane: paneId, ...args } }) }
     catch (error) { setError(String(error)); return undefined }
@@ -89,7 +91,11 @@ export let FloatingPane = () => {
       {remote ? <RemotePaneControls remote={remote} paneId={paneId} focused={client?.paneId === paneId} run={run} onError={setError} /> : <CloseButton label="Close floating pane" onClick={close} />}
     </form>
     <div className={css.content} onMouseDown={focusPage} onContextMenu={menu}>
-      {error || (tab && state?.crashes[tab.id]) ? <NavigationFailure error={error || state!.crashes[tab!.id]} hint={error ? undefined : state?.navigationProxyHints?.[tab!.id]} reload={reload} /> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : tab?.url === 'about:blank' && <span>Enter a URL above</span>}
+      <div ref={viewport} className={`${css.viewport} ${fixedSize ? css.fixedViewport : ''}`} data-remote-viewport={fixedSize ? true : undefined}>
+        <div className={fixedSize ? css.canvas : css.page}>
+          {error || (tab && state?.crashes[tab.id]) ? <NavigationFailure error={error || state!.crashes[tab!.id]} hint={error ? undefined : state?.navigationProxyHints?.[tab!.id]} reload={reload} /> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : tab?.url === 'about:blank' && <span>Enter a URL above</span>}
+        </div>
+      </div>
     </div>
     {!remote && edges.map(edge => <div key={edge} className={css.edge} data-edge={edge} onPointerDown={drag} role="separator" aria-label={`Resize floating pane ${edge}`} />)}
   </section>
@@ -98,6 +104,26 @@ export let FloatingPane = () => {
 let bridge = (window as unknown as { bmux: Bridge }).bmux
 let paneId = location.hash.slice('#float='.length)
 let edges = ['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw']
+
+let useFixedViewport = (size: ViewportSize | undefined) => {
+  let viewport = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    let element = viewport.current
+    if (!element || !size) { bridge.bounds([]); return }
+    element.style.setProperty('--viewport-width', `${size.width}px`)
+    element.style.setProperty('--viewport-height', `${size.height}px`)
+    let publish = () => {
+      let rect = element.getBoundingClientRect()
+      bridge.bounds([{ paneId, x: rect.x, y: rect.y, width: element.clientWidth, height: element.clientHeight, scrollX: element.scrollLeft, scrollY: element.scrollTop }])
+    }
+    let observer = new ResizeObserver(publish)
+    observer.observe(element)
+    element.addEventListener('scroll', publish)
+    publish()
+    return () => { observer.disconnect(); element.removeEventListener('scroll', publish) }
+  }, [size?.width, size?.height])
+  return viewport
+}
 
 let useFloatingDrag = (placement: Placement | undefined, state: PublicState | null, run: (method: string, args?: Record<string, unknown>) => Promise<unknown>) => {
   let cleanup = useRef<(() => void) | null>(null)

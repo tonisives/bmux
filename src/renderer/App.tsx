@@ -1353,13 +1353,13 @@ let FloatingPreview = ({ paneId }: { paneId: string }) => {
 }
 let BrowserPane = ({ paneId }: { paneId: string }) => {
   let { state, run, control } = useUI()
-  let { client } = selection(state)
+  let { client, window: selectedWindow } = selection(state)
   let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)!
   let tab = pane
   let remote = state.remoteViews?.[paneId]
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
-  let remoteSize = state.remoteSizes?.[paneId]
+  let remoteSize = selectedWindow?.lockedViewports?.[paneId] ?? state.remoteSizes?.[paneId]
   useLayoutEffect(() => {
     if (!ref.current || !remoteSize) return
     ref.current.style.setProperty('--remote-width', `${remoteSize.width}px`)
