@@ -50,7 +50,7 @@ import { createPageTools } from './page-tools'
 import { waitOptions } from './wait'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
-import { windowCloseBehavior } from '../shared/window-close'
+import { sessionIsLocked, windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
@@ -905,10 +905,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let session = model.sessions.find(session => session.id === client.sessionId)!
     let window = session.windows.find(window => window.id === client.windowId)!
     if (action === 'close-pane' || (action === 'close-pane-or-window' && pane && window.floating?.some(item => item.paneId === pane.id))) {
+      if (window.locked && window.panes.length === 1) return
       invoke({ method: pane ? 'kill-pane' : 'kill-window', args: { pane: pane?.id, window: client.windowId, confirm: true } }); return
     }
     if (action === 'close-window' || action === 'close-pane-or-window') {
       let behavior = windowCloseBehavior(session, window)
+      if (behavior === 'locked') return
       if (behavior === 'close-window') { invoke({ method: 'kill-window', args: { window: window.id, confirm: true } }); return }
     }
     if (['plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'select-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
@@ -2596,13 +2598,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         { type: 'separator' },
         { label: 'New Window', click: () => invoke('new-window', { session: session.id, client: client.id }) },
         { label: window.pinned ? 'Unpin Window' : 'Pin Window', click: () => invoke('toggle-window-pin', { window: window.id }) },
+        { label: window.locked ? 'Unlock Window' : 'Lock Window', click: () => invoke(window.locked ? 'unlock-window' : 'lock-window', { window: window.id }) },
         { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id }) },
         { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
         { type: 'separator' },
         { label: 'Move Left', enabled: index > 0 && !!session.windows[index - 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
         { label: 'Move Right', enabled: index < session.windows.length - 1 && !!session.windows[index + 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
         { type: 'separator' },
-        { label: 'Close Window', click: () => invoke('kill-window', { window: window.id, confirm: true }) },
+        { label: 'Close Window', enabled: !window.locked, click: () => invoke('kill-window', { window: window.id, confirm: true }) },
       ]).popup({ window: clients.get(client.id)!.window })
       return null
     }
@@ -3156,8 +3159,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'kill-session') {
       let session = resolve(model.sessions, args.session, 'Session')
+      if (sessionIsLocked(session)) throw new Error('Session contains a locked window; unlock it before closing')
       if (args.confirm !== true) throw new Error('Closing a session requires confirmation; pass --confirm')
       if (!(await closeTabsBeforeRemoval(session.windows.flatMap(window => window.panes.map(pane => pane.id))))) return { cancelled: session.id }
+      if (sessionIsLocked(session)) throw new Error('Session contains a locked window; unlock it before closing')
       if (session.private) {
         closedTabs = closedTabs.filter(item => item.kind === 'window' ? item.sessionId !== session.id : !session.windows.some(window => window.id === item.windowId))
         for (let key of permissionGrants.keys()) if (key.startsWith(`private:${session.id}:`)) permissionGrants.delete(key)
@@ -3283,6 +3288,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       // A released lock returns to client sizing, including after a remote lease.
       for (let pane of window.panes) remoteSizes.delete(pane.id)
       changed(); await visualQueue; return window
+    }
+    if (method === 'lock-window' || method === 'unlock-window') {
+      let window = resolveWindow(model, args.window)
+      window.locked = method === 'lock-window'
+      save(); return window
     }
     if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
     if (method === 'move-window') {
@@ -3506,8 +3516,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'kill-window') {
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
+      if (window.locked) throw new Error('Window is locked; unlock it before closing')
       if (window.panes.length > 1 && args.confirm !== true) throw new Error('Window contains multiple panes; pass --confirm')
       if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
+      if (window.locked) throw new Error('Window is locked; unlock it before closing')
       let session = model.sessions.find(session => session.windows.includes(window))!
       if (!session.private && !session.ephemeral) {
         closedTabs.push({ kind: 'window', sessionId: session.id, index: session.windows.indexOf(window), window: structuredClone(window) })

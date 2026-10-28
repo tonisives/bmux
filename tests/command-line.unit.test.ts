@@ -38,8 +38,9 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
   expect(parseCommandLine('select-window -t 2', current)).toMatchObject({ args: { window: secondWindow.id } })
   expect(parseCommandLine('toggle-window-pin', current)).toMatchObject({ method: 'toggle-window-pin', args: { window: window.id } })
   expect(parseCommandLine('toggle-window-pin -t 2', current)).toMatchObject({ method: 'toggle-window-pin', args: { window: secondWindow.id } })
-  for (let method of ['lock-viewport', 'unlock-viewport']) {
+  for (let method of ['lock-window', 'unlock-window', 'lock-viewport', 'unlock-viewport']) {
     expect(parseCommandLine(`:${method}`, current)).toMatchObject({ method, args: { window: window.id } })
+    expect(parseCommandLine(method, current)).toMatchObject({ method, args: { window: window.id } })
     expect(parseCommandLine(`${method} -t 2`, current)).toMatchObject({ method, args: { window: secondWindow.id } })
   }
   expect(parseCommandLine('split-window -v --profile bot', current)).toMatchObject({ args: { pane: window.panes[0].id, axis: 'vertical', profile: 'bot' } })

@@ -269,6 +269,7 @@ export let validateModel = (value: unknown): Model => {
           if (!window.panes.some(pane => pane.id === paneId) || !size || !Number.isInteger(size.width) || !Number.isInteger(size.height) || size.width < 1 || size.height < 1) throw new Error('Invalid locked viewport size')
         }
       }
+      if (window.locked !== undefined && typeof window.locked !== 'boolean') throw new Error('Invalid locked window setting')
       let leaves: string[] = []
       mapLayout(window.layout, node => {
         if (node.kind === 'pane') leaves.push(node.paneId)
