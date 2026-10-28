@@ -146,6 +146,17 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await fs.writeFile(info.outputPath('viewport-scroll.json'), JSON.stringify(details, null, 2))
       throw error
     }
+    await nativeResize(1400, 1000)
+    for (let [pane, page] of [[client.paneId, first], [added.id, second]] as const) {
+      await expect.poll(() => size(page)).toEqual(locked[pane])
+      await expect.poll(() => content(pane).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
+      await expect.poll(() => content(pane).evaluate(element => element.clientWidth >= element.scrollWidth && element.clientHeight >= element.scrollHeight)).toBe(true)
+    }
+    await expect.poll(async () => {
+      let bounds = await native()
+      return bounds.page.x >= 0 && bounds.page.y >= 0 && bounds.page.x + bounds.page.width <= bounds.clip.width && bounds.page.y + bounds.page.height <= bounds.clip.height
+    }).toBe(true)
+    await chrome.screenshot({ path: info.outputPath('grown-locked-viewport.png') })
     let other = await rpc('attach-session', { session: client.sessionId })
     await expect.poll(() => application.context().pages().filter(page => page.url().endsWith('/renderer/index.html')).length).toBe(2)
     let otherChrome = application.context().pages().find(page => page !== chrome && page.url().endsWith('/renderer/index.html'))!
