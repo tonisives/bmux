@@ -1,5 +1,6 @@
 import { remoteWorkspaceShortcut } from '../shared/remote-workspace'
 import { RemotePaneControls } from './RemotePaneControls'
+import { useViewportPan } from './useViewportPan'
 import { PROFILE_COLORS, profileHash, profileColor } from '../shared/profile-color'
 import type { RemoteView } from '../shared/remote'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
@@ -704,6 +705,8 @@ let PageIcon = ({ paneId }: { paneId?: string }) => {
   return <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>
 }
 let WindowLockIcon = () => <svg className={css.windowLock} viewBox="0 0 16 16" role="img" aria-label="Locked"><rect x="3" y="7" width="10" height="7" rx="1" /><path d="M5 7V5a3 3 0 0 1 6 0v2" /></svg>
+let ViewportLockIcon = () => <svg className={css.windowLock} viewBox="0 0 16 16" role="img" aria-label="Viewport locked"><path d="M1.5 5.5v-4h4m5 0h4v4m0 5v4h-4m-5 0h-4v-4M5 5h6v6H5z" /></svg>
+let WindowIcons = ({ window, paneId }: { window: InternalWindow; paneId?: string }) => <>{!window.locked && !window.lockedViewports && <PageIcon paneId={paneId} />}{window.locked && <WindowLockIcon />}{window.lockedViewports && <ViewportLockIcon />}</>
 let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; index: number; active: boolean; now: number }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
@@ -736,9 +739,9 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); if (!remote) void run('window.menu', { window: window.id }) }
-  return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-locked={window.locked === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
+  return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-locked={window.locked === true} data-viewport-locked={!!window.lockedViewports} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
     <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable={!remote}>
-      {window.locked ? <WindowLockIcon /> : <PageIcon paneId={tabId} />}
+      <WindowIcons window={window} paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
       {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last activity ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
     </button>
@@ -1360,6 +1363,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
   let remoteSize = selectedWindow?.lockedViewports?.[paneId] ?? state.remoteSizes?.[paneId]
+  useViewportPan(ref, paneId, !!remoteSize)
   useLayoutEffect(() => {
     if (!ref.current || !remoteSize) return
     ref.current.style.setProperty('--remote-width', `${remoteSize.width}px`)
@@ -2439,7 +2443,7 @@ let SessionWindowRow = ({ window, now, remote }: { window: InternalWindow; now: 
   let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target data-preview-window={window.id} data-remote-session={remote && `${remote.host}:${remote.session}`} data-remote-pane={remote && pane?.id}>{confirming ? confirmation : <>
     <button ref={row} className={css.listRow} data-window-row={window.id} data-session-row={remote || undefined} data-active={active} aria-current={active || undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" />{window.locked ? <WindowLockIcon /> : <PageIcon paneId={pane?.id} />}<span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><WindowIcons window={window} paneId={pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
     </button>{!remote && <><SessionAudio window={window} /><SessionAgent window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} disabled={window.locked} aria-label={`Close window ${name}`} title={window.locked ? 'Unlock window to close' : undefined}>x</button></>}
   </>}</div>

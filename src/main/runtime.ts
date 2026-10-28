@@ -97,9 +97,11 @@ import { createPreviewRefresh } from './preview-refresh'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
+import { createViewportPan } from './viewport-pan'
+import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
-type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; viewportPan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
@@ -1254,7 +1256,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('render-process-gone', () => { invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
-    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), installKeys, () => {
+    let panEnabled = () => isLiveTabOpen(live) && !!fixedViewport(tabId)
+    let pan = (x: number, y: number) => {
+      let owner = [...clients.values()].find(owner => owner.window === live.parent)
+      if (!owner || !live.remoteFrame || automatedContents.has(contents.id)) return
+      let target = owner.floats.get(tabId)?.webContents ?? owner.chrome.webContents
+      target.send('viewport-scroll', tabId, x, y)
+    }
+    live.viewportPan = createViewportPan(contents, panEnabled, expression => pageTools?.frameContexts(tabId, expression) ?? Promise.resolve(), pan)
+    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), contents => {
+      installKeys(contents)
+      live.shieldPan = createViewportPan(contents, panEnabled, expression => contents.executeJavaScript(expression), pan)
+      void live.shieldPan.refresh()
+    }, () => {
       let owner = [...clients.values()].find(owner => owner.window === live.parent)
       if (!owner) return
       owner.chrome.webContents.focus()
@@ -1886,6 +1900,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         capturedViewport = true
       }
       let fixedSize = fixedViewport(tabId)
+      void live.viewportPan?.refresh()
+      void live.shieldPan?.refresh()
       if (!fixedSize) removeRemoteFrame(live)
       // Remote viewer contents belong to the app session, outside profile extensions.
       if (!remotePages.get(tabId)?.attach) extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
@@ -2607,9 +2623,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         { type: 'separator' },
         { label: 'New Window', click: () => invoke('new-window', { session: session.id, client: client.id }) },
         { label: window.pinned ? 'Unpin Window' : 'Pin Window', click: () => invoke('toggle-window-pin', { window: window.id }) },
-        { label: window.locked ? 'Unlock Window' : 'Lock Window', click: () => invoke(window.locked ? 'unlock-window' : 'lock-window', { window: window.id }) },
-        { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id, client: client.id }) },
         { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
+        { type: 'separator' },
+        { label: window.locked ? 'Unlock Window' : 'Lock Window', icon: lockMenuIcon('window'), click: () => invoke(window.locked ? 'unlock-window' : 'lock-window', { window: window.id }) },
+        { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', icon: lockMenuIcon('viewport'), click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id, client: client.id }) },
         { type: 'separator' },
         { label: 'Move Left', enabled: index > 0 && !!session.windows[index - 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
         { label: 'Move Right', enabled: index < session.windows.length - 1 && !!session.windows[index + 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
