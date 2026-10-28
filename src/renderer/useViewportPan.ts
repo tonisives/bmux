@@ -9,7 +9,7 @@ export let useViewportPan = (viewport: RefObject<HTMLDivElement | null>, paneId:
     if (!element || !enabled) return
     let unsubscribe = bridge.viewportScroll((pane, x, y) => { if (pane === paneId) element.scrollBy(x, y) })
     let wheel = (event: WheelEvent) => {
-      if (!(navigator.platform.includes('Mac') ? event.metaKey : event.ctrlKey)) return
+      if (!event.shiftKey) return
       event.preventDefault(); event.stopPropagation()
       let delta = viewportPanDelta(event, element.clientWidth, element.clientHeight)
       element.scrollBy(delta.x, delta.y)

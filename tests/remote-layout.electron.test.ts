@@ -118,9 +118,9 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       expect(await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
       await first.evaluate(() => scrollTo(0, 0))
       await expect.poll(() => first.evaluate(() => scrollY)).toBe(0)
-      await first.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control')
+      await first.keyboard.down('Shift')
       try { await first.mouse.wheel(60, 70) }
-      finally { await first.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control') }
+      finally { await first.keyboard.up('Shift') }
       await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 60, y: 70 })
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -60, y: -70 })
@@ -133,9 +133,9 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       }).toBe(true)
       await expect(shield!.getByRole('status')).toBeVisible()
       await shield!.mouse.move(100, 100)
-      await shield!.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control')
+      await shield!.keyboard.down('Shift')
       try { await shield!.mouse.wheel(20, 30) }
-      finally { await shield!.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control') }
+      finally { await shield!.keyboard.up('Shift') }
       await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 80, y: 100 })
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -80, y: -100 })
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
@@ -188,9 +188,9 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       return Math.abs(bounds.clip.width - area.width) <= 1 && Math.abs(bounds.clip.height - area.height) <= 1
     }).toBe(true)
     await first.mouse.move(100, 100)
-    await first.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control')
+    await first.keyboard.down('Shift')
     try { await first.mouse.wheel(50, 60) }
-    finally { await first.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control') }
+    finally { await first.keyboard.up('Shift') }
     await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -50, y: -60 })
     await otherChrome.screenshot({ path: info.outputPath('locked-split-viewport.png') })
     await closeTestApplication(application)
