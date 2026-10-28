@@ -607,7 +607,7 @@ test('locked windows protect tabs and sessions through menus, commands and close
     await tab.click({ button: 'right' })
     await expect.poll(() => application.evaluate(() => (globalThis as any).lockMenu?.items.map((item: any) => item.label))).toContain(label)
   }
-  let menuAction = async (label: string) => { await openMenu(label); await application.evaluate(label => (globalThis as any).lockMenu.items.find((item: any) => item.label === label).click(), label) }
+  let menuAction = async (label: string) => { await openMenu(label); await application.evaluate((_electron, label) => (globalThis as any).lockMenu.items.find((item: any) => item.label === label).click(), label) }
   try {
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ ...parse(previousConfig), showTabCloseButtons: true }))
     await expect.poll(async () => (await state()).showTabCloseButtons).toBe(true)
