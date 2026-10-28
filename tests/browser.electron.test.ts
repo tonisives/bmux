@@ -492,24 +492,33 @@ test('Command+W closes an internal window or its session while the command and m
   let session = await cli('new-session', { name: 'window-closing' })
   let client = await cli('attach-session', { session: session.id })
   let clientsBefore = await cli('list-clients')
+  // Cmd+N registers the client before its renderer and native focus are ready.
+  let activate = async (clientId: string, window?: { id: string; panes: { id: string }[] }) => {
+    await rendererForClient(clientId, window ? { sessionId: session.id, windowId: window.id, paneId: window.panes[0].id } : undefined)
+    await cli('activate-client', { client: clientId })
+    await expect.poll(async () => {
+      let diagnostics = await cli('diagnostics')
+      return diagnostics.focusedClientId === clientId && diagnostics.windows.some((window: { id: string; focused: boolean }) => window.id === clientId && window.focused)
+    }).toBe(true)
+  }
   try {
-    await cli('activate-client', { client: client.id })
+    await activate(client.id, session.windows[0])
     await sendNativeKeys(application, [{ keyCode: 'n', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length + 1)
     let openedClientId = (await cli('list-clients')).find((item: { id: string }) => !clientsBefore.some((prior: { id: string }) => prior.id === item.id)).id
     let secondWindow = await cli('new-window', { session: session.id, client: openedClientId })
-    await cli('activate-client', { client: openedClientId })
+    await activate(openedClientId, secondWindow)
     await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(1)
     expect((await cli('list-windows', { session: session.id })).some((window: { id: string }) => window.id === secondWindow.id)).toBe(false)
     expect((await cli('list-clients')).some((item: { id: string }) => item.id === openedClientId)).toBe(true)
-    await cli('activate-client', { client: openedClientId })
+    await activate(openedClientId, session.windows[0])
     await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-sessions')).some((item: { id: string }) => item.id === session.id)).toBe(false)
     expect((await cli('list-clients')).some((item: { id: string }) => item.id === openedClientId)).toBe(true)
     expect((await cli('list-clients')).some((item: { id: string; sessionId: string }) => item.id === openedClientId && item.sessionId === session.id)).toBe(false)
     await cli('detach-client', { client: openedClientId })
-    await cli('activate-client', { client: client.id })
+    await activate(client.id)
     await sendNativeKeys(application, [{ keyCode: 'n', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length + 1)
     openedClientId = (await cli('list-clients')).find((item: { id: string }) => !clientsBefore.some((prior: { id: string }) => prior.id === item.id)).id
