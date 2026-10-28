@@ -6,14 +6,13 @@
 - Keep browser pages sandboxed and without privileged preload code.
 - Profile IDs, session IDs, window IDs, pane IDs, and tab IDs are separate identities. A profile is fixed per pane.
 - Browser operations must not activate the app or change a client's selection unless the command explicitly requests that behavior.
-- Limit worker concurrency to four. Keep full test suites in CI; package when the change needs build or installation verification.
-- Keep local feedback light: typecheck, lint, and relevant unit tests. Run affected Electron tests in GitHub Actions via `workflow_dispatch` and `test_pattern`, or in Tart, before merging browser behavior or UI changes. Include existing tests that exercise the changed behavior; search test assertions when changing labels or selection rules. The full suite runs on main in CI.
-- Before merging, record the passing run URL, tested commit SHA, and selected tests. Verify the exact implementation commit after incorporating main; a queued run or a green run on an older commit is not verification. For a changed shared test helper, include its existing callers. Use `repeat_each` for a reproduced timing or focus failure, without enabling test retries.
-- See `docs/test-reliability.md` for focused CI verification and opt-in profile interaction traces.
+- Run BMUX tests in GitHub Actions, including unit, Electron, UI and package smoke tests. Do not run local test suites or start a separate test VM.
+- Merge locally to main, keep the post-merge packaging hook, push main and wait for the Check workflow on that exact merged SHA. Record the final conclusion and run URL; queued, cancelled or older runs are not verification. Fix CI failures before calling the work complete.
+- For focused CI investigation, use workflow_dispatch with test_pattern; use visual_check for browser rendering changes and repeat_each for a reproduced timing or focus failure. See docs/test-reliability.md.
 - GUI tests must establish their own window/pane selection and wait for completed scrolling, renderer updates, and native view attachment. Poll observable results instead of relying on fixed sleeps before native screenshots.
 - Use `closeTestApplication` from `tests/electron-fixture.ts` for disposable Electron shutdown and restarts. It bounds graceful shutdown and waits for process exit before profile cleanup, so renderer teardown cannot mask failed assertions or stall CI.
 - Changes to remote control, Linux hosts, or container packaging must also pass the `Portable hosts` workflow on the implementation branch via `workflow_dispatch` before merging.
-- Local GUI tests (`test:electron`, `test:ui`, `debug:ui`, and `test:package`) must run through the Tart runner. Its macOS VM viewer belongs on AeroSpace workspace `bot`; Tart and VM storage live under `/Volumes/sam`. See `docs/tart-tests.md`. Never bypass this with direct Playwright/Electron launches or `BMUX_TEST_NATIVE=1` on the working desktop. GitHub Actions uses its own disposable macOS desktop.
+- GitHub Actions runs GUI tests on its disposable macOS desktop. Local test commands reject execution; BMUX_TEST_NATIVE is not a host bypass. The shared build queue is the only local VM owner. See docs/tart-tests.md.
 - Tests must use disposable `BMUX_DATA_DIR` directories and local fixture pages. Never read a real browser profile or print secrets.
 - Windows startup tests run on the disposable Windows workflow desktop via `pnpm test:windows`, separate from the main suite. See `docs/windows-tests.md`; release installers must pass this suite before publication.
 - Use asynchronous child-process APIs for CLI calls in GUI tests that also host HTTP fixtures, including expected-denial checks, so navigation can finish while the CLI waits.
@@ -21,7 +20,7 @@
 - Packaging defaults to `build/bmux.app`; use `BMUX_OUTPUT_DIR` to choose another folder. On this Mac, install verified builds to `~/workspace/_tools/bmux.app` (`/Users/tonis/workspace/_tools/bmux.app` on this Mac) using `BMUX_OUTPUT_DIR="$HOME/workspace/_tools" pnpm package`. Keep the source repository here. Do not restart a running app after packaging.
 - Keep the persistent UI to page content and one tmux-style status bar. Use transient command prompts and shortcut panels for controls.
 - Use the shared `panelTabs` style for all panel tabs, matching the general settings tabs.
-- Always verify UI changes by typing a real URL and pressing Enter (`pnpm test:ui`), checking visible native page rendering. Debug instances must use separate temporary profiles (`pnpm debug:ui`).
+- Verify browser behavior and UI changes in GitHub Actions; use the visual_check dispatch input when address-bar/native page rendering verification is relevant.
 - Keyboard preferences live in `~/.config/bmux/config.yaml` and reload live; preserve existing user edits. Test instances must use isolated config files.
 - Never block view attachment/detachment or human shortcuts on navigation, screenshots, or agent command queues.
 
