@@ -84,6 +84,8 @@ Try Control+B, then `%` to split a pane, `s` to switch sessions, or `?` for help
 
 A session holds internal windows; each window contains split and floating panes. Desktop windows are clients attached to a session, each with its own selected internal window.
 
+Right-click a window tab and choose **Lock Viewport** to keep each pane at its current size across client and window resizes. Smaller panes scroll the fixed content. Use **Unlock Viewport** to resume automatic sizing. The colon commands `:lock-viewport` and `:unlock-viewport` also accept `-t WINDOW`; the lock is saved with the session.
+
 <img src="https://cdn.digthree.tonis.dev/bmux/docs-model-80daae29051b/workspace-model.svg" alt="Two clients select different windows in one session; panes using work share logins while bot has separate storage" width="800" />
 
 | Term    | Meaning                                                         |

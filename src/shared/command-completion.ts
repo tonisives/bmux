@@ -10,7 +10,7 @@ let quoteTarget = (value: string) => /[\s"'\\]/.test(value) ? `"${value.replace(
 export let commandTargetSuggestions = (line: string, state: PublicState): { query: string; entries: CommandEntry[] } | undefined => {
   let tokens = commandTokens(line, true), name = tokens[0]?.value
   name = COMMAND_ALIASES[name] ?? name
-  if (!['kill-session', 'move-pane', 'join-pane', 'break-pane', 'swap-pane', 'rotate-window', 'move-window', 'swap-window', 'select-pane', 'select-window'].includes(name)) return
+  if (!['kill-session', 'move-pane', 'join-pane', 'break-pane', 'swap-pane', 'rotate-window', 'move-window', 'swap-window', 'select-pane', 'select-window', 'lock-viewport', 'unlock-viewport'].includes(name)) return
   let last = tokens.at(-1)!, previous = tokens.at(-2)?.value
   let start = last.start, query = last.value, flag = previous, inline = ''
   if (last.end < line.length) {
@@ -40,7 +40,7 @@ export let commandTargetSuggestions = (line: string, state: PublicState): { quer
   let paneId = sourceId >= 0 ? tokens[sourceId + 1]?.value : inlineSource ?? client?.paneId
   let sourceWindow, sourcePaneId = paneId
   try { let source = resolvePaneTarget(state, paneId); sourceWindow = source.window; sourcePaneId = source.pane.id } catch { /* Keep completion available while a source is unfinished. */ }
-  let windowCommand = ['rotate-window', 'move-window', 'swap-window', 'select-window'].includes(name)
+  let windowCommand = ['rotate-window', 'move-window', 'swap-window', 'select-window', 'lock-viewport', 'unlock-viewport'].includes(name)
   let paneTarget = flag !== '--window' && !windowCommand && (source || ['swap-pane', 'select-pane'].includes(name) || /\.(?:\d*|\{[^}]*|[+-]\d*)$/.test(query) || query.startsWith('%'))
   let currentSessionTarget = flag !== '--window' && (query.startsWith(':') || query.startsWith('.'))
   let coordinateWindow, coordinatePane = ''

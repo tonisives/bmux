@@ -100,7 +100,7 @@ import { clipViewportInput, clearViewportInput } from './viewport-input'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
 type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
@@ -147,6 +147,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let viewportSequence = 0
   let remoteViewports = new Map<string, { width: number; height: number; generation: number }>()
   let remoteSizes = new Map<string, { width: number; height: number; lease: number; previous: Electron.Rectangle }>()
+  let lockedViewport = (paneId: string) => walkPanes(model).find(item => item.pane.id === paneId)?.window.lockedViewports?.[paneId]
+  let fixedViewport = (paneId: string) => {
+    let { session, window } = paneById(model, paneId), remote = remoteSizes.get(paneId)
+    return window.lockedViewports?.[paneId] ?? (remote && controls.get(session.id)?.generation === remote.lease ? remote : undefined)
+  }
   let remoteViewport = (pane: string) => {
     let bounds = tabs.get(pane)?.view.getBounds()
     if (!bounds) return undefined
@@ -160,7 +165,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = walkPanes(model).find(item => item.pane.id === pane)?.session
       if (session && controls.get(session.id)?.generation === size.lease) continue
       let live = tabs.get(pane)
-      if (live && !live.disposed) { removeRemoteFrame(live); live.view.setBounds(size.previous) }
+      if (live && !live.disposed && !lockedViewport(pane)) { removeRemoteFrame(live); live.view.setBounds(size.previous) }
       remoteSizes.delete(pane)
       changed = true
     }
@@ -1115,7 +1120,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { spellcheck: true, ...popupOptions?.webPreferences, session: browserSession(paneConnectionId(pane), session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: false, safeDialogs: true } })
     let parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
-    view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
+    view.setBounds({ x: 0, y: 0, width: 1280, height: 800, ...lockedViewport(tabId) })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
     filePickers.watchPage(tabId, contents, () => !isLiveTabOpen(live) || live.parent.isDestroyed() ? { visible: false } : { windowId: live.parent.id, visible: live.parent.isVisible() && !live.parent.isMinimized() && view.getVisible() })
@@ -1713,13 +1718,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let placement = window.floating?.find(item => item.paneId === paneId)
     if (!placement) return
     let rect = floatRect(client, placement)
+    let reported = clients.get(client.id)?.floatingBounds.get(paneId)
+    if (fixedViewport(paneId) && reported) return { ...reported, x: rect.x + reported.x, y: rect.y + reported.y }
     return { paneId: pane.id, x: rect.x + FLOAT_CONTENT_INSET, y: rect.y + FLOAT_HEADER + FLOAT_CONTENT_VERTICAL_INSET, width: Math.max(1, rect.width - FLOAT_CONTENT_INSET * 2), height: Math.max(1, rect.height - FLOAT_HEADER - FLOAT_CONTENT_VERTICAL_INSET * 2) }
   }
   let prepareFloats = (client: Client, live: LiveClient) => {
     let window = model.sessions.flatMap(session => session.windows).find(window => window.id === client.windowId)
     let visible = client.zoomedPaneId ? [] : window?.floating ?? []
     for (let [paneId, frame] of live.floats) if (!visible.some(item => item.paneId === paneId)) {
-      live.window.contentView.removeChildView(frame); frame.webContents.close(); live.floats.delete(paneId)
+      live.window.contentView.removeChildView(frame); frame.webContents.close(); live.floats.delete(paneId); live.floatingBounds.delete(paneId)
     }
     for (let placement of visible) {
       let frame = live.floats.get(placement.paneId)
@@ -1843,14 +1850,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let tabId = paneById(model, paneId).pane.id
         let floatingBounds = floatBounds(candidate, paneId)
         let reported = live.bounds.find(bounds => bounds.paneId === tabId)
-        let bounds = remoteSizes.has(tabId) ? reported ?? floatingBounds : floatingBounds ?? reported
-        if (!remoteSizes.has(tabId) && !floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
+        let bounds = floatingBounds ?? reported
+        if (!fixedViewport(tabId) && !floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
         // A remounted device frame has no screen size until its layout effect runs.
         if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue
         let entries = viewers.get(tabId) ?? []
         entries.push({ id: candidate.id, live, bounds }); viewers.set(tabId, entries)
       }
     }
+    let capturedViewport = false
     for (let [tabId, live] of tabs) {
       let candidates = viewers.get(tabId) ?? []
       // Focus chooses between competing viewers; losing focus alone keeps the
@@ -1871,13 +1879,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       live.view.setVisible(!retainPickerOwner)
       live.inputLock?.refresh()
       live.camera?.setVisible(!retainPickerOwner)
-      let { session, pane } = tabById(model, tabId)
+      let { session, window, pane } = tabById(model, tabId)
+      if (window.lockedViewports && !window.lockedViewports[tabId] && bounds) {
+        let size = pane.device ? fittedDeviceBounds(bounds, pane.device) : bounds
+        window.lockedViewports[tabId] = { width: Math.max(1, Math.round(size.width)), height: Math.max(1, Math.round(size.height)) }
+        capturedViewport = true
+      }
+      let fixedSize = fixedViewport(tabId)
+      if (!fixedSize) removeRemoteFrame(live)
       // Remote viewer contents belong to the app session, outside profile extensions.
       if (!remotePages.get(tabId)?.attach) extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
-        let persona = remoteSizes.has(tabId) ? undefined : tabById(model, tabId).pane.device
+        let persona = fixedSize ? undefined : pane.device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
-        if (!remoteSizes.has(tabId)) live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
+        if (!fixedSize) live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
         let shape = persona ? deviceScreenShape(persona, fitted) : undefined
         live.view.setBorderRadius(shape ? Math.round(shape.radius) : 0)
         if (shape) {
@@ -1896,19 +1911,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           live.camera.webContents.close()
           live.camera = undefined
         }
-        if (persona && live.deviceScale !== fitted.scale) {
-          live.deviceScale = fitted.scale
+        let deviceScale = fixedSize && pane.device ? fittedDeviceBounds({ x: 0, y: 0, ...fixedSize }, pane.device).scale : fitted.scale
+        if (pane.device && live.deviceScale !== deviceScale) {
+          live.deviceScale = deviceScale
           void live.ready.then(() => {
-            if (!live.disposed && live.deviceScale === fitted.scale) return applyDeviceMetrics(live.contents, persona, fitted.scale)
+            if (!live.disposed && live.deviceScale === deviceScale) return applyDeviceMetrics(live.contents, pane.device!, deviceScale)
           }).catch(error => {
-            if (live.disposed || live.deviceScale !== fitted.scale) return
+            if (live.disposed || live.deviceScale !== deviceScale) return
             live.deviceScale = undefined
             reportError(error)
           })
         }
       }
-      let remoteSize = remoteSizes.get(tabId)
-      if (remoteSize && controls.get(tabById(model, tabId).session.id)?.generation === remoteSize.lease) {
+      if (fixedSize) {
         if (!live.remoteFrame) {
           live.remoteFrame = new View()
           // A backing layer is required for Electron to mask native child layers.
@@ -1918,15 +1933,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           live.remoteFrame.addChildView(live.view)
           live.parent.contentView.addChildView(live.remoteFrame)
         }
-        let area = target === viewer?.live.window && bounds ? bounds : { x: 0, y: 0, width: remoteSize.width, height: remoteSize.height }
+        let area = target === viewer?.live.window && bounds ? bounds : { x: 0, y: 0, ...fixedSize }
         let width = Math.max(1, Math.round(area.width)), height = Math.max(1, Math.round(area.height))
-        let scrollX = Math.min(Math.max(0, bounds?.scrollX ?? 0), Math.max(0, remoteSize.width - width))
-        let scrollY = Math.min(Math.max(0, bounds?.scrollY ?? 0), Math.max(0, remoteSize.height - height))
+        let scrollX = Math.min(Math.max(0, bounds?.scrollX ?? 0), Math.max(0, fixedSize.width - width))
+        let scrollY = Math.min(Math.max(0, bounds?.scrollY ?? 0), Math.max(0, fixedSize.height - height))
         live.remoteFrame.setBounds({ x: Math.round(area.x), y: Math.round(area.y), width, height })
-        live.view.setBounds({ x: Math.max(0, Math.round((width - remoteSize.width) / 2)) - Math.round(scrollX), y: Math.max(0, Math.round((height - remoteSize.height) / 2)) - Math.round(scrollY), width: remoteSize.width, height: remoteSize.height })
+        live.view.setBounds({ x: Math.max(0, Math.round((width - fixedSize.width) / 2)) - Math.round(scrollX), y: Math.max(0, Math.round((height - fixedSize.height) / 2)) - Math.round(scrollY), width: fixedSize.width, height: fixedSize.height })
       }
       live.inputLock?.refresh()
     }
+    if (capturedViewport) save()
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
       if (!live) continue
@@ -2157,7 +2173,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       view.webContents.on('render-process-gone', (_event, details) => trace(`${name} renderer ${details.reason}`))
     }
     let resizeChrome = () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
-    let owner: LiveClient = { window, chrome, floats: new Map(), linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
+    let owner: LiveClient = { window, chrome, floats: new Map(), floatingBounds: new Map(), linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
     resizeChrome()
@@ -2273,10 +2289,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     touchAgent(actor, pane)
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
-    let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
+    let clientId = sourceClient(contentsId)
     if (!clientId || !Array.isArray(bounds)) return
     let valid = bounds.filter(bound => ['x', 'y', 'width', 'height'].every(key => Number.isFinite(bound[key as keyof Bounds]))).map(bound => ({ ...bound, scrollX: Number.isFinite(bound.scrollX) ? Math.max(0, bound.scrollX!) : 0, scrollY: Number.isFinite(bound.scrollY) ? Math.max(0, bound.scrollY!) : 0 }))
-    clients.get(clientId)!.bounds = valid
+    let live = clients.get(clientId)!
+    if (live.chrome.webContents.id === contentsId) live.bounds = valid
+    else {
+      let paneId = [...live.floats].find(([, frame]) => frame.webContents.id === contentsId)![0]
+      let bound = valid.find(bound => bound.paneId === paneId)
+      if (bound) live.floatingBounds.set(paneId, bound)
+      else live.floatingBounds.delete(paneId)
+    }
     void scheduleVisuals()
   }
 
@@ -2585,6 +2608,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         { label: 'New Window', click: () => invoke('new-window', { session: session.id, client: client.id }) },
         { label: window.pinned ? 'Unpin Window' : 'Pin Window', click: () => invoke('toggle-window-pin', { window: window.id }) },
         { label: window.locked ? 'Unlock Window' : 'Lock Window', click: () => invoke(window.locked ? 'unlock-window' : 'lock-window', { window: window.id }) },
+        { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id, client: client.id }) },
         { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
         { type: 'separator' },
         { label: 'Move Left', enabled: index > 0 && !!session.windows[index - 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
@@ -3261,6 +3285,23 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = toggleWindowPin(model, args.window)
       changed(); await visualQueue; return window
     }
+    if (method === 'lock-viewport' || method === 'unlock-viewport') {
+      let window = resolveWindow(model, args.window)
+      if (method === 'unlock-viewport') delete window.lockedViewports
+      else if (!window.lockedViewports) {
+        let client = model.clients.find(client => client.id === (sourceClientId ?? args.client) && client.windowId === window.id)
+        let owner = client && clients.get(client.id)
+        window.lockedViewports = Object.fromEntries(window.panes.flatMap(pane => {
+          // A prompt can move the native page to another client while it is open.
+          let reported = (client && floatBounds(client, pane.id)) ?? owner?.bounds.find(bounds => bounds.paneId === pane.id)
+          let bounds = fixedViewport(pane.id) ?? (reported ? pane.device ? fittedDeviceBounds(reported, pane.device) : reported : tabs.get(pane.id)?.view.getBounds())
+          return bounds ? [[pane.id, { width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) }]] : []
+        }))
+      }
+      // A released lock returns to client sizing, including after a remote lease.
+      for (let pane of window.panes) remoteSizes.delete(pane.id)
+      changed(); await visualQueue; return window
+    }
     if (method === 'lock-window' || method === 'unlock-window') {
       let window = resolveWindow(model, args.window)
       window.locked = method === 'lock-window'
@@ -3520,7 +3561,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
       let replacement = cloneWindow(saved.window, model)
-      window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating
+      window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating; window.lockedViewports = replacement.lockedViewports
       changed(); await visualQueue; return window
     }
     if (method === 'tab.list') return walkPanes(model).filter(item => !args.pane || item.pane.id === args.pane).map(({ session, window, pane }) => ({ ...pane, paneId: pane.id, windowId: window.id, sessionId: session.id, active: model.clients.some(client => client.id === focusedClientId && client.windowId === window.id && client.paneId === pane.id), runtimeState: !tabs.has(pane.id) ? 'unloaded' : (loading[pane.id] || tabs.get(pane.id)?.pendingNavigation ? 'loading' : 'live') }))
@@ -4091,6 +4132,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let live = await ensureLiveTab(pane)
       controls.assert(paneById(model, pane).session.id, owner, generation)
       if (!Number.isInteger(width) || !Number.isInteger(height) || width < 320 || width > 1920 || height < 200 || height > 1080) throw new Error('Invalid viewport')
+      let locked = lockedViewport(pane)
+      if (locked) {
+        if (locked.width !== width || locked.height !== height) throw new Error('Viewport is locked; unlock it before resizing')
+        return remoteViewport(pane)
+      }
       let previous = remoteSizes.get(pane)?.previous ?? live.view.getBounds()
       remoteSizes.set(pane, { width, height, previous, lease: generation })
       await scheduleVisuals()
