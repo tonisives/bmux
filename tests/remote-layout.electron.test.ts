@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { build } from 'vite'
 import { externalizeDepsPlugin } from 'electron-vite'
 import fs from 'node:fs/promises'
@@ -127,6 +128,23 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect.poll(async () => Object.keys((await windowState()).lockedViewports ?? {}).length).toBe(3)
     let saved = (await windowState()).lockedViewports
     expect(saved[client.paneId]).toEqual(unlockedSize)
+    await rpc('break-pane', { client: other.id, pane: client.paneId, floating: true })
+    let floating: Page | undefined
+    await expect.poll(async () => {
+      for (let page of application.context().pages().filter(page => page.url().endsWith(`#float=${client.paneId}`))) {
+        if (await page.evaluate(async () => (await (window as any).bmux.state()).clientId) === other.id) { floating = page; return true }
+      }
+      return false
+    }).toBe(true)
+    await rpc('float.bounds', { client: other.id, pane: client.paneId, x: 80, y: 80, width: 320, height: 240, commit: true })
+    let floatingViewport = floating!.locator('[data-remote-viewport]')
+    await expect.poll(() => size(first)).toEqual(saved[client.paneId])
+    await expect.poll(async () => {
+      let area = await floatingViewport.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight })), bounds = await native()
+      return Math.abs(bounds.clip.width - area.width) <= 1 && Math.abs(bounds.clip.height - area.height) <= 1
+    }).toBe(true)
+    await floatingViewport.evaluate(element => { element.scrollLeft = 50; element.scrollTop = 60 })
+    await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -50, y: -60 })
     await otherChrome.screenshot({ path: info.outputPath('locked-split-viewport.png') })
     await closeTestApplication(application)
     application = await launch()
