@@ -346,7 +346,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     await collectNativeDiagnostics('test failure')
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      let diagnostics = await Promise.race([application.evaluate(({ webContents }) => ({ resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures, contents: webContents.getAllWebContents().map(contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading() })) })), new Promise(resolve => { timer = setTimeout(() => resolve({ error: 'Capture failure diagnostics timed out' }), 5000) })]).catch(() => null)
+      let diagnostics = await Promise.race([application.evaluate(async ({ webContents }) => ({ resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures, contents: await Promise.all(webContents.getAllWebContents().map(async contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading(), transport: contents.getURL().endsWith('/viewer') ? await contents.executeJavaScript(`({ peers: (window.stressPeers ?? []).map(peer => ({ connection: peer.connectionState, ice: peer.iceConnectionState, signaling: peer.signalingState, sctp: peer.sctp?.state })), channels: Array.from({ length: 7 }, (_, index) => window.stressChannels?.[index]?.readyState ?? 'missing') })`).catch(() => null) : undefined }))) })), new Promise(resolve => { timer = setTimeout(() => resolve({ error: 'Capture failure diagnostics timed out' }), 5000) })]).catch(() => null)
       console.info(`Capture stress failure (${rendering}): ${JSON.stringify(diagnostics)}`)
     } finally { clearTimeout(timer) }
     throw error
