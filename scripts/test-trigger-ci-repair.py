@@ -199,6 +199,29 @@ class LocalRunnerTests(unittest.TestCase):
             self.assertEqual(json.loads(output.read_text()), self.result)
             self.assertFalse((root / ".worktrees/ci-repair.lock").exists())
 
+    def test_manual_run_without_trigger_result_file_saves_its_completed_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "true"}, clear=True), patch.object(runner, "run_agent", return_value=self.result):
+                runner.main()
+            completed = root / ".worktrees/ci-repair-state/smoke/completed.json"
+            self.assertEqual(json.loads(completed.read_text()), self.result)
+
+    def test_completed_restart_delivers_the_saved_outcome_without_rerunning_an_agent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / ".worktrees/ci-repair-state"
+            completed = state / ("a" * 40) / "completed.json"
+            completed.parent.mkdir(parents=True)
+            completed.write_text(json.dumps(self.result))
+            (state / "last.json").write_text(json.dumps({"commit": "a" * 40}))
+            output = root / "result.json"
+            with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "false", "CLAWTAB_PARAM_COMMIT": "", "CLAWTAB_RESULT_FILE": str(output)}), patch.object(runner.subprocess, "run") as fetch, patch.object(runner, "run_agent") as launch:
+                runner.main()
+            launch.assert_not_called()
+            fetch.assert_not_called()
+            self.assertEqual(json.loads(output.read_text()), self.result)
+
 
 if __name__ == "__main__":
     unittest.main()

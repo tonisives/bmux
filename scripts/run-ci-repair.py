@@ -125,9 +125,12 @@ def main():
     try:
         directory = state_dir / ("smoke" if smoke else commit)
         directory.mkdir(exist_ok=True)
+        completed = directory / "completed.json"
         if smoke:
             (directory / "session.json").unlink(missing_ok=True)
-        if not smoke:
+        elif completed.exists():
+            result = read_result(completed)
+        if not smoke and result is None:
             subprocess.run(["git", "-C", str(ROOT), "fetch", "origin", "main"], check=True)
             current = subprocess.check_output([
                 "git", "-C", str(ROOT), "rev-parse", "origin/main",
@@ -141,10 +144,14 @@ def main():
             if not smoke:
                 write_json(last_repair, {"commit": commit})
             result = run_agent(smoke, commit, directory)
+        write_json(completed, result)
     finally:
         lock.rmdir()
     # The trusted wrapper writes ClawTab's result outside the agent's workspace.
-    Path(os.environ["CLAWTAB_RESULT_FILE"]).write_text(json.dumps(result))
+    result_file = os.environ.get("CLAWTAB_RESULT_FILE")
+    if result_file:
+        write_json(Path(result_file), result)
+    print(json.dumps(result))
     print(f"CI repair result: {result['status']}")
 
 
