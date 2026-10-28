@@ -218,7 +218,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
