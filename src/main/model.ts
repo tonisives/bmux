@@ -261,6 +261,7 @@ export let validateModel = (value: unknown): Model => {
       if (window.lastVisitedAt !== undefined && (!Number.isFinite(window.lastVisitedAt) || window.lastVisitedAt < 0)) throw new Error('Invalid window visit time')
       if (window.automaticName !== undefined && typeof window.automaticName !== 'boolean') throw new Error('Invalid automatic window name setting')
       if (window.pinned !== undefined && typeof window.pinned !== 'boolean') throw new Error('Invalid pinned window setting')
+      if (window.locked !== undefined && typeof window.locked !== 'boolean') throw new Error('Invalid locked window setting')
       let leaves: string[] = []
       mapLayout(window.layout, node => {
         if (node.kind === 'pane') leaves.push(node.paneId)

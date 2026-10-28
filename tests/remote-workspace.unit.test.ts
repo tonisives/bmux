@@ -69,7 +69,7 @@ it('identifies remote destinations as well as sources before applying structural
   model.sessions.push(remote)
   expect(remoteWorkspaceTargets(model, { pane: model.sessions[0].windows[0].panes[0].id, destination: remote.windows[0].panes[0].id })).toEqual([remote])
   expect(remoteWorkspaceTargets(model, { window: model.sessions[0].windows[0].id, session: remote.id })).toEqual([remote])
-  for (let command of ['new-session', 'new-window', 'split-window', 'move-pane', 'reopen-closed', 'restore-layout', 'float.bounds']) expect(remoteWorkspaceMutation(command), command).toBe(true)
+  for (let command of ['new-session', 'new-window', 'split-window', 'move-pane', 'reopen-closed', 'restore-layout', 'float.bounds', 'lock-window', 'unlock-window']) expect(remoteWorkspaceMutation(command), command).toBe(true)
   for (let shortcut of ['split-right', 'new-client', 'close-pane-or-window', 'rename-window', 'layout-tiled']) expect(remoteWorkspaceShortcut(shortcut), shortcut).toBe(true)
   for (let command of ['select-window', 'cycle-pane', 'toggle-pane-zoom', 'remote.action', 'navigate']) expect(remoteWorkspaceMutation(command), command).toBe(false)
 })

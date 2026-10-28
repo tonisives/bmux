@@ -581,6 +581,100 @@ test('close commands confirm only when an internal window contains multiple page
   await expect.poll(async () => (await state()).model.sessions[0].windows.length).toBe(1)
 })
 
+test('locked windows protect tabs and sessions through menus, commands and close shortcuts', async ({}, info) => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)!
+  let session = await rpc('new-session', { name: 'locked-windows' }), window = session.windows[0]
+  await rpc('rename-window', { window: window.id, name: 'locked-window' })
+  let second = await rpc('new-window', { session: session.id, name: 'background' })
+  let previousConfig = await fs.readFile(path.join(directory, 'config.yaml'), 'utf8')
+  let tab = chrome.locator(`[data-window-id="${window.id}"]`)
+  let close = tab.getByRole('button', { name: 'Close locked-window', exact: true })
+  let windows = async () => (await state()).model.sessions.find((item: any) => item.id === session.id).windows
+  let runCommand = async (line: string) => { await open(); await prompt().fill(line); await prompt().press('Enter') }
+  await application.evaluate(({ Menu }) => {
+    let build = Menu.buildFromTemplate
+    ;(globalThis as any).restoreLockMenu = () => { Menu.buildFromTemplate = build }
+    Menu.buildFromTemplate = template => {
+      let menu = build(template)
+      if (template.some(item => item.label === 'Duplicate Window')) {
+        ;(globalThis as any).lockMenu = menu
+        menu.popup = () => undefined
+      }
+      return menu
+    }
+  })
+  let openMenu = async (label: string) => {
+    await tab.click({ button: 'right' })
+    await expect.poll(() => application.evaluate(() => (globalThis as any).lockMenu?.items.map((item: any) => item.label))).toContain(label)
+  }
+  let menuAction = async (label: string) => { await openMenu(label); await application.evaluate(label => (globalThis as any).lockMenu.items.find((item: any) => item.label === label).click(), label) }
+  try {
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ ...parse(previousConfig), showTabCloseButtons: true }))
+    await expect.poll(async () => (await state()).showTabCloseButtons).toBe(true)
+    await rpc('switch-client', { client: client.id, session: session.id })
+    await rpc('select-window', { client: client.id, window: second.id })
+    await expect(chrome.locator(`[data-window-id="${second.id}"]`)).toHaveAttribute('data-selected', 'true')
+    await menuAction('Lock Window')
+    await expect(tab).toHaveAttribute('data-locked', 'true')
+    await expect(close).toBeDisabled()
+    expect((await state()).model.clients.find((item: any) => item.id === client.id).windowId).toBe(second.id)
+    await openMenu('Unlock Window')
+    expect(await application.evaluate(() => (globalThis as any).lockMenu.items.find((item: any) => item.label === 'Close Window').enabled)).toBe(false)
+    await menuAction('Unlock Window')
+    await expect(close).toBeEnabled()
+    await rpc('select-window', { client: client.id, window: window.id })
+    await expect(tab).toHaveAttribute('data-selected', 'true')
+    await runCommand('lock-window')
+    await expect(prompt()).toHaveCount(0)
+    await expect(tab).toHaveAttribute('data-locked', 'true')
+    await expect(tab.getByRole('img', { name: 'Locked', exact: true })).toBeVisible()
+    await expect(close).toBeDisabled()
+    await expect(rpc('kill-window', { window: window.id, confirm: true })).rejects.toThrow('Window is locked')
+    await expect(rpc('kill-pane', { pane: window.panes[0].id, confirm: true })).rejects.toThrow('Window is locked')
+    await expect(rpc('kill-session', { session: session.id, confirm: true })).rejects.toThrow('Session contains a locked window')
+    await closeShortcut('Q')
+    await closeShortcut('q')
+    await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
+    await expect(chrome.getByRole('textbox', { name: 'Close window confirmation', exact: true })).toHaveCount(0)
+    expect((await windows()).map((item: any) => item.id)).toEqual([window.id, second.id])
+    let split = await rpc('split-window', { pane: window.panes[0].id, client: client.id })
+    await expect(chrome.locator(`[data-pane-id="${split.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    await closeShortcut('Q')
+    await expect(chrome.getByRole('textbox', { name: 'Close window confirmation', exact: true })).toHaveCount(0)
+    expect((await windows())[0].panes).toHaveLength(2)
+    await closeShortcut('q')
+    await expect.poll(async () => (await windows())[0].panes.map((item: any) => item.id)).toEqual([window.panes[0].id])
+    await runCommand('close-window')
+    await expect(prompt()).toBeVisible()
+    await expect(chrome.getByRole('status').filter({ hasText: 'Window is locked' })).toBeVisible()
+    await prompt().press('Escape')
+    await chrome.getByRole('button', { name: 'Sessions', exact: true }).click()
+    let picker = chrome.getByRole('dialog', { name: 'Sessions', exact: true })
+    await expect(picker.getByRole('button', { name: 'Close session locked-windows', exact: true })).toBeDisabled()
+    await expect(picker.getByRole('button', { name: 'Close window locked-window', exact: true })).toBeDisabled()
+    await chrome.screenshot({ path: info.outputPath('locked-windows.png') })
+    await picker.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect.poll(async () => {
+      let saved = JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8'))
+      return saved.sessions.find((item: any) => item.id === session.id).windows[0].locked
+    }).toBe(true)
+    await runCommand('unlock-window')
+    await expect(prompt()).toHaveCount(0)
+    await expect(close).toBeEnabled()
+    await close.click()
+    await expect(tab).toHaveCount(0)
+    expect((await windows()).map((item: any) => item.id)).toEqual([second.id])
+  } finally {
+    await application.evaluate(() => (globalThis as any).restoreLockMenu())
+    await chrome.keyboard.press('Escape')
+    await rpc('unlock-window', { window: window.id }).catch(() => undefined)
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    await rpc('kill-session', { session: session.id, confirm: true })
+    await fs.writeFile(path.join(directory, 'config.yaml'), previousConfig)
+  }
+})
+
 test('slash searches help commands and active shortcuts; Escape clears before closing', async () => {
   await chrome.getByRole('button', { name: 'Help', exact: true }).click()
   let help = chrome.getByRole('dialog', { name: 'Help', exact: true })

@@ -77,6 +77,20 @@ describe('session layouts and persistence', () => {
       expect(() => validateModel(invalid)).toThrow('Invalid pinned window setting')
     } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
+  it('persists locked windows and accepts older state without a lock', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-locked-'))
+    try {
+      let model = initialModel(), session = model.sessions[0], window = session.windows[0]
+      expect(validateModel(structuredClone(model)).sessions[0].windows[0].locked).toBeUndefined()
+      for (let locked of [true, false]) {
+        window.locked = locked
+        writeModel(directory, model)
+        expect(readModel(directory).sessions[0].windows[0].locked).toBe(locked)
+      }
+      let invalid = { ...model, sessions: [{ ...session, windows: [{ ...window, locked: 'yes' }] }] }
+      expect(() => validateModel(invalid)).toThrow('Invalid locked window setting')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
   it('returns to an eligible opener across windows and forgets closed openers before IDs are reused', () => {
     let model = initialModel(), session = model.sessions[0], source = session.windows[0]
     let popup = newWindow('popup', session.defaultProfileId, false, model), pane = popup.panes[0]

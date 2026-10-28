@@ -47,6 +47,8 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'reopen-closed', description: 'Reopen the most recently closed pane or window', action: 'reopen-closed' },
   { command: 'rename-window', usage: 'rename-window -n NAME', description: 'Rename the current window', action: 'rename-window', control: 'rename-window' },
   { command: 'toggle-window-pin', description: 'Pin or unpin the current window', action: 'toggle-window-pin' },
+  { command: 'lock-window', description: 'Prevent closing this window and its session', action: 'lock-window' },
+  { command: 'unlock-window', description: 'Allow closing this window again', action: 'unlock-window' },
   { command: 'close-window', description: 'Close the current internal window', action: 'close-window', control: 'close-window' },
   { command: 'kill-window ', usage: 'kill-window [-t WINDOW] [--confirm]', description: 'Close an internal window by index or ID', complete: true },
   { command: 'next-window', description: 'Switch to the next window', action: 'next-window' },
