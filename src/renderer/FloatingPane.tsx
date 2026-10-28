@@ -12,6 +12,7 @@ import { CloseButton } from './CloseButton'
 import { NavigationFailure } from './NavigationFailure'
 import { captureAddressPointer, useAddressSelection } from './useAddressSelection'
 import { RemotePaneControls } from './RemotePaneControls'
+import { useViewportPan } from './useViewportPan'
 
 export let FloatingPane = () => {
   let [state, setState] = useState<PublicState | null>(null)
@@ -28,6 +29,7 @@ export let FloatingPane = () => {
   let placement = windowState?.floating?.find(item => item.paneId === paneId)
   let fixedSize = windowState?.lockedViewports?.[paneId] ?? state?.remoteSizes?.[paneId]
   let viewport = useFixedViewport(fixedSize)
+  useViewportPan(viewport, paneId, !!fixedSize)
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args: { client: state?.clientId, pane: paneId, ...args } }) }
     catch (error) { setError(String(error)); return undefined }

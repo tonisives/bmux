@@ -53,6 +53,7 @@ import type { RemotePreviewSettings, RemotePreviewRequest } from './remote-previ
 export type Bridge = {
   clipboard: (text?: string) => Promise<string>
   controls: (listener: (control: string, paneId?: string) => void) => () => void
+  viewportScroll: (listener: (paneId: string, x: number, y: number) => void) => () => void
   linkPreview: (listener: (url: string) => void) => () => void
   state: () => Promise<PublicState>
   command: (command: Command) => Promise<unknown>

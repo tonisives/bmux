@@ -25,7 +25,7 @@ test.afterAll(async () => { if (fixtureDirectory) await fs.rm(fixtureDirectory, 
 
 test('viewport lock keeps split pages fixed across resizing, client handoff and relaunch', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-viewport-lock-'))
-  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;background:rgb(207,61,89)}</style><h1>Viewport lock</h1>') })
+  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
@@ -65,9 +65,28 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     })
     await chrome.locator(`[data-window-id="${client.windowId}"]`).click({ button: 'right' })
     await expect.poll(() => application.evaluate(() => (globalThis as any).viewportMenu?.items.map((item: Electron.MenuItem) => item.label))).toContain('Lock Viewport')
+    expect(await application.evaluate(() => {
+      let items = (globalThis as any).viewportMenu.items as Electron.MenuItem[]
+      let index = items.findIndex(item => item.label === 'Lock Window')
+      return { before: items[index - 1].type, after: items[index + 2].type, icons: items.slice(index, index + 2).map(item => item.icon && typeof item.icon !== 'string' ? !item.icon.isEmpty() : false), distinct: (items[index].icon as Electron.NativeImage).toDataURL() !== (items[index + 1].icon as Electron.NativeImage).toDataURL() }
+    })).toEqual({ before: 'separator', after: 'separator', icons: [true, true], distinct: true })
     await application.evaluate(() => (globalThis as any).viewportMenu.items.find((item: Electron.MenuItem) => item.label === 'Lock Viewport').click())
     let windowState = async () => (await state()).model.sessions.flatMap((session: any) => session.windows).find((window: any) => window.id === client.windowId)
     await expect.poll(async () => (await windowState()).lockedViewports).toEqual(locked)
+    let tab = chrome.locator(`[data-window-id="${client.windowId}"]`)
+    await expect(tab.getByRole('img', { name: 'Viewport locked', exact: true })).toBeVisible()
+    await rpc('lock-window', { window: client.windowId })
+    await expect(tab.getByRole('img', { name: 'Locked', exact: true })).toBeVisible()
+    await expect(tab.getByRole('img', { name: 'Viewport locked', exact: true })).toBeVisible()
+    await rpc('toggle-window-pin', { window: client.windowId })
+    for (let icon of await tab.getByRole('img').all()) {
+      let rect = (await icon.boundingBox())!, bounds = (await tab.boundingBox())!
+      expect(rect.x).toBeGreaterThanOrEqual(bounds.x)
+      expect(rect.x + rect.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+    }
+    await chrome.screenshot({ path: info.outputPath('window-lock-icons.png') })
+    await rpc('toggle-window-pin', { window: client.windowId })
+    await rpc('unlock-window', { window: client.windowId })
     await application.evaluate(() => {
       let runtime = (globalThis as any).remoteLayoutRuntime, original = runtime.setBounds
       runtime.setBounds = (id: number, bounds: unknown) => { (globalThis as any).viewportBounds = bounds; original(id, bounds) }
@@ -93,9 +112,34 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         let area = await content(client.paneId).evaluate(element => ({ width: element.clientWidth, height: element.clientHeight })), bounds = await native()
         return Math.abs(bounds.clip.width - area.width) <= 1 && Math.abs(bounds.clip.height - area.height) <= 1
       }).toBe(true)
-      await content(client.paneId).evaluate(element => { element.scrollLeft = 60; element.scrollTop = 70 })
+      await first.mouse.move(100, 100)
+      await first.mouse.wheel(0, 80)
+      await expect.poll(() => first.evaluate(() => scrollY)).toBe(80)
+      expect(await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
+      await first.evaluate(() => scrollTo(0, 0))
+      await expect.poll(() => first.evaluate(() => scrollY)).toBe(0)
+      await first.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control')
+      try { await first.mouse.wheel(60, 70) }
+      finally { await first.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control') }
       await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 60, y: 70 })
+      expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -60, y: -70 })
+      await application.evaluate((_electron, pane) => (globalThis as any).remoteLayoutRuntime.execute({ method: 'eval', args: { pane, expression: '1', agentId: 'viewport-gesture-test' } }), client.paneId)
+      await expect.poll(async () => (await state()).lockedAgentPanes).toContain(client.paneId)
+      let shield: Page | undefined
+      await expect.poll(async () => {
+        for (let page of application.context().pages().filter(page => page.url().includes('Agent%20input%20lock'))) if (await page.title() === 'Agent input lock') { shield = page; return true }
+        return false
+      }).toBe(true)
+      await expect(shield!.getByRole('status')).toBeVisible()
+      await shield!.mouse.move(100, 100)
+      await shield!.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control')
+      try { await shield!.mouse.wheel(20, 30) }
+      finally { await shield!.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control') }
+      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 80, y: 100 })
+      await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -80, y: -100 })
+      expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+      await rpc('agent.input-lock.override', { pane: client.paneId, enabled: true })
     } catch (error) {
       let reported = await application.evaluate(({ BaseWindow }) => ({ bounds: (globalThis as any).viewportBounds, windows: BaseWindow.getAllWindows().map(window => ({ visible: window.isVisible(), focused: window.isFocused(), minimized: window.isMinimized(), bounds: window.getBounds() })) }))
       let details = { native: await native(), reported, state: await state(), scroll: await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop, width: element.clientWidth, height: element.clientHeight })) }
@@ -143,7 +187,10 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       let area = await floatingViewport.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight })), bounds = await native()
       return Math.abs(bounds.clip.width - area.width) <= 1 && Math.abs(bounds.clip.height - area.height) <= 1
     }).toBe(true)
-    await floatingViewport.evaluate(element => { element.scrollLeft = 50; element.scrollTop = 60 })
+    await first.mouse.move(100, 100)
+    await first.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control')
+    try { await first.mouse.wheel(50, 60) }
+    finally { await first.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control') }
     await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -50, y: -60 })
     await otherChrome.screenshot({ path: info.outputPath('locked-split-viewport.png') })
     await closeTestApplication(application)

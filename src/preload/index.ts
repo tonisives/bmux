@@ -8,6 +8,11 @@ let bridge: Bridge = {
     ipcRenderer.on('focus-control', handler)
     return () => ipcRenderer.removeListener('focus-control', handler)
   },
+  viewportScroll: listener => {
+    let handler = (_event: Electron.IpcRendererEvent, paneId: string, x: number, y: number) => listener(paneId, x, y)
+    ipcRenderer.on('viewport-scroll', handler)
+    return () => ipcRenderer.removeListener('viewport-scroll', handler)
+  },
   linkPreview: listener => {
     let handler = (_event: Electron.IpcRendererEvent, url: string) => listener(url)
     ipcRenderer.on('link-preview', handler)
