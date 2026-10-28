@@ -13,6 +13,11 @@ start a separate test VM. BMUX_TEST_NATIVE does not bypass this rule.
    run or passing run on an older commit is not verification. Fix failures and
    push again before calling the change complete.
 
+New Check runs share a concurrency group per branch or PR. A newer run cancels
+an older running or pending run in that group, so quick successive merges get
+one complete verification of the latest commit. Runs created before this policy
+keep their original concurrency group.
+
 Check runs unit/type/lint checks and the full Electron suite on its disposable
 macOS desktop. Browser UI work can request the visual check through
 workflow_dispatch. Focused investigation uses workflow_dispatch with test_pattern;

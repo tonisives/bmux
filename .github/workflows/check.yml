@@ -30,8 +30,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: check-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Separate new runs from runs created before automatic cancellation was enabled.
+  group: check-latest-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows:
