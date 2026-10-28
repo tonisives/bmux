@@ -40,6 +40,7 @@ import { agentScrollParams, smoothAgentScroll } from './agent-scroll'
 import { createAgentInputLock, createAgentInputOverrides, scheduleAgentInputUnlock } from './agent-input-lock'
 import { DEFAULT_AGENT_FEEDBACK, parseAgentFeedback, resolveAgentFeedback } from '../shared/agent-feedback'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
+import { remoteWebPreferences } from '../shared/remote-web-preferences'
 import { agentCommandLabel } from './agent-command-feedback'
 import { movePointer } from './pointer'
 import type { PluginContext } from '../shared/plugins'
@@ -1074,7 +1075,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let remoteWorkspaces = new Map<string, { page: RemotePage; metadata: WebContentsView; sessionId?: string; profileId: string; visited: string[]; blocked: Set<string>; previewAt: number; fetching: boolean }>()
   let createLiveRemoteTab = (tabId: string, remote: RemotePage) => {
     let { pane } = tabById(model, tabId)
-    let view = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote-client.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    let view = new WebContentsView({ webPreferences: { ...remoteWebPreferences, preload: path.join(import.meta.dirname, '../preload/remote-client.cjs') } })
     let contents = view.webContents, parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
@@ -2068,7 +2069,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     disconnectRemoteWorkspace(clientId)
     let local = resolve(model.sessions, client.sessionId, 'Session')
     let requestedPane = page.view?.pane
-    let metadata = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote-client.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    let metadata = new WebContentsView({ webPreferences: { ...remoteWebPreferences, preload: path.join(import.meta.dirname, '../preload/remote-client.cjs') } })
     let workspace = { page, metadata, profileId: local.defaultProfileId, sessionId: undefined as string | undefined, visited: [] as string[], blocked: new Set<string>(), previewAt: 0, fetching: false }
     remoteWorkspaces.set(clientId, workspace)
     let initialized = false, timer: ReturnType<typeof setTimeout>
