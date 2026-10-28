@@ -3,13 +3,13 @@ import type { WebContents } from 'electron'
 import { viewportPanDelta } from '../shared/viewport-pan'
 
 // Runs in an isolated world, including child frames, without a page preload.
-export let observeViewportPan = (marker: string, enabled: boolean, mac: boolean, delta: typeof viewportPanDelta) => {
+export let observeViewportPan = (marker: string, enabled: boolean, delta: typeof viewportPanDelta) => {
   let scope = globalThis as typeof globalThis & { bmuxViewportPan?: { enabled: boolean } }
   if (scope.bmuxViewportPan) { scope.bmuxViewportPan.enabled = enabled; return }
   let state = scope.bmuxViewportPan = { enabled }
   let report = console.debug.bind(console)
   window.addEventListener('wheel', event => {
-    if (!state.enabled || !event.isTrusted || !(mac ? event.metaKey : event.ctrlKey)) return
+    if (!state.enabled || !event.isTrusted || !event.shiftKey) return
     event.preventDefault(); event.stopImmediatePropagation()
     report(marker + JSON.stringify(delta(event, innerWidth, innerHeight)))
   }, { capture: true, passive: false })
@@ -25,7 +25,7 @@ export let createViewportPan = (contents: WebContents, enabled: () => boolean, e
     let version = ++revision
     work = work.catch(() => undefined).then(async () => {
       if (closed || contents.isDestroyed() || version !== revision) return
-      await evaluate(`(${observeViewportPan.toString()})(${JSON.stringify(marker)}, ${active}, ${process.platform === 'darwin'}, ${viewportPanDelta.toString()})`)
+      await evaluate(`(${observeViewportPan.toString()})(${JSON.stringify(marker)}, ${active}, ${viewportPanDelta.toString()})`)
     }).catch(() => { if (version === revision) previous = !active })
     return work
   }
