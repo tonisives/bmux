@@ -20,7 +20,7 @@ export let createViewportPan = (contents: WebContents, enabled: () => boolean, e
   let work = Promise.resolve()
   let refresh = (force = false) => {
     let active = enabled()
-    if (!force && active === previous || force && !active && !previous) return work
+    if (active === previous && (!force || !active)) return work
     previous = active
     let version = ++revision
     work = work.catch(() => undefined).then(async () => {
@@ -38,6 +38,8 @@ export let createViewportPan = (contents: WebContents, enabled: () => boolean, e
     } catch { /* Ignore messages outside the viewport gesture. */ }
   }
   contents.on('console-message', message)
+  contents.on('did-frame-navigate', documentReady)
+  contents.on('dom-ready', documentReady)
   contents.on('did-frame-finish-load', documentReady)
   contents.once('destroyed', () => { closed = true; ++revision })
   return { refresh }
