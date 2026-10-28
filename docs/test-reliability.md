@@ -1,5 +1,13 @@
 # Focused test verification
 
+## Closing a restored floating page
+
+The full Check on `b763c0c` closed the restored floating page after its frame
+appeared, before verifying the document had loaded, and ignored the close result.
+The fixture now waits for its counter and requires a successful close before
+checking that only the other window remains. Repeat it with the floating-page
+restore and remembered-position cases, keeping their existing assertions.
+
 ## Pane movement setup
 
 The full Check on `3e8d834` found the pane-movement fixture starting with another

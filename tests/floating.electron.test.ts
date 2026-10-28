@@ -656,6 +656,7 @@ test('only-floating windows support saved layouts, window switching and competin
   expect(restored.panes[0].profileId).toBe('profile_bot')
   expect(restored.panes[0].id).not.toBe(pane.id)
   await frame(restored.panes[0].id)
-  await rpc('kill-pane', { pane: restored.panes[0].id })
+  await rpc('wait', { tab: restored.panes[0].id, selector: '#counter' })
+  expect(await rpc('kill-pane', { pane: restored.panes[0].id })).toEqual({ closed: restored.panes[0].id })
   expect((await rpc('list-windows', { session: session.id })).map((window: any) => window.id)).toEqual([other.id])
 })
