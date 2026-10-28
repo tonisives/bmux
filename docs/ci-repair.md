@@ -15,6 +15,16 @@ The local tmux shell job `bmux/ci-repair` runs `scripts/run-ci-repair.py` with
 `codex exec --approve-for-me`. Automatic approval review applies to this job;
 normal interactive sessions keep their existing settings. The wrapper collects
 Codex's structured final response and writes the ClawTab result itself.
+It retains the repair commit and Codex session under
+`public/.worktrees/ci-repair-state`. Model-capacity errors resume that exact
+session after 30 and 60 seconds, keeping approval review and the selected model.
+Other errors stop the run and retain its checkpoint. `cwtctl jobs restart
+bmux/ci-repair` continues the last repair without requiring its trigger parameters,
+including when the interrupted agent already pushed its fix. A new request for
+an obsolete commit is skipped before starting an agent.
+Completed results are saved before delivery. Repeating a completed request returns
+its saved outcome. Manual runs print the result; triggered runs also write the
+ClawTab result file when provided.
 The tmux backend is required on this Mac because daemon child processes cannot
 read the workspace on `/Volumes/sam`.
 
