@@ -27,7 +27,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;background:rgb(207,61,89)}</style><h1>Viewport lock</h1>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let launch = () => electron.launch({ args: [path.join(fixtureDirectory, 'main/remote-layout-main.js')], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') } })
   let application = await launch()
   try {
@@ -77,7 +77,6 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(() => size(page)).toEqual(locked[pane])
       await expect.poll(() => content(pane).evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
     }
-    await content(client.paneId).evaluate(element => { element.scrollLeft = 60; element.scrollTop = 70 })
     let native = () => application.evaluate(({ BaseWindow }, url) => {
       let visit = (parent: Electron.View): any => {
         for (let view of parent.children) {
@@ -89,6 +88,11 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       return BaseWindow.getAllWindows().map(window => visit(window.contentView)).find(Boolean)
     }, url)
     try {
+      await expect.poll(async () => {
+        let area = await content(client.paneId).evaluate(element => ({ width: element.clientWidth, height: element.clientHeight })), bounds = await native()
+        return Math.abs(bounds.clip.width - area.width) <= 1 && Math.abs(bounds.clip.height - area.height) <= 1
+      }).toBe(true)
+      await content(client.paneId).evaluate(element => { element.scrollLeft = 60; element.scrollTop = 70 })
       await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 60, y: 70 })
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -60, y: -70 })
     } catch (error) {
@@ -117,10 +121,12 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       let rect = (await otherChrome.locator(`[data-content-pane-id="${client.paneId}"]`).boundingBox())!, viewport = await size(first)
       return Math.abs(rect.width - viewport.width) <= 1 && Math.abs(rect.height - viewport.height) <= 1
     }).toBe(true)
+    let unlockedSize = await size(first)
     await otherChrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
     await prompt.fill('lock-viewport'); await prompt.press('Enter')
     await expect.poll(async () => Object.keys((await windowState()).lockedViewports ?? {}).length).toBe(3)
     let saved = (await windowState()).lockedViewports
+    expect(saved[client.paneId]).toEqual(unlockedSize)
     await otherChrome.screenshot({ path: info.outputPath('locked-split-viewport.png') })
     await closeTestApplication(application)
     application = await launch()
