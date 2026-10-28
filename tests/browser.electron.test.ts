@@ -74,8 +74,6 @@ let launch = async () => {
   let packaged = process.env.BMUX_TEST_PACKAGED === '1'
   application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
-  await application.evaluate(async ({ app }) => { await app.whenReady() })
-  await observeNativeFocus(application)
   // The public CLI auto-starts a server. During a slow restore that can launch the
   // installed build against this same fixture before the test app starts listening.
   let socket = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(directory).digest('hex').slice(0, 16)}.sock`)
@@ -89,6 +87,8 @@ let launch = async () => {
     connection.on('end', () => { try { resolve(JSON.parse(response).result.pid) } catch (error) { reject(error) } })
   })
   await expect.poll(() => serverPid().catch(() => null), { timeout: 20000 }).toBe(application.process().pid)
+  // Let startup finish before entering the main process through the inspector.
+  await observeNativeFocus(application)
 }
 let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
 let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank" rel="noopener">Popup</a><a id="background-link" href="/popup">Background link</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
