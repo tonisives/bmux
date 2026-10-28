@@ -6,6 +6,7 @@ import path from 'node:path'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { remoteWebPreferences } from '../src/shared/remote-web-preferences'
 
 let captureConfig = 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n'
 
@@ -71,10 +72,10 @@ test('background panes deliver static frames without a visible window', async ()
     await test.step('Native focus lookup remains safe with an active hidden transport', async () => {
       await application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.id ?? null)
     })
-    await application.evaluate(async ({ BrowserWindow }, url) => {
-      let viewer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    await application.evaluate(async ({ BrowserWindow }, { url, preferences }) => {
+      let viewer = new BrowserWindow({ show: false, webPreferences: preferences })
       await viewer.loadURL(url + '/viewer')
-    }, origin)
+    }, { url: origin, preferences: remoteWebPreferences })
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/viewer'))).toBe(true)
     let viewer = application.context().pages().find(page => page.url().endsWith('/viewer'))!
     let offer = await application.evaluate(() => (globalThis as any).remoteOffer)
@@ -285,11 +286,11 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
         }))
       }, urls))
       await expect.poll(() => application.evaluate(() => (globalThis as any).stressOffers.filter(Boolean).length), { timeout: 20000 }).toBe(7)
-      let viewerId = await step(`Create the hidden viewer for round ${round}`, () => application.evaluate(async ({ BrowserWindow }, origin) => {
-        let viewer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+      let viewerId = await step(`Create the hidden viewer for round ${round}`, () => application.evaluate(async ({ BrowserWindow }, { origin, preferences }) => {
+        let viewer = new BrowserWindow({ show: false, webPreferences: preferences })
         await viewer.loadURL(origin + '/viewer')
         return viewer.id
-      }, origin))
+      }, { origin, preferences: remoteWebPreferences }))
       await expect.poll(() => application.context().pages().some(page => page.url() === origin + '/viewer')).toBe(true)
       let viewer = application.context().pages().find(page => page.url() === origin + '/viewer')!
       let offers = await application.evaluate(() => (globalThis as any).stressOffers)
@@ -354,7 +355,24 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
     await collectNativeDiagnostics('test failure')
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      let diagnostics = await Promise.race([application.evaluate(async ({ webContents }) => ({ resources: (globalThis as any).captureResources(), failures: (globalThis as any).captureProcessFailures, contents: await Promise.all(webContents.getAllWebContents().map(async contents => ({ id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading(), transport: contents.getURL().endsWith('/viewer') ? await contents.executeJavaScript(`(async () => ({ peers: await Promise.all((window.stressPeers ?? []).map(async peer => ({ connection: peer.connectionState, ice: peer.iceConnectionState, signaling: peer.signalingState, sctp: peer.sctp?.state, channels: [...(await peer.getStats()).values()].filter(stat => stat.type === 'data-channel').map(stat => ({ state: stat.state, messagesSent: stat.messagesSent, messagesReceived: stat.messagesReceived })) }))), channels: Array.from({ length: 7 }, (_, index) => window.stressChannels?.[index]?.readyState ?? 'missing'), events: window.stressChannelEvents }))()`).catch(() => null) : undefined }))) })), new Promise(resolve => { timer = setTimeout(() => resolve({ error: 'Capture failure diagnostics timed out' }), 5000) })]).catch(() => null)
+      let diagnostics = await Promise.race([application.evaluate(async ({ webContents }) => ({
+        resources: (globalThis as any).captureResources(),
+        failures: (globalThis as any).captureProcessFailures,
+        contents: await Promise.all(webContents.getAllWebContents().map(async contents => ({
+          id: contents.id, crashed: contents.isCrashed(), loading: contents.isLoading(),
+          transport: contents.getURL().endsWith('/viewer') ? await contents.executeJavaScript(`(async () => ({
+            peers: await Promise.all((window.stressPeers ?? []).map(async peer => ({
+              connection: peer.connectionState, ice: peer.iceConnectionState,
+              signaling: peer.signalingState, sctp: peer.sctp?.state,
+              channels: [...(await peer.getStats()).values()].filter(stat => stat.type === 'data-channel').map(stat => ({
+                state: stat.state, messagesSent: stat.messagesSent, messagesReceived: stat.messagesReceived,
+              })),
+            }))),
+            channels: Array.from({ length: 7 }, (_, index) => window.stressChannels?.[index]?.readyState ?? 'missing'),
+            events: window.stressChannelEvents,
+          }))()`).catch(() => null) : undefined,
+        }))),
+      })), new Promise(resolve => { timer = setTimeout(() => resolve({ error: 'Capture failure diagnostics timed out' }), 5000) })]).catch(() => null)
       console.info(`Capture stress failure (${rendering}): ${JSON.stringify(diagnostics)}`)
     } finally { clearTimeout(timer) }
     throw error

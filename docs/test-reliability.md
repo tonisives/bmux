@@ -1,5 +1,21 @@
 # Focused test verification
 
+## Remote data-channel observer ordering
+
+The October 28 Portable hosts failure decoded all seven streams but observed
+only six open control channels. Repeated Linux runs reproduced it on both x64
+and ARM. Channel events and native WebRTC stats showed the seventh channel open,
+while its JavaScript `readyState` had returned to `connecting`.
+
+Chromium 152's [transferable-channel initialization](https://chromium.googlesource.com/chromium/src/+/refs/tags/152.0.7977.78/third_party/blink/renderer/modules/peerconnection/rtc_data_channel.cc)
+defers observer registration and posts state snapshots across threads. The
+observed regression is consistent with a stale snapshot arriving after opening.
+BMUX-owned remote renderers now disable channel transfer to register observers
+synchronously; these channels stay in their original renderer. The hidden test
+viewers share those preferences and retain channel events and native stats on
+failure. Verify the capture cases with repetitions on both Linux architectures
+and macOS, retaining all seven open channels and delivered control messages.
+
 ## October 27 full-suite failures
 
 The full Check on `e8b8516` found two stale fixture assumptions. Profile settings
