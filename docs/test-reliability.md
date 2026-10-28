@@ -1,5 +1,13 @@
 # Focused test verification
 
+## Pane movement fixture selection
+
+The October 28 full Check failed before its first pane movement: after loading
+three fixture pages, the test assumed the last split still selected the third
+pane. It now selects that pane explicitly after page setup, then retains the
+selection assertion and the checks that detached moves preserve selection. Repeat it with
+the preceding pane-join case to cover shared client state.
+
 ## Remote data-channel observer ordering
 
 The October 28 Portable hosts failure decoded all seven streams but observed
