@@ -494,7 +494,11 @@ test('Command+W closes an internal window or its session while the command and m
   let clientsBefore = await cli('list-clients')
   // Cmd+N registers the client before its renderer and native focus are ready.
   let activate = async (clientId: string, window?: { id: string; panes: { id: string }[] }) => {
-    await rendererForClient(clientId, window ? { sessionId: session.id, windowId: window.id, paneId: window.panes[0].id } : undefined)
+    let chrome = await rendererForClient(clientId)
+    if (window) {
+      await expect(chrome.locator(`[data-window-id="${window.id}"]`)).toHaveAttribute('data-selected', 'true')
+      await expect(chrome.locator(`[data-pane-id="${window.panes[0].id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    }
     await cli('activate-client', { client: clientId })
     await expect.poll(async () => {
       let diagnostics = await cli('diagnostics')
@@ -506,6 +510,7 @@ test('Command+W closes an internal window or its session while the command and m
     await sendNativeKeys(application, [{ keyCode: 'n', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length + 1)
     let openedClientId = (await cli('list-clients')).find((item: { id: string }) => !clientsBefore.some((prior: { id: string }) => prior.id === item.id)).id
+    await activate(openedClientId, session.windows[0])
     let secondWindow = await cli('new-window', { session: session.id, client: openedClientId })
     await activate(openedClientId, secondWindow)
     await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
@@ -522,6 +527,7 @@ test('Command+W closes an internal window or its session while the command and m
     await sendNativeKeys(application, [{ keyCode: 'n', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length + 1)
     openedClientId = (await cli('list-clients')).find((item: { id: string }) => !clientsBefore.some((prior: { id: string }) => prior.id === item.id)).id
+    await activate(openedClientId)
     expect(await application.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('close-system-window')?.label)).toBe('Close System Window')
     await cli('command-line', { client: openedClientId, line: 'close-system-window' })
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length)
