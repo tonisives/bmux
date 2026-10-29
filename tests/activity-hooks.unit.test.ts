@@ -7,7 +7,7 @@ import type { ActivityEvent } from '../src/shared/activity'
 
 vi.mock('node:dns/promises',()=>({lookup:async()=>[{address:'1.1.1.1',family:4}]}))
 it('rejects local and mapped hook destinations',()=>{
-  for(let address of ['127.0.0.1','10.0.0.1','172.16.0.1','192.168.1.1','169.254.169.254','0.0.0.0','::1','::ffff:127.0.0.1','fc00::1','fe80::1','2001:db8::1','2002:7f00:1::'])expect(publicAddress(address),address).toBe(false)
+  for(let address of ['127.0.0.1','100.64.0.1','100.127.255.254','10.0.0.1','172.16.0.1','192.168.1.1','169.254.169.254','0.0.0.0','::1','::ffff:127.0.0.1','fc00::1','fe80::1','2001:db8::1','2002:7f00:1::'])expect(publicAddress(address),address).toBe(false)
   for(let address of ['1.1.1.1','8.8.8.8','2606:4700:4700::1111'])expect(publicAddress(address),address).toBe(true)
 })
 describe.skipIf(!process.env.BMUX_HOOKS_TEST_DATABASE_URL).sequential('durable relay hooks',()=>{

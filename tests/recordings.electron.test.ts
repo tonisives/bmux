@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { pathToFileURL } from 'node:url'
 
 test('records a pane without changing selection, saves playable video, and preserves history across restarts',async()=>{
   let directory=await fs.mkdtemp(path.join(os.tmpdir(),'bmux-recording-')),application:Awaited<ReturnType<typeof electron.launch>>|undefined
@@ -24,7 +25,9 @@ test('records a pane without changing selection, saves playable video, and prese
     await rpc('record.stop',{id:first.id})
     await expect.poll(async()=>((await rpc('record.list')) as any[]).find(item=>item.id===first.id)?.clips[0]?.state,{timeout:15000}).toMatch(/^saved/)
     let clip=((await rpc('record.list')) as any[])[0].clips[0],file=clip.state==='saved'?clip.file.replace(/\.webm$/,'.mp4'):clip.file
-    let opened=application!.waitForEvent('window');await application!.evaluate(async({BrowserWindow},file)=>{let window=new BrowserWindow({show:false,webPreferences:{sandbox:true}});await window.loadFile(file)},file);let video=await opened;await expect.poll(()=>video.locator('video').evaluate((video:HTMLVideoElement)=>video.videoWidth)).toBeGreaterThan(0);await video.close()
+    let player=path.join(directory,'player.html');await fs.writeFile(player,`<!doctype html><title>Recorded video</title><video controls autoplay muted src="${pathToFileURL(file).href}"></video>`)
+    await test.info().attach('recorded-pane',{body:await fs.readFile(file),contentType:clip.state==='saved'?'video/mp4':'video/webm'})
+    let opened=application!.waitForEvent('window');await application!.evaluate(async({BrowserWindow},file)=>{let window=new BrowserWindow({show:false,webPreferences:{sandbox:true}});await window.loadFile(file)},player);let video=await opened;await expect.poll(()=>video.locator('video').evaluate((video:HTMLVideoElement)=>video.videoWidth)).toBeGreaterThan(0);await video.close()
     await closeTestApplication(application);application=undefined;chrome=await launch()
     expect((await rpc('record.list')) as any[]).toHaveLength(1)
     await rpc('record.start',{pane,output,id:'second-recording'});await rpc('record.stop',{id:'second-recording'})

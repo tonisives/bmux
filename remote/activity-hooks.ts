@@ -11,7 +11,7 @@ let key = () => { let value = Buffer.from(process.env.BMUX_HOOKS_ENCRYPTION_KEY 
 let encrypt = (text: string) => { let iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key(), iv); return Buffer.concat([iv, cipher.update(text), cipher.final(), cipher.getAuthTag()]).toString('base64') }
 let decrypt = (text: string) => { let bytes = Buffer.from(text, 'base64'), cipher = createDecipheriv('aes-256-gcm', key(), bytes.subarray(0,12)); cipher.setAuthTag(bytes.subarray(-16)); return Buffer.concat([cipher.update(bytes.subarray(12,-16)),cipher.final()]).toString() }
 export let publicAddress = (address: string) => {
-  if (isIP(address) === 4) return !/^(0\.|10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|192\.0\.|198\.(1[89])\.)/.test(address) && Number(address.split('.')[0]) < 224
+  if (isIP(address) === 4) return !/^(0\.|10\.|127\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|192\.0\.|198\.(1[89])\.)/.test(address) && Number(address.split('.')[0]) < 224
   return isIP(address) === 6 && /^[23][0-9a-f]{3}:/i.test(address) && !/^2001:(db8|0{0,3}):/i.test(address) && !/^2002:/i.test(address)
 }
 let publicUrl = async (value: string) => {
@@ -26,7 +26,7 @@ type Send = (url: string,method: 'GET' | 'POST',headers: Record<string,string>,b
 let request: Send = async (value,method,headers,body) => {
   let {url,address} = await publicUrl(value)
   return new Promise((resolve,reject) => {
-    let req = https.request(url,{method,headers,lookup:(_hostname,_options,callback)=>callback(null,address.address,address.family),timeout:10000},response=>{
+    let req = https.request(url,{method,headers,lookup:(_hostname,options,callback)=>options.all ? callback(null,[address]) : callback(null,address.address,address.family),timeout:10000},response=>{
       let chunks: Buffer[] = [], size = 0
       response.on('data',chunk=>{ size += chunk.length; if(size>65536) response.destroy(new Error('Hook response too large')); else chunks.push(chunk) })
       response.on('error',reject); response.on('end',()=>resolve({status:response.statusCode ?? 0,body:Buffer.concat(chunks).toString()}))
@@ -72,7 +72,7 @@ export let createActivityHooks = (pool: Pool,send: Send = request) => {
       await pool.query('INSERT INTO bmux_hook_deliveries(id,hook,event) VALUES($1,$2,$3)',[deliveryId,id,eventId])
       return {id:deliveryId,status:'pending'}
     }
-    let value = { ...existing,...input }, destination = {...value.destination}
+    let value = { ...existing,...input }, raw = value.destination, destination = raw && {kind:raw.kind,url:raw.url,...(raw.kind==='clawtab'?{deviceId:raw.deviceId,job:raw.job}:{})}
     if (!destination || !['webhook','clawtab'].includes(destination.kind)) throw new Error('Choose a hook destination')
     destination.url = (await publicUrl(destination.url)).url.href
     if (destination.kind === 'clawtab' && (destination.url !== 'https://triggers.clawtab.cc/v1/triggers/run' || !/^[a-f0-9-]{36}$/.test(destination.deviceId) || !/^[a-zA-Z0-9_/-]+$/.test(destination.job))) throw new Error('Set the ClawTab device and job')

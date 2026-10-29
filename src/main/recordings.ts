@@ -82,7 +82,8 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
       else if(episode)for(let pane of episode.panes)void openClip(record,pane).catch(()=>{record.error='Additional pane capture failed';save()})
     }
   })
-  let start=async(options:Options)=>{
+  let start=async(input:Options)=>{
+    let options:Options={pane:input.pane,sourcePane:input.sourcePane,host:input.host,session:input.session,generation:input.generation,episode:input.episode,id:input.id,output:input.output}
     let id=options.id??options.episode??randomUUID()
     if(!/^[a-zA-Z0-9_-]{1,128}$/.test(id))throw new Error('Invalid recording ID')
     let existing=list().find(item=>item.id===id)??previous.find(item=>item.id===id);if(existing)return existing
@@ -90,7 +91,7 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
     if([...records.values()].filter(record=>!record.finishedAt).length>=4)throw new Error('Four recordings are already active')
     let base=options.output??(process.platform==='darwin'&&fs.existsSync('/Volumes/sam')?'/Volumes/sam/movies/bmux/observations':path.join(os.homedir(),'Movies','BMUX'))
     if(!path.isAbsolute(base))throw new Error('Choose an absolute recording directory')
-    if(base.startsWith('/Volumes/sam/')&&!fs.existsSync('/Volumes/sam'))throw new Error('Recording volume is not mounted')
+    if(base.startsWith('/Volumes/sam/')&&(!fs.existsSync('/Volumes/sam')||fs.statSync('/Volumes/sam').dev===fs.statSync('/Volumes').dev))throw new Error('Recording volume is not mounted')
     let destination=path.join(base,new Date().toISOString().slice(0,10),id);fs.mkdirSync(destination,{recursive:true,mode:0o700})
     let record:Recording={id,options,startedAt:Date.now(),state:'starting',directory:destination,clips:[]};records.set(id,record)
     record.timer=setTimeout(()=>stop(id),35*60*1000);save()
