@@ -1,3 +1,5 @@
+import { installCaptureBridge } from './capture-bridge'
+installCaptureBridge()
 import type { RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Host } from '../../remote/web/client'

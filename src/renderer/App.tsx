@@ -12,6 +12,7 @@ import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
 import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 import { RemoteAccount } from './RemoteAccount'
+import { RecordControl, RecordingPanel, HooksPanel } from './Observations'
 import { RemoteMachineDetails, RemoteMachineHeading, remoteMachineName, useRemoteMachines } from './RemoteMachine'
 import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
@@ -211,12 +212,13 @@ let useOverlayFocus = (state: PublicState | null, control: Control | null, panel
 }
 
 let BrowserStatus = ({ collapsedAlerts, expandAlerts }: { collapsedAlerts: Notification[]; expandAlerts: () => void }) => {
-  let { state, control, message } = useUI()
-  let { client } = selection(state)
+  let { state, control, message, run, show } = useUI()
+  let { client, pane } = selection(state)
   if (!client) return null
   return <footer className={css.status} aria-label="Browser status">
     {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     {collapsedAlerts.length > 0 && <button type="button" className={css.agentAlertsButton} aria-label="Show agent alerts" aria-expanded="false" title={collapsedAlerts.map(notice => notice.text).join('\n')} onClick={expandAlerts}><AgentStatusIcon /><span>{collapsedAlerts.length} {collapsedAlerts.length === 1 ? 'alert' : 'alerts'}</span><AlertChevron collapsed /></button>}
+    <RecordControl run={run} pane={pane?.id} open={()=>show('activity')} />
     <BuildId />
   </footer>
 }
@@ -1519,11 +1521,12 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {type === 'history' && <HistoryPicker />}
       {type === 'downloads' && <DownloadManager />}
       {type === 'extensions' && <ExtensionsContent />}
-      {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
+      {type === 'activity' && <><RecordingsContent /><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
   return <PanelBackContext.Provider value={setDetailBack}>{content}</PanelBackContext.Provider>
 }
+let RecordingsContent = () => { let {run}=useUI();return <RecordingPanel run={run} /> }
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
   let panes = state.model.sessions.filter(session => !('sessionId' in agentDetails) || session.id === agentDetails.sessionId).flatMap(session => session.windows.filter(window => !('windowId' in agentDetails) || window.id === agentDetails.windowId).flatMap(window => window.panes))
@@ -2130,7 +2133,7 @@ let RemoteSessionPicker = () => {
   let back = useMemo(() => view ? { label: 'Back to remote sessions', run: backToSessions } : null, [view, backToSessions])
   usePanelBack(back)
   let open = (next: 'relay' | 'boxes' | 'settings') => { origin.current = next; setView(next) }
-  if (view) return <div className={css.remoteAccountPage}>{view === 'settings' ? <><h3>Remote settings</h3><RemotePreviewSettings /></> : <DesktopRemoteAccount view={view} rent={view === 'boxes'} />}</div>
+  if (view) return <div className={css.remoteAccountPage}>{view === 'settings' ? <><h3>Remote settings</h3><RemotePreviewSettings /><HooksPanel account={bridge.remoteAccount} /></> : <DesktopRemoteAccount view={view} rent={view === 'boxes'} />}</div>
   return <RemoteSessionLibrary open={open} returnFocus={origin.current} />
 }
 let useRemotePreviewImages = (all: { host: RemoteHost; session: RemoteSession }[], settings: RemotePreviewSettings) => {

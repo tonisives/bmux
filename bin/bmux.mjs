@@ -58,6 +58,11 @@ Other:    permission list | permission respond ID [--allow]
           memory [--history]
           download pause|resume|cancel|reveal ID --profile PROFILE_ID
           completions zsh (print shell completion script)
+Record:   record start -t PANE [--host HOST --session SESSION --generation GENERATION]
+          record stop ID | record list | record reveal ID | record play ID
+Hooks:    hooks list | hooks create --file JSON | hooks update ID --file JSON
+          hooks enable|disable|delete|test|deliveries ID
+          Hook JSON can be passed with --stdin to keep tokens out of command arguments.
 Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
@@ -89,7 +94,7 @@ let parse = () => {
   let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
   let explicit = new Set()
   let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-type': 'agentType', '--agent-data': 'agentData' }
-  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
+  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break
     let flag = argv[index].split('=')[0], key = flags[flag]
@@ -121,10 +126,10 @@ let parseCommand = () => {
   let command = argv.shift()
   if (command === 'movew') command = 'move-window'
   if (command === 'tab') throw new Error('Unknown command: tab')
-  let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'agent', 'pane'].includes(command) ? argv.shift() : null
+  let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'agent', 'pane', 'record', 'hooks'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
-  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait'])
+  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin'])
   let aliases = { t: 'target', s: 'name', n: 'name', c: 'client', o: 'output', W: 'floating' }
   while (argv.length) {
     let item = argv.shift()
@@ -172,6 +177,9 @@ let parseCommand = () => {
   if (method === 'permission.respond') args.id = positional[0] ?? args.id
   if (method === 'settings.prefix') args.key = positional[0] ?? args.key
   if (method === 'plugin.run') { args.action = positional[0]; args.parameters = JSON.parse(args.parameters ?? '{}') }
+  if (['record.stop','record.reveal','record.play'].includes(method)) args.id=positional[0]??args.id
+  if(command === 'hooks'){args.id=positional[0]??args.id;if(['create','update'].includes(subcommand))args.config=JSON.parse(fs.readFileSync(args.stdin ? 0 : path.resolve(args.file),'utf8'))}
+  if(method === 'record.event')args.event=JSON.parse(fs.readFileSync(args.stdin ? 0 : path.resolve(args.file),'utf8'))
   if (method === 'plugin.cancel') args.id = positional[0]
   if (method === 'automation.release') args.token = process.env.BMUX_AUTOMATION_LEASE
   if (process.env.BMUX_AUTOMATION_LEASE && !method.startsWith('automation.')) args._automationLease = process.env.BMUX_AUTOMATION_LEASE

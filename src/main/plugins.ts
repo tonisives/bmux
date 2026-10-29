@@ -13,6 +13,7 @@ type Definition = { bundled?: boolean; directory: string; manifest: PluginManife
 type Run = { public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
+  activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
   settings: () => PluginSettings
   changed: () => void
   context: (target: PluginContext) => PluginContext
@@ -165,7 +166,9 @@ export let createPlugins = (options: Options) => {
   let ready = listenSocket(server, socketPath)
   void ready.catch(() => undefined)
   let launch = async (run: Run) => {
+    let finishActivity: ((outcome?: 'success' | 'error') => void) | undefined
     try {
+      finishActivity = options.activity?.(run.context, `plugin:${run.public.pluginId}/${run.public.actionId}`)
       await ready
       for (let parameter of run.action.parameters) {
         let value = run.parameters[parameter.name]
@@ -190,7 +193,7 @@ export let createPlugins = (options: Options) => {
         child.once('exit', code => { finish(run, code === 0 ? 'completed' : 'failed', code === 0 ? undefined : 'Plugin command failed'); resolve() })
       })
     } catch { finish(run, 'failed', 'Plugin parameters or startup failed') }
-    finally { active--; pump() }
+    finally { finishActivity?.(run.public.status === 'completed' ? 'success' : 'error'); active--; pump() }
   }
   let pump = () => {
     if (closed) return

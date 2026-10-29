@@ -6,6 +6,7 @@ type Options = {
   context: (target: PluginContext) => PluginContext
   cdp: (tab: string, method: string, args?: Record<string, unknown>) => Promise<any>
   execute: (command: { method: string; args?: Record<string, unknown> }) => Promise<unknown>
+  activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
   before?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<void>
   read?: <T>(pane: string, operation: () => Promise<T>) => Promise<T>
   action?: <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner?: string) => Promise<T>
@@ -109,7 +110,8 @@ export let createPluginBrowser = (options: Options) => {
     signal.throwIfAborted()
     return options.execute({ method, args: { ...args } })
   }
-  return (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => options.action && context.paneId && agentAction(method, args)
+  let invoke = (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => options.action && context.paneId && agentAction(method, args)
     ? options.action(context.paneId, method, args, () => execute(method, args, context, signal), context.agentId)
     : execute(method, args, context, signal)
+  return async (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => { let finish = options.activity?.(context, method), outcome: 'success' | 'error' = 'error'; try { let result = await invoke(method, args, context, signal); outcome = 'success'; return result } finally { finish?.(outcome) } }
 }

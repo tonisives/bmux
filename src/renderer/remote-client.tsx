@@ -1,3 +1,4 @@
+import { recordVideoStream, captureConnectionGap, captureBridge } from './capture-stream'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent, RefObject } from 'react'
 import type { RemoteEnvelope, RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
@@ -78,10 +79,10 @@ let App = () => {
     let closed = false, reconnect: ReturnType<typeof setTimeout> | undefined
     void createViewer({
       hosts: setHosts,
-      stream: stream => { if (!closed && video.current) { if (video.current.srcObject !== stream) video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
-      state: next => { setState(next); setError('') },
+      stream: stream => { void recordVideoStream(stream).catch(() => captureBridge?.event({type:'error',error:'Video recording unavailable'})); if (!closed && video.current) { if (video.current.srcObject !== stream) video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
+      state: next => { captureBridge?.event({type:'state',activity:(next as unknown as {activity?: unknown}).activity}); setState(next); setError('') },
       error: setError,
-      disconnected: () => { if (closed) return; setError('Connection lost. Reconnecting.'); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false; reconnect = setTimeout(() => setRetry(value => value + 1), 2000) },
+      disconnected: () => { if (closed) return; captureConnectionGap(true); setError('Connection lost. Reconnecting.'); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false; reconnect = setTimeout(() => setRetry(value => value + 1), 2000) },
     }, { origin: selection.origin, connect: bridge.connect, view: selection.view, seal: bridge.seal, socket: desktopSocket, identity: {
       publicKey: selection.publicKey, fingerprint,
       sign: async () => { throw new Error('Use the desktop connection to sign') },

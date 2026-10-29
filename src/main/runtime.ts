@@ -43,6 +43,7 @@ import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
 import { remoteWebPreferences } from '../shared/remote-web-preferences'
 import { agentCommandLabel } from './agent-command-feedback'
 import { movePointer } from './pointer'
+import { createActivity } from './activity'
 import type { PluginContext } from '../shared/plugins'
 import { createRequestFilters } from './request-filters'
 import { createSavedForms } from './saved-forms'
@@ -389,6 +390,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let target = agentTarget.getStore()
     if (target?.id === paneId && currentPane(paneId) !== target) throw new Error(`Pane '${paneId}' was closed or replaced`)
   }
+  let activity = createActivity(path.join(dataDirectory, 'agent-activity.json'))
+  let activityTimer = setInterval(() => activity.tick(), 1000); activityTimer.unref()
+  let trackActivity = (paneId: string, agentId: string, method: string) => { let { pane, session } = paneById(model, paneId); return activity.begin({ paneId, sessionId: session.id, profileId: pane.profileId, agentId }, method) }
   let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
   let agentFeedback = () => configuration?.agentFeedback ?? DEFAULT_AGENT_FEEDBACK
   let virtualMouse = createVirtualMouse(undefined, undefined, paneId => resolveAgentFeedback(agentFeedback(), currentPane(paneId)?.profileId))
@@ -2343,6 +2347,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (targetPane) assertAgentTarget(targetPane.id)
     let activity = !sourceClientId && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
     if (activity) { validateAgentInfo(activity); paneById(model, activity.paneId).pane.lastUsedBy = 'agent'; activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); publish() }
+    let finishActivity = activity && targetPane ? trackActivity(targetPane.id, String(command.args?.agentId ?? targetPane.agentId ?? 'agent'), command.method) : undefined
+    let actionOutcome: 'success' | 'error' = 'error'
     let result: unknown
     try {
       let read = () => { if (targetPane) assertAgentTarget(targetPane.id); return perform(command, sourceClientId) }
@@ -2350,7 +2356,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let operation = () => automationPane && readsPage(command.method, command.args) ? readAutomationPage(automationPane, read) : read()
       let run = () => automationPane && agentAction(command.method, command.args) ? runAgentAction(automationPane, command.method, command.args ?? {}, operation) : operation()
       result = await (targetPane ? agentTarget.run(targetPane, run) : run())
+      actionOutcome = 'success'
     } finally {
+      finishActivity?.(actionOutcome)
       let current = activity ? activeAgents.get(activity.paneId) : undefined
       if (current && targetPane && currentPane(targetPane.id) === targetPane) {
         current.pending = Math.max(0, current.pending - 1); current.lastUsed = Date.now()
@@ -3941,7 +3949,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute, before: async (context, method, args) => {
+    plugins = createPlugins({ activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run') : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute, before: async (context, method, args) => {
       await guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
       if (context.paneId) tabs.get(context.paneId)?.inputLock?.showCommand(agentCommandLabel(method, args))
     } }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
@@ -3979,6 +3987,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     await app.dock?.show(); selected.window.show(); await focusWindow(selected.window)
   }
   let shutdown = () => {
+    clearInterval(activityTimer); activity.close()
     if (shuttingDown) return previewCache.flush()
     shuttingDown = true
     for (let workspace of remoteWorkspaces.values()) workspace.metadata.webContents.close({ waitForBeforeUnload: false })
@@ -4095,7 +4104,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       controls.release(session.id)
       return await execute({ method: 'kill-pane', args: { pane: paneId, confirm: true } }) as { closed?: string; cancelled?: string }
     },
-    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral).map(session => ({ ...session, revision: management.sessionRevision(session.id) })); return { capabilities: management.capabilities, sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
+    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral).map(session => ({ ...session, revision: management.sessionRevision(session.id) })); return { activity: activity.episodes(), capabilities: management.capabilities, sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
     workspace: (sessionId: string) => {
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
       if (!session) return undefined
@@ -4163,5 +4172,5 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       return remoteViewport(pane)
     },
   }
-  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

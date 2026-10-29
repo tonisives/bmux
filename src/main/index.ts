@@ -4,6 +4,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { createRecordings } from './recordings'
 import { createRuntime } from './runtime'
 import type { Command } from '../shared/types'
 import { runtimeDataDirectory } from '../../bin/runtime-paths.mjs'
@@ -30,10 +31,42 @@ let socketPath = controlSocketPath(dataDirectory)
 let runtime: ReturnType<typeof createRuntime> | undefined
 let server: net.Server | undefined
 let remoteHost: ReturnType<typeof startRemoteHost> | undefined
+let recordings: ReturnType<typeof createRecordings> | undefined
 let localRemote: ReturnType<typeof createLocalRemote> | undefined
 let enrollmentFile = path.join(dataDirectory, 'remote-enrollment.json')
 let enrolling = false
 
+let recordingCommand = async (command: Command) => {
+  let args=command.args??{}
+  if(command.method==='record.start'){let target=typeof args.pane==='string'&&!args.host?runtime!.recordingTarget(args.pane):{};return recordings!.start({...args,...target,sourcePane:typeof args.pane === 'string' ? args.pane : undefined})}
+  if(command.method==='record.event') {
+    let event=args.event as {test?:boolean;episodeId?:string;type?:string;hostId?:string;generation?:string;target?:{paneId?:string;sessionId?:string}} | undefined
+    if(event?.test === true)return {tested:true}
+    if(!event || !/^[a-f0-9-]{36}$/.test(event.episodeId ?? ''))throw new Error('Invalid activity episode')
+    if(event.type==='agent.session.end')return recordings!.skip(event.episodeId!)
+    if(event.type!=='agent.session.start')return {ignored:true}
+    if(!/^[a-f0-9-]{36}$/.test(event.hostId ?? '') || !/^[a-f0-9-]{36}$/.test(event.generation ?? '') || !event.target?.paneId || !event.target.sessionId)throw new Error('Invalid recording target')
+    return recordings!.start({id:event.episodeId,episode:event.episodeId,host:event.hostId,generation:event.generation,pane:event.target.paneId,session:event.target.sessionId})
+  }
+  if(command.method==='record.play')return recordings!.play(String(args.id))
+  if(command.method==='record.stop')return recordings!.stop(String(args.id))
+  if(command.method==='record.reveal')return recordings!.reveal(String(args.id))
+  if(['record.list','record.status'].includes(command.method))return recordings!.list()
+  throw new Error('Unknown recording command')
+}
+let hookCommand = (command: Command) => {
+  let args=command.args??{}, method=command.method.slice(6), id=typeof args.id==='string'?args.id:undefined
+  if(id && !/^[a-f0-9-]{36}$/.test(id))throw new Error('Invalid hook ID')
+  if(method==='list')return localRemote!.account('/api/hooks')
+  if(method==='create')return localRemote!.account('/api/hooks',args.config??{})
+  if(!id)throw new Error('Hook ID required')
+  if(method==='update')return localRemote!.account(`/api/hooks/${id}`,args.config??{})
+  if(method==='delete')return localRemote!.account(`/api/hooks/${id}`,undefined,'DELETE')
+  if(method==='enable'||method==='disable')return localRemote!.account(`/api/hooks/${id}`,{enabled:method==='enable'})
+  if(method==='deliveries')return localRemote!.account(`/api/hooks/${id}/deliveries`)
+  if(method==='test')return localRemote!.account(`/api/hooks/${id}/test`,{})
+  throw new Error('Unknown hooks command')
+}
 let updateMenu: ReturnType<typeof installUpdateMenu>
 
 let readyForLinks = false
@@ -85,8 +118,7 @@ void app.whenReady().then(async () => {
     if (flushing) return
     updateMenu?.close()
     remoteHost?.close()
-    localRemote?.close()
-    flushing = Promise.all([runtime?.shutdown(), localRemote?.flush()]).then(() => undefined)
+    flushing = (async () => { await recordings?.close(); localRemote?.close(); await Promise.all([runtime?.shutdown(),localRemote?.flush()]) })()
     server?.close()
     removeSocket(socketPath)
     void flushing.finally(() => { quitting = true; app.quit() })
@@ -99,6 +131,7 @@ void app.whenReady().then(async () => {
   ]))
   runtime = createRuntime(dataDirectory, () => { updateMenu?.refresh(); void localRemote?.refreshPreviewSettings().catch(() => undefined) })
   localRemote = createLocalRemote(dataDirectory, () => runtime!.state().remotePreviews!)
+  recordings = createRecordings(dataDirectory,runtime,localRemote)
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))
   ipcMain.handle('clipboard', (event, text?: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
@@ -113,13 +146,14 @@ void app.whenReady().then(async () => {
   ipcMain.handle('command', (event, command: Command) => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')
+    if(command.method.startsWith('record.'))return recordingCommand(command)
     return runtime!.execute(command, clientId)
   })
   ipcMain.handle('remote-sessions', event => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     return localRemote!.list()
   })
-  ipcMain.handle('remote-account', async (event, endpoint: string, body?: unknown) => {
+  ipcMain.handle('remote-account', async (event, endpoint: string, body?: unknown, method?: string) => {
     if (!runtime!.sourceClient(event.sender.id)) throw new Error('Untrusted renderer')
     if (typeof endpoint !== 'string') throw new Error('Invalid account endpoint')
     if (endpoint === '/local/state') return { enabled: !!remoteHost, name: os.hostname(), ...remoteHost?.status() }
@@ -151,7 +185,7 @@ void app.whenReady().then(async () => {
         return { enabled: !!remoteHost, name: os.hostname(), ...remoteHost?.status() }
       } finally { enrolling = false }
     }
-    return localRemote!.account(endpoint,body)
+    return localRemote!.account(endpoint,body,method)
   })
   ipcMain.handle('remote-billing-open', (event, value: string) => {
     let clientId = runtime!.sourceClient(event.sender.id)
@@ -218,7 +252,7 @@ void app.whenReady().then(async () => {
           if (!command || typeof command.method !== 'string' || (command.args !== undefined && (typeof command.args !== 'object' || command.args === null || Array.isArray(command.args)))) throw new Error('Invalid request')
           if (process.env.BMUX_INTERACTIVE_ONLY === 'true' && command.method !== 'status') throw new Error('This browser supports interactive access only')
           command = socketAgent(command, process.env.BMUX_DEFAULT_AGENT_ID)
-          let result = command.method === 'remote.status' ? remoteHost?.status() ?? { enabled: false }
+          let result = command.method.startsWith('record.') ? await recordingCommand(command) : command.method.startsWith('hooks.') ? await hookCommand(command) : command.method === 'remote.status' ? remoteHost?.status() ?? { enabled: false }
             : command.method === 'remote.job' ? (() => {
               if (!remoteHost) throw new Error('Remote reporting is not enabled')
               let args = command.args ?? {}
