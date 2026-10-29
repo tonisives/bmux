@@ -220,7 +220,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       void (async () => {
         let message = JSON.parse(raw.toString())
         if (message.type === 'activity-recorded') { runtime.activity.acknowledge(message.id); return }
-        if (message.type === 'ready') { activitySupported = message.activityHooks === 1; iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
+        if (message.type === 'ready') { activitySupported = message.activityHooks === 1; iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); reportActivity(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
         if (message.type === 'attention-recorded') { let item = attention.get(message.episode); if (item && item.target.revision === message.revision) item.acknowledged = true; return }
         if (message.type === 'stream-permit') { let pending = permits.get(message.request); if (pending) { clearTimeout(pending.timer); permits.delete(message.request); if (message.error) pending.reject(Object.assign(new Error(String(message.error)),{code:message.code})); else pending.resolve() } return }
         if (message.type === 'stream-revoked') { for (let [id, stream] of streams) if (stream.connection === message.connection) disconnect(id); return }
