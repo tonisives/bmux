@@ -1,5 +1,3 @@
-import { installCaptureBridge } from './capture-bridge'
-installCaptureBridge()
 import type { RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Host } from '../../remote/web/client'
@@ -24,4 +22,12 @@ contextBridge.exposeInMainWorld('remoteClient', {
     ipcRenderer.on('remote-client-socket', handler)
     return () => ipcRenderer.removeListener('remote-client-socket', handler)
   },
+})
+
+// Keep this bridge inline: sandboxed preloads cannot require a shared chunk.
+contextBridge.exposeInMainWorld('bmuxCapture', {
+  settings: () => ipcRenderer.invoke('capture-settings'),
+  chunk: (bytes: ArrayBuffer) => ipcRenderer.invoke('capture-chunk', bytes),
+  event: (value: unknown) => ipcRenderer.send('capture-event', value),
+  receive: (listener: (message: { type: string; data?: string }) => void) => { ipcRenderer.on('capture-message', (_event, value) => listener(value)) },
 })

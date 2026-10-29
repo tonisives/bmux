@@ -2347,10 +2347,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (targetPane) assertAgentTarget(targetPane.id)
     let activity = !sourceClientId && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
     if (activity) { validateAgentInfo(activity); paneById(model, activity.paneId).pane.lastUsedBy = 'agent'; activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); publish() }
-    let finishActivity = activity && targetPane ? trackActivity(targetPane.id, String(command.args?.agentId ?? targetPane.agentId ?? 'agent'), command.method) : undefined
+    let finishActivity: ((outcome?: 'success' | 'error') => void) | undefined
     let actionOutcome: 'success' | 'error' = 'error'
     let result: unknown
     try {
+      finishActivity = activity && targetPane ? trackActivity(targetPane.id, String(command.args?.agentId ?? targetPane.agentId ?? 'agent'), command.method) : undefined
       let read = () => { if (targetPane) assertAgentTarget(targetPane.id); return perform(command, sourceClientId) }
       let automationPane = !sourceClientId && !remoteActor.getStore() && typeof paneId === 'string' ? paneId : undefined
       let operation = () => automationPane && readsPage(command.method, command.args) ? readAutomationPage(automationPane, read) : read()
@@ -2358,7 +2359,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       result = await (targetPane ? agentTarget.run(targetPane, run) : run())
       actionOutcome = 'success'
     } finally {
-      finishActivity?.(actionOutcome)
       let current = activity ? activeAgents.get(activity.paneId) : undefined
       if (current && targetPane && currentPane(targetPane.id) === targetPane) {
         current.pending = Math.max(0, current.pending - 1); current.lastUsed = Date.now()
@@ -2366,6 +2366,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (pane && pane.agentId === current.agentId) Object.assign(current, agentInfo(pane))
         touchAgent(current, targetPane)
       }
+      finishActivity?.(actionOutcome)
     }
     if (client && sourceClientId) {
       let selection = ['select-window', 'cycle-window', 'switch-client', 'select-pane', 'cycle-pane', 'select-pane-direction', 'focus-page'].includes(command.method)
