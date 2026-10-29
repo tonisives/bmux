@@ -363,6 +363,9 @@ test('session reorder toggle supports dragging and keyboard moves while preservi
 })
 
 test('remote sessions open from the sessions popup title bar', async ({}, info) => {
+  await rpc('select-window', { client: (await state()).clientId, window: docsWindow.id })
+  await expect.poll(async () => (await state()).favicons[docsWindow.panes[0].id]).toBeTruthy()
+  await rpc('select-window', { client: (await state()).clientId, window: session.windows[0].id })
   let extensionPath = path.join(directory, 'remote-layout-extension')
   await fs.mkdir(extensionPath, { recursive: true })
   await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Remote layout fixture', version: '1.0', permissions: ['tabs'] }))
