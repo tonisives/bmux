@@ -41,7 +41,12 @@ test('records a pane without changing selection, saves playable video, and prese
     let clip=((await rpc('record.list')) as any[])[0].clips[0],file=clip.state==='saved'?clip.file.replace(/\.webm$/,'.mp4'):clip.file
     let player=path.join(directory,'player.html');await fs.writeFile(player,`<!doctype html><title>Recorded video</title><video controls autoplay muted src="${pathToFileURL(file).href}"></video>`)
     await test.info().attach('recorded-pane',{body:await fs.readFile(file),contentType:clip.state==='saved'?'video/mp4':'video/webm'})
-    let opened=application!.waitForEvent('window');await application!.evaluate(async({BrowserWindow},file)=>{let window=new BrowserWindow({show:false,webPreferences:{sandbox:true}});await window.loadFile(file)},player);let video=await opened;await expect.poll(()=>video.locator('video').evaluate((video:HTMLVideoElement)=>video.videoWidth)).toBeGreaterThan(0);await expect.poll(()=>video.locator('video').evaluate((video:HTMLVideoElement)=>video.readyState)).toBeGreaterThanOrEqual(2);await test.info().attach('recorded-frame',{body:await video.locator('video').screenshot(),contentType:'image/png'});await video.close()
+    await application!.evaluate(async({BrowserWindow},file)=>{let window=new BrowserWindow({show:false,webPreferences:{sandbox:true,backgroundThrottling:false}});(globalThis as any).bmuxTestRecordingPlayer=window;await window.loadFile(file)},player)
+    await expect.poll(()=>application!.context().pages().some(page=>page.url()===pathToFileURL(player).href)).toBe(true)
+    let video=application!.context().pages().find(page=>page.url()===pathToFileURL(player).href)!
+    await expect.poll(()=>video.locator('video').evaluate((video:HTMLVideoElement)=>video.videoWidth)).toBeGreaterThan(0)
+    await expect.poll(()=>video.locator('video').evaluate((video:HTMLVideoElement)=>video.readyState)).toBeGreaterThanOrEqual(2)
+    await test.info().attach('recorded-frame',{body:await video.locator('video').screenshot(),contentType:'image/png'});await video.close()
     await closeTestApplication(application);application=undefined;chrome=await launch()
     expect((await rpc('record.list')) as any[]).toHaveLength(1)
     await rpc('record.start',{pane,output,id:'second-recording'});await rpc('record.stop',{id:'second-recording'})
