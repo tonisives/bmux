@@ -15,6 +15,7 @@
 @implementation BmuxInputRegion
 @end
 static NSMutableDictionary<NSNumber *, BmuxInputRegion *> *regions;
+static id scroll_monitor;
 static char region_key;
 static NSView *hit_test(NSView *page, SEL selector, NSPoint point) {
   BmuxInputRegion *region = objc_getAssociatedObject(page, &region_key);
@@ -84,9 +85,28 @@ static napi_value clear(napi_env env, napi_callback_info info) {
   if (count == 1) restore(@(number(env, arg)));
   return nothing(env);
 }
-static void cleanup(void *data) { (void)data; for (NSNumber *key in regions.allKeys) restore(key); }
+static void cleanup(void *data) {
+  (void)data;
+  if (scroll_monitor) [NSEvent removeMonitor:scroll_monitor];
+  scroll_monitor = nil;
+  for (NSNumber *key in regions.allKeys) restore(key);
+}
 static napi_value initialize(napi_env env, napi_value exports) {
   regions = [NSMutableDictionary dictionary]; napi_add_env_cleanup_hook(env, cleanup, NULL);
+  scroll_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event) {
+    for (BmuxInputRegion *region in regions.allValues) {
+      NSView *root = region.root, *page = region.page;
+      if (!root || !page || event.window != root.window) continue;
+      NSPoint point = [root convertPoint:event.locationInWindow fromView:nil];
+      if (!NSPointInRect(point, region.rect) || NSPointInRect([root convertPoint:point toView:page], page.bounds)) continue;
+      // The compositor's clipping View claims these margins in Views hit testing,
+      // but has no native renderer to receive wheel input. Deliver it to chrome.
+      NSView *chrome = find_page(root, root, root.bounds);
+      NSView *target = [chrome hitTest:[root convertPoint:point toView:chrome.superview]];
+      if (target) { [target scrollWheel:event]; return nil; }
+    }
+    return event;
+  }];
   napi_property_descriptor methods[] = {
     { "clip", NULL, clip, NULL, NULL, NULL, napi_default, NULL },
     { "clear", NULL, clear, NULL, NULL, NULL, napi_default, NULL },
