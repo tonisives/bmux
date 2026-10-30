@@ -1519,10 +1519,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     deferredTabs.delete(tabId)
     idleUnloaded.delete(tabId)
     lastTabUse.set(tabId, Date.now())
+    let restoringHistory = !tabs.has(tabId) && !!idleHistory.get(tabId)?.entries.length
     let live = tabs.get(tabId) ?? createLiveTab(tabId, load)
     await live.ready
     if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
-    if (live.initialNavigation) {
+    if ((load || restoringHistory) && live.initialNavigation) {
       try { await live.initialNavigation }
       catch (error) { live.initialNavigation = undefined; throw error }
       live.initialNavigation = undefined
