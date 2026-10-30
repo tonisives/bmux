@@ -103,7 +103,7 @@ import { createViewportPan } from './viewport-pan'
 import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
-type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; viewportPan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; viewportPan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
@@ -1170,7 +1170,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     // blank entry first, so page tools and device settings precede the website.
     let restoringHistory = !!savedHistory?.entries.some(entry => entry.url !== 'about:blank')
     let restoringDocument = restoringHistory && savedHistory!.entries[savedHistory!.index]?.url !== 'about:blank'
-    if (restoringDocument) live.initialHistory = { index: savedHistory!.index, blankIndex: savedHistory!.entries.length, cancelled: false }
+    if (restoringDocument) live.initialHistory = { index: savedHistory!.index, blankIndex: savedHistory!.entries.length, started: false, cancelled: false }
     let bootstrap = restoringHistory ? contents.navigationHistory.restore({ entries: restoringDocument ? [...savedHistory!.entries, { url: 'about:blank', title: '' }] : savedHistory!.entries, index: restoringDocument ? savedHistory!.entries.length : savedHistory!.index })
       : pane.device ? contents.loadURL('about:blank') : Promise.resolve()
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
@@ -1502,6 +1502,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (!isLiveTabOpen(live) || live.initialHistory?.cancelled) return
         if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
         if (restoringDocument) {
+          live.initialHistory!.started = true
           await settlePageNavigation(contents, goToPageHistory(contents, savedHistory!.index))
           if (isLiveTabOpen(live) && live.initialHistory && !live.initialHistory.cancelled) {
             contents.navigationHistory.removeEntryAtIndex(live.initialHistory.blankIndex)
@@ -1516,12 +1517,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     return live
   }
-  let interruptHistoryRestore = (live: LiveTab) => {
+  let interruptHistoryRestore = async (live: LiveTab) => {
     let restore = live.initialHistory
     if (!restore || restore.cancelled) return
     restore.cancelled = true
+    let navigation = live.initialNavigation
     live.initialNavigation = undefined
     live.contents.stop()
+    // Drain the stopped request's abort before loadURL for the same URL installs
+    // its listeners; otherwise Electron can reject the new request with it.
+    if (restore.started) await navigation?.catch(() => undefined)
+    if (!isLiveTabOpen(live)) return
     let history = live.contents.navigationHistory
     if (history.getActiveIndex() === restore.blankIndex) {
       // A new URL replaces forward history. Keep the saved current entry behind
@@ -1550,7 +1556,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let live = tabs.get(tabId) ?? createLiveTab(tabId, load)
     await live.ready
     if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
-    if (!load) interruptHistoryRestore(live)
+    if (!load) await interruptHistoryRestore(live)
     if (load && live.initialNavigation) {
       try { await live.initialNavigation }
       catch (error) { live.initialNavigation = undefined; throw error }
@@ -3881,7 +3887,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
       let actor = !sourceClientId && !remoteActor.getStore() ? trackAutomatedNavigation(tabId) : undefined
-      void live.ready.then(() => { checkControl(method, args); if (isLiveTabOpen(live)) { interruptHistoryRestore(live); return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) } }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { setNavigationError(tabId, errorText(error), url); publish() } }).finally(() => {
+      void live.ready.then(async () => { checkControl(method, args); if (isLiveTabOpen(live)) { await interruptHistoryRestore(live); if (isLiveTabOpen(live)) return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) } }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { setNavigationError(tabId, errorText(error), url); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url && (live.disposed || live.contents.isDestroyed() || !live.contents.isLoading())) live.pendingUrl = undefined

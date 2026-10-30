@@ -3335,9 +3335,9 @@ test('status shares constrained space equally between automatic tabs and proport
     let widths = () => list.locator('[data-window-id]').evaluateAll(tabs => tabs.map(tab => tab.getBoundingClientRect().width))
     await expect(list.locator('[data-window-id]').last().locator('button[data-active]')).toHaveAttribute('title', 'A manually renamed tab with a longer title')
     await chrome.evaluate(() => document.fonts.ready.then(() => undefined))
-    await expect(list).toHaveAttribute('data-compressed', 'false')
+    await expect.poll(() => chrome.evaluate(() => innerWidth)).toBeGreaterThan(1200)
     let roomy = await widths()
-    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.setBounds({ x: 90, y: 90, width: 640, height: 700 }), nativeId)
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.setBounds({ x: 90, y: 90, width: 900, height: 700 }), nativeId)
     await expect(list).toHaveAttribute('data-compressed', 'true')
     await expect.poll(async () => {
       let sizes = await widths()

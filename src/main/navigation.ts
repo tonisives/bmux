@@ -28,9 +28,10 @@ export let goToPageHistory = (contents: WebContents, index: number) => new Promi
   let finish = () => { cleanup(); resolve() }
   let inPage = (_event: Electron.Event, _url: string, mainFrame: boolean) => { if (mainFrame) finish() }
   let destroyed = () => { cleanup(); reject(new Error('Page closed while restoring history')) }
-  let fail = (_event: Electron.Event, _code: number, description: string, url: string, mainFrame: boolean) => {
+  let fail = (_event: Electron.Event, code: number, description: string, url: string, mainFrame: boolean) => {
     if (!mainFrame) return
-    cleanup(); reject(Object.assign(new Error(description), { code: description, url }))
+    let reason = code === -3 ? 'ERR_ABORTED' : description
+    cleanup(); reject(Object.assign(new Error(reason), { code: reason, url }))
   }
   contents.once('did-finish-load', finish)
   contents.on('did-navigate-in-page', inPage)

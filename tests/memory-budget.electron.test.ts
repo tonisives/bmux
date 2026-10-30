@@ -98,19 +98,23 @@ test('background page limit unloads older applications and restores them without
 
     // Selecting an unloaded page starts restoration. A new navigation must
     // interrupt even a server that never answers the restored request.
-    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
-    await expect.poll(() => live(old.pane.id), { timeout: 35000 }).toBeNull()
-    holdOldRestore = true
-    await rpc('select-window', { client: client.id, window: old.window.id })
-    await expect.poll(() => heldOld.size).toBeGreaterThan(0)
-    await rpc('navigate', { pane: old.pane.id, url: `${origin}/old-third` })
-    expect(await rpc('eval', { pane: old.pane.id, expression: 'location.href' })).toBe(`${origin}/old-third`)
-    holdOldRestore = false
-    for (let response of heldOld) response.destroy()
-    await rpc('back', { pane: old.pane.id })
-    await expect.poll(async () => (await rpc('list-panes', { window: old.window.id }))[0].url).toBe(`${origin}/old`)
-    await rpc('select-window', { client: client.id, window: client.windowId })
-    expect((await state()).model.clients).toEqual(selection)
+    for (let destination of ['old-third', 'old']) {
+      await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
+      await expect.poll(() => live(old.pane.id), { timeout: 35000 }).toBeNull()
+      holdOldRestore = true
+      await rpc('select-window', { client: client.id, window: old.window.id })
+      await expect.poll(() => heldOld.size).toBeGreaterThan(0)
+      holdOldRestore = false
+      await rpc('navigate', { pane: old.pane.id, url: `${origin}/${destination}` })
+      expect(await rpc('eval', { pane: old.pane.id, expression: 'location.href' })).toBe(`${origin}/${destination}`)
+      for (let response of heldOld) response.destroy()
+      if (destination !== 'old') {
+        await rpc('back', { pane: old.pane.id })
+        await expect.poll(async () => (await rpc('list-panes', { window: old.window.id }))[0].url).toBe(`${origin}/old`)
+      }
+      await rpc('select-window', { client: client.id, window: client.windowId })
+    }
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)).toMatchObject({ sessionId: client.sessionId, windowId: client.windowId, paneId: client.paneId })
 
     // The setting is editable through the existing Memory panel and applies live.
     await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 0 })

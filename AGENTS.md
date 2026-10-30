@@ -27,7 +27,7 @@
 ## Shared local builds
 
 On this Mac, finite builds and compilation-heavy checks use the shared macOS
-builder. All projects and worktrees share one queue, four CPUs and 8 GB RAM.
+builder. All projects and worktrees share one queue, three CPUs and 8 GB RAM.
 Use the packaging targets that call `scripts/build-local.py`, or run
 `~/.agents/scripts/buildctl run --prepare-node -- pnpm build` from the
 project directory. Do not start a second build directly on the host.
