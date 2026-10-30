@@ -12,7 +12,7 @@ void app.whenReady().then(async () => {
     resolve(points.map(point => native.hit(handle, point.x, point.y)))
   }))
   ipcMain.handle('state', event => runtime.state(runtime.sourceClient(event.sender.id)))
-  ipcMain.handle('command', (event, command) => runtime.execute(command, runtime.sourceClient(event.sender.id)))
+  ipcMain.handle('command', (event, command) => ['record.list', 'record.status'].includes(command.method) ? [] : runtime.execute(command, runtime.sourceClient(event.sender.id)))
   ipcMain.on('bounds', (event, bounds) => runtime.setBounds(event.sender.id, bounds))
   app.on('will-quit', () => runtime.shutdown())
   await runtime.start(false)

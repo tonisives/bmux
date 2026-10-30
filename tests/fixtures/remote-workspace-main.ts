@@ -30,6 +30,7 @@ void app.whenReady().then(async () => {
   ;(globalThis as any).workspaceFixture = fixture
   ipcMain.handle('state', event => runtime.state(runtime.sourceClient(event.sender.id)))
   ipcMain.handle('command', async (event, command) => {
+    if (['record.list', 'record.status'].includes(command.method)) return []
     try { return await runtime.execute(command, runtime.sourceClient(event.sender.id)) }
     catch (error) { if (String(error).includes('CONTROL_HELD')) controlErrors.push(command.method); throw error }
   })

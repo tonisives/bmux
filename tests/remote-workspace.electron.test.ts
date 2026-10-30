@@ -57,6 +57,8 @@ test('remote workspace shares local layout, keeps client selection independent, 
       // A previous local tab can finish its tooltip cleanup after switching workspaces.
       await chrome.evaluate(windowId => (window as any).bmux.command({ method: 'client.tooltip', args: { visible: false, window: windowId } }), local.windowId)
       await chrome.evaluate(async client => {
+        let recordings = await (window as any).bmux.command({ method: 'record.list' })
+        if (!Array.isArray(recordings) || recordings.length) throw new Error('Expected no fixture recordings')
         await (window as any).bmux.command({ method: 'client.overlay', args: { client, visible: false } })
         await (window as any).bmux.command({ method: 'focus-ui' })
         await (window as any).bmux.command({ method: 'focus-page', args: { client } })
