@@ -30,6 +30,7 @@ test('background page limit unloads older applications and restores them without
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string, unknown> = {}): Promise<any> => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+    let navigate = (pane: string, url: string) => test.step(`Navigate to ${new URL(url).pathname}`, () => rpc('navigate', { pane, url }), { timeout: 10000 })
     let state = () => chrome.evaluate(() => (window as any).bmux.state())
     let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
     await rpc('activate-client', { client: client.id })
@@ -47,7 +48,7 @@ test('background page limit unloads older applications and restores them without
       return { window, pane: window.panes[0], page }
     }
     let old = await create('old')
-    await rpc('navigate', { pane: old.pane.id, url: `${origin}/old-second` })
+    await navigate(old.pane.id, `${origin}/old-second`)
     await expect.poll(() => old.page.url()).toBe(`${origin}/old-second`)
     let bot = await create('background-profile', 'bot')
     let kept = await create('kept')
@@ -92,7 +93,7 @@ test('background page limit unloads older applications and restores them without
     // Explicit navigation from an unloaded page retains the previous history.
     await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
     await expect.poll(() => live(old.pane.id), { timeout: 35000 }).toBeNull()
-    await rpc('navigate', { pane: old.pane.id, url: `${origin}/old-third` })
+    await navigate(old.pane.id, `${origin}/old-third`)
     await rpc('back', { pane: old.pane.id })
     await expect.poll(async () => (await rpc('list-panes', { window: old.window.id }))[0].url).toBe(`${origin}/old`)
 
@@ -105,7 +106,7 @@ test('background page limit unloads older applications and restores them without
       await rpc('select-window', { client: client.id, window: old.window.id })
       await expect.poll(() => heldOld.size).toBeGreaterThan(0)
       holdOldRestore = false
-      await rpc('navigate', { pane: old.pane.id, url: `${origin}/${destination}` })
+      await navigate(old.pane.id, `${origin}/${destination}`)
       expect(await rpc('eval', { pane: old.pane.id, expression: 'location.href' })).toBe(`${origin}/${destination}`)
       for (let response of heldOld) response.destroy()
       if (destination !== 'old') {
