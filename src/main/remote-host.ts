@@ -36,6 +36,9 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let opening = new Map<string, symbol>()
   let previewing = new Set<string>()
   let streams = new Map<string, { owner: string; view?: string; metadata: boolean; session?: string; peer: Stream; pane?: string; request?: string; connection: string; expires?: number; expiry?: ReturnType<typeof setTimeout>; renewing?: boolean }>(), iceServers: RTCIceServer[] = []
+  let activitySupported = false
+  let reportingActivity = false
+  let reportActivity = () => { if (reportingActivity) return; reportingActivity = true; setTimeout(() => { reportingActivity = false; if (activitySupported) for (let event of runtime.activity.events().slice(0,100)) send({type:'activity',event}) },100).unref() }
   let streamPermits = false
   let attention = new Map<string, { target: ReturnType<typeof runtime.remote.attentionHistory>[number]; acknowledged: boolean }>()
   let reportAttention = () => {
@@ -216,7 +219,8 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     socket.on('message', raw => {
       void (async () => {
         let message = JSON.parse(raw.toString())
-        if (message.type === 'ready') { iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
+        if (message.type === 'activity-recorded') { runtime.activity.acknowledge(message.id); return }
+        if (message.type === 'ready') { activitySupported = message.activityHooks === 1; iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); reportActivity(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
         if (message.type === 'attention-recorded') { let item = attention.get(message.episode); if (item && item.target.revision === message.revision) item.acknowledged = true; return }
         if (message.type === 'stream-permit') { let pending = permits.get(message.request); if (pending) { clearTimeout(pending.timer); permits.delete(message.request); if (message.error) pending.reject(Object.assign(new Error(String(message.error)),{code:message.code})); else pending.resolve() } return }
         if (message.type === 'stream-revoked') { for (let [id, stream] of streams) if (stream.connection === message.connection) disconnect(id); return }
@@ -327,6 +331,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     usage()
     advertise()
     reportAttention()
+    reportActivity()
     try { for (let [id, stream] of streams) {
       if (!allowed(stream.owner)) { disconnectViewer(stream.owner); continue }
       state(id)
@@ -337,9 +342,10 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     } } catch { for (let id of streams.keys()) disconnect(id) }
   }, 5000)
   let close = () => { opening.clear(); usage(); stopped = true; clearInterval(timer); clearTimeout(retry); for (let id of streams.keys()) disconnect(id); socket?.close() }
+  let unsubscribeActivity = runtime.activity.subscribe(reportActivity)
   connect()
   return {
-    close,
+    close: () => { unsubscribeActivity(); close() },
     status: () => ({ hostId, generation, service: initial.service, publicKey: identity.publicKey, fingerprint: identity.id, connected: socket?.readyState === WebSocket.OPEN }),
     job: (id: string, attempt: string, result?: 'succeeded' | 'failed') => {
       if (!id || id.length > 256 || !attempt || attempt.length > 256) throw new Error('Invalid job identity')

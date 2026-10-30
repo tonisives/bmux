@@ -111,3 +111,11 @@ ALTER TABLE bmux_services ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 's
 ALTER TABLE bmux_host_presence ADD COLUMN IF NOT EXISTS instance text;
 ALTER TABLE bmux_host_presence ADD COLUMN IF NOT EXISTS sessions jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE bmux_host_presence ADD COLUMN IF NOT EXISTS capabilities jsonb NOT NULL DEFAULT '{}';
+
+CREATE TABLE IF NOT EXISTS bmux_activity_events(id uuid PRIMARY KEY,owner text NOT NULL,episode uuid NOT NULL,payload jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS bmux_activity_episodes(id uuid PRIMARY KEY,owner text NOT NULL,host text NOT NULL,generation text NOT NULL,session text NOT NULL,ended boolean NOT NULL DEFAULT false);
+CREATE TABLE IF NOT EXISTS bmux_activity_hooks(id uuid PRIMARY KEY,owner text NOT NULL,enabled boolean NOT NULL DEFAULT false,filter jsonb NOT NULL DEFAULT '{}',events jsonb NOT NULL,destination jsonb NOT NULL,secret text,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS bmux_hook_deliveries(id uuid PRIMARY KEY,hook uuid NOT NULL REFERENCES bmux_activity_hooks(id) ON DELETE CASCADE,event uuid NOT NULL REFERENCES bmux_activity_events(id),status text NOT NULL DEFAULT 'pending',attempts int NOT NULL DEFAULT 0,error text,next_at timestamptz NOT NULL DEFAULT now(),created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(hook,event));
+ALTER TABLE bmux_hook_deliveries ADD COLUMN IF NOT EXISTS trigger_id uuid;
+ALTER TABLE bmux_hook_deliveries ADD COLUMN IF NOT EXISTS failures integer NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS bmux_hook_delivery_pending ON bmux_hook_deliveries(next_at) WHERE status='pending';

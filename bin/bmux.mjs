@@ -58,6 +58,12 @@ Other:    permission list | permission respond ID [--allow]
           memory [--history]
           download pause|resume|cancel|reveal ID --profile PROFILE_ID
           completions zsh (print shell completion script)
+Observe:  observe -t PANE --format webm > session.webm (Ctrl-C stops capture)
+Record:   record start -t PANE [--host HOST --session SESSION --generation GENERATION]
+          record stop ID | record list | record reveal ID | record play ID
+Hooks:    hooks list | hooks create --file JSON | hooks update ID --file JSON
+          hooks enable|disable|delete|test|deliveries ID
+          Hook JSON can be passed with --stdin to keep tokens out of command arguments.
 Plugins:  plugin list | plugin run ID/ACTION [-t PANE] [--parameters JSON]
           plugin runs | plugin cancel RUN_ID | plugin reload
           plugin host METHOD [JSON_ARGS | --stdin] (inside plugin scripts)
@@ -89,7 +95,7 @@ let parse = () => {
   let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
   let explicit = new Set()
   let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-type': 'agentType', '--agent-data': 'agentData' }
-  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
+  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'no-start', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break
     let flag = argv[index].split('=')[0], key = flags[flag]
@@ -121,10 +127,10 @@ let parseCommand = () => {
   let command = argv.shift()
   if (command === 'movew') command = 'move-window'
   if (command === 'tab') throw new Error('Unknown command: tab')
-  let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'agent', 'pane'].includes(command) ? argv.shift() : null
+  let subcommand = ['remote', 'plugin', 'profile', 'permission', 'settings', 'download', 'extension', 'automation', 'agent', 'pane', 'record', 'hooks'].includes(command) ? argv.shift() : null
   let args = {}
   let positional = []
-  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait'])
+  let boolean = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'no-start'])
   let aliases = { t: 'target', s: 'name', n: 'name', c: 'client', o: 'output', W: 'floating' }
   while (argv.length) {
     let item = argv.shift()
@@ -172,6 +178,9 @@ let parseCommand = () => {
   if (method === 'permission.respond') args.id = positional[0] ?? args.id
   if (method === 'settings.prefix') args.key = positional[0] ?? args.key
   if (method === 'plugin.run') { args.action = positional[0]; args.parameters = JSON.parse(args.parameters ?? '{}') }
+  if (['record.stop','record.reveal','record.play'].includes(method)) args.id=positional[0]??args.id
+  if(command === 'hooks'){args.id=positional[0]??args.id;if(['create','update'].includes(subcommand))args.config=JSON.parse(fs.readFileSync(args.stdin ? 0 : path.resolve(args.file),'utf8'))}
+  if(method === 'record.event')args.event=JSON.parse(fs.readFileSync(args.stdin ? 0 : path.resolve(args.file),'utf8'))
   if (method === 'plugin.cancel') args.id = positional[0]
   if (method === 'automation.release') args.token = process.env.BMUX_AUTOMATION_LEASE
   if (process.env.BMUX_AUTOMATION_LEASE && !method.startsWith('automation.')) args._automationLease = process.env.BMUX_AUTOMATION_LEASE
@@ -189,6 +198,41 @@ let request = (command, socket = socketPath, timeout = 90_000) => new Promise((r
   connection.on('error', reject)
   connection.on('end', () => { try { resolve(JSON.parse(result)) } catch { reject(new Error('Invalid response from bmux')) } })
 })
+// Raw observation streams share the recorder's bounded writer and lifetime.
+let observe = async id => {
+  let stopping=false,offset=0,fd
+  let stop=()=>{stopping=true}
+  process.on('SIGINT',stop);process.on('SIGTERM',stop)
+  let outputError
+  let fail=error=>{outputError=error;stopping=true}
+  process.stdout.on('error',fail)
+  try {
+    while(true){
+      if(stopping)await request({method:'record.stop',args:{id}})
+      let response=await request({method:'record.list'})
+      if(!response.ok)throw new Error(response.error)
+      let record=response.result.find(item=>item.id===id),clip=record?.clips[0]
+      if(!record)throw new Error('Observation no longer exists')
+      if(record.error)throw new Error(record.error)
+      if(outputError)throw outputError
+      if(clip && fs.existsSync(clip.file)){
+        fd??=fs.openSync(clip.file,'r')
+        let bytes=Buffer.alloc(65536),read
+        while((read=fs.readSync(fd,bytes,0,bytes.length,offset))>0){
+          offset+=read
+          if(!process.stdout.write(bytes.subarray(0,read)))await new Promise((resolve,reject)=>{let drained=()=>{process.stdout.off('error',failed);resolve()},failed=error=>{process.stdout.off('drain',drained);reject(error)};process.stdout.once('drain',drained);process.stdout.once('error',failed)})
+          bytes=Buffer.alloc(65536)
+        }
+        if(record.finishedAt && clip.complete)break
+      }else if(record.finishedAt)break
+      await new Promise(resolve=>setTimeout(resolve,250))
+    }
+  }finally{
+    process.off('SIGINT',stop);process.off('SIGTERM',stop);process.stdout.off('error',fail)
+    if(fd!==undefined)fs.closeSync(fd)
+    await request({method:'record.stop',args:{id}}).catch(()=>undefined)
+  }
+}
 let start = async (foreground = false) => {
   let output = path.resolve(root, process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app')
   let installed = path.join(os.homedir(), 'workspace', '_tools', 'bmux.app')
@@ -248,15 +292,19 @@ try {
     process.stdout.write(`${JSON.stringify({ ok: true, result: await resolveTmuxAgent() })}\n`)
     process.exit(0)
   }
+  let observing=command.method==='observe'
+  if(observing){if(command.args?.format && command.args.format!=='webm')throw new Error('Observation streams use WebM');command={...command,method:'record.start'}}
   command = await identifyTmuxAgent(command)
   let response
   try { response = await request(command) } catch (error) {
     if (!['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error
+    if(command.args?.['no-start'])throw new Error('BMUX is not running')
     if (command.method === 'quit') { process.stdout.write(`${JSON.stringify({ ok: true, result: { running: false } })}\n`); process.exit(0) }
     await start()
     response = await request(command)
   }
-  process.stdout.write(`${JSON.stringify(response)}\n`)
+  if(observing && response.ok)await observe(response.result.id)
+  else process.stdout.write(`${JSON.stringify(response)}\n`)
   if (!response.ok) process.exitCode = 1
 } catch (error) {
   process.stderr.write(`${JSON.stringify({ ok: false, error: error.message })}\n`)

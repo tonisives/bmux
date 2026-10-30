@@ -62,7 +62,7 @@ export type Bridge = {
   closeRemoteSession: (host: string, session: string) => Promise<void>
   closeRemotePage: (host: string, session: string, pane: string) => Promise<void>
   openRemote: (host?: string, session?: string, pane?: string) => Promise<void>
-  remoteAccount: <T>(path: string, body?: unknown) => Promise<T>
+  remoteAccount: <T>(path: string, body?: unknown, method?: 'GET' | 'POST' | 'PATCH' | 'DELETE') => Promise<T>
   openRemoteBilling: (url: string) => Promise<void>
   bounds: (bounds: Bounds[]) => void
   subscribe: (listener: (state: PublicState) => void) => () => void

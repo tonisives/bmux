@@ -77,12 +77,13 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     return previews.set(selected.host, selected.session, pane, image)
   })
   ipcMain.handle('remote-client-close', event => selection(event.sender).close())
-  let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>, paneId?: string, clientId = 'default') => {
+  let open = async (hostId: string | undefined, sessionId: string | undefined, show: (page: RemotePage) => Promise<void>, paneId?: string, clientId = 'default', expectedGeneration?: string) => {
     let listing = await list()
     if (!listing.authenticated || !activeToken) throw new Error('Sign in to remote')
     if (!hostId || !sessionId) throw new Error('Remote session required')
     let host = listing.hosts.find(item => item.id === hostId && item.sessions.some(item => item.id === sessionId))
     if (!host) throw new Error('Remote session unavailable')
+    if (expectedGeneration && host.generation !== expectedGeneration) throw new Error('Remote host generation changed')
     let selected = host.sessions.find(item => item.id === sessionId)!
     if (paneId && !selected.panes.some(pane => pane.id === paneId)) throw new Error('Remote pane unavailable')
     if (selected.workspace !== 1) throw new Error('Update this remote host to use the desktop session view')
@@ -130,11 +131,12 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     closing = result.catch(() => undefined)
     return result
   }
-  let account = async (endpoint: string, body?: unknown): Promise<unknown> => {
-    if (!/^\/api\/(me|streams(?:\/disconnect)?|billing\/(status|rates|checkout|portal|cancel)|rentals(?:\/(catalog|checkout|[a-f0-9-]{36}(?:\/(cancel|delete))?))?|services(?:\/revoke)?)$/.test(endpoint)) throw new Error('Invalid account endpoint')
+  let account = async (endpoint: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<unknown> => {
+    if (!/^\/api\/hooks(?:\/[a-f0-9-]{36}(?:\/(?:test|deliveries))?)?$/.test(endpoint) && !/^\/api\/(me|streams(?:\/disconnect)?|billing\/(status|rates|checkout|portal|cancel)|rentals(?:\/(catalog|checkout|[a-f0-9-]{36}(?:\/(cancel|delete))?))?|services(?:\/revoke)?)$/.test(endpoint)) throw new Error('Invalid account endpoint')
+    if (!['GET','POST','PATCH','DELETE'].includes(method) || !endpoint.startsWith('/api/hooks') && !['GET','POST'].includes(method)) throw new Error('Invalid account operation')
     if (!activeToken) await list()
     if (!activeToken) throw new Error('Sign in to remote')
-    let response = await fetch(`${origin}${endpoint}`, { method: body === undefined ? 'GET' : 'POST', headers: { Cookie: `bmux_session=${activeToken}`, Origin: origin, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(25000) })
+    let response = await fetch(`${origin}${endpoint}`, { method, headers: { Cookie: `bmux_session=${activeToken}`, Origin: origin, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(25000) })
     if (response.status === 401) { activeToken = undefined; throw new Error('Sign in to remote') }
     let result = await response.json() as { error?: string }
     if (!response.ok) throw new Error(result.error || 'Account request unavailable')
