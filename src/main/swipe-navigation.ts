@@ -137,6 +137,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
   let hideTimer: ReturnType<typeof setTimeout> | undefined
   let history: { currentIndex: number; entries: { id: number }[] } | undefined
   let native = surface ? createSwipeSurface(contents.id, () => enabled() ? surface() : undefined, phase => {
+    if (process.env.BMUX_TEST_TRACE === '1') console.error('SWIPE phase', contents.id, phase, enabled())
     if (!enabled()) return
     void run(`globalThis.bmuxSwipe?.phase(${JSON.stringify(phase)})`)
   }) : undefined
@@ -151,6 +152,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
     let bounds = dimensions()
     if (!bounds || bounds.width < 1 || bounds.height < 1) return
     let version = epoch
+    if (process.env.BMUX_TEST_TRACE === '1') console.error('SWIPE capture', contents.id, forSwipe, version)
     capturePending = true
     try {
       let before = await readHistory()
@@ -169,7 +171,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
         captured = jpeg
         display()
       }
-    } catch { /* Capture must never block input, navigation or view attachment. */ }
+    } catch (error) { if (process.env.BMUX_TEST_TRACE === '1') console.error('SWIPE capture failed', contents.id, error); /* Capture must never block input, navigation or view attachment. */ }
     finally { capturePending = false; if (offset && !captured && version === epoch && !forSwipe) void capture(true) }
   }
   let display = () => {
@@ -185,6 +187,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
     showing = true; displayedDirection = Math.sign(offset)
   }
   let preview = (next: number) => {
+    if (process.env.BMUX_TEST_TRACE === '1') console.error('SWIPE preview', contents.id, next, { navigating, commit, captured: !!captured, capturePending, epoch })
     if (navigating || commit) return
     if (!next) {
       offset = 0
@@ -225,7 +228,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
     pending = run(`(${observeSwipe.toString()})(${JSON.stringify(marker)}, ${createSwipeGesture.toString()}, (offset => console.debug(${JSON.stringify(marker)} + JSON.stringify({ kind: "preview", offset }))), ${next})`)
     await pending
   }
-  let cancel = () => { commit = undefined; previous = undefined; epoch++; hide(); void run('globalThis.bmuxSwipe?.cancel()') }
+  let cancel = () => { if (process.env.BMUX_TEST_TRACE === '1') console.error('SWIPE cancel', contents.id, new Error().stack); commit = undefined; previous = undefined; epoch++; hide(); void run('globalThis.bmuxSwipe?.cancel()') }
   contents.on('console-message', details => {
     if (!details.message.startsWith(marker)) return
     try {
