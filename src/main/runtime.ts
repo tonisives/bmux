@@ -1168,7 +1168,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     idleHistory.delete(tabId)
     // Electron only restores history into fresh WebContents. Restore a temporary
     // blank entry first, so page tools and device settings precede the website.
-    let restoringHistory = !!savedHistory?.entries.length
+    let restoringHistory = !!savedHistory?.entries.some(entry => entry.url !== 'about:blank')
     let bootstrap = restoringHistory ? contents.navigationHistory.restore({ entries: [...savedHistory!.entries, { url: 'about:blank', title: '' }], index: savedHistory!.entries.length })
       : pane.device ? contents.loadURL('about:blank') : Promise.resolve()
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
