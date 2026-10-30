@@ -121,6 +121,13 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await first.evaluate(() => scrollTo(0, 0))
       await expect.poll(() => first.evaluate(() => scrollY)).toBe(0)
       await first.keyboard.down('Shift')
+      try { await first.mouse.wheel(0, 40) }
+      finally { await first.keyboard.up('Shift') }
+      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 40, y: 0 })
+      expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+      await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
+      await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
+      await first.keyboard.down('Shift')
       try { await first.mouse.wheel(60, 70) }
       finally { await first.keyboard.up('Shift') }
       await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 60, y: 70 })

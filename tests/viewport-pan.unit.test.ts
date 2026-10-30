@@ -25,7 +25,10 @@ test('viewport panning consumes only trusted Shift wheel input while enabled', (
   expect(reports).toHaveLength(1)
 })
 
-test('line and page wheels preserve horizontal and vertical distances', () => {
-  expect(viewportPanDelta({ deltaX: 0, deltaY: 3, deltaMode: 1 }, 320, 200)).toEqual({ x: 0, y: 48 })
+test('Shift mouse wheels scroll horizontally while trackpad axes are preserved', () => {
+  expect(viewportPanDelta({ deltaX: 0, deltaY: 3, deltaMode: 1 }, 320, 200)).toEqual({ x: 48, y: 0 })
+  expect(viewportPanDelta({ deltaX: 0, deltaY: -24, deltaMode: 0 }, 320, 200)).toEqual({ x: -24, y: 0 })
+  expect(viewportPanDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, 320, 200)).toEqual({ x: 320, y: 0 })
+  expect(viewportPanDelta({ deltaX: 24, deltaY: 0, deltaMode: 0 }, 320, 200)).toEqual({ x: 24, y: 0 })
   expect(viewportPanDelta({ deltaX: -1, deltaY: 1, deltaMode: 2 }, 320, 200)).toEqual({ x: -320, y: 200 })
 })
