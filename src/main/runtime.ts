@@ -1496,7 +1496,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       void show().catch(reportError)
     })
-    if (restoringDocument || load && initialUrl !== 'about:blank') {
+    if (load && (restoringDocument || initialUrl !== 'about:blank')) {
       let navigate = async () => {
         await live.ready
         if (!isLiveTabOpen(live) || live.initialHistory?.cancelled) return
@@ -3887,7 +3887,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
       let actor = !sourceClientId && !remoteActor.getStore() ? trackAutomatedNavigation(tabId) : undefined
-      void live.ready.then(async () => { checkControl(method, args); if (isLiveTabOpen(live)) { await interruptHistoryRestore(live); if (isLiveTabOpen(live)) return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) } }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { setNavigationError(tabId, errorText(error), url); publish() } }).finally(() => {
+      void live.ready.then(async () => { checkControl(method, args); if (isLiveTabOpen(live) && live.pendingNavigation === navigation) { await interruptHistoryRestore(live); if (isLiveTabOpen(live) && live.pendingNavigation === navigation) return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) } }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { setNavigationError(tabId, errorText(error), url); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
         if (live.pendingUrl === url && (live.disposed || live.contents.isDestroyed() || !live.contents.isLoading())) live.pendingUrl = undefined
