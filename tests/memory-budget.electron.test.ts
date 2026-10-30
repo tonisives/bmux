@@ -78,6 +78,13 @@ test('background page limit unloads older applications and restores them without
     await expect.poll(async () => (await rpc('list-panes', { window: old.window.id }))[0].url).toBe(`${origin}/old`)
     expect((await state()).model.clients).toEqual(selection)
 
+    // Explicit navigation from an unloaded page retains the previous history.
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 2 })
+    await expect.poll(() => live(old.pane.id), { timeout: 35000 }).toBeNull()
+    await rpc('navigate', { pane: old.pane.id, url: `${origin}/old-third` })
+    await rpc('back', { pane: old.pane.id })
+    await expect.poll(async () => (await rpc('list-panes', { window: old.window.id }))[0].url).toBe(`${origin}/old`)
+
     // The setting is editable through the existing Memory panel and applies live.
     await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 0 })
     await rpc('focus-ui', { client: client.id })

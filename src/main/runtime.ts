@@ -1494,7 +1494,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       void show().catch(reportError)
     })
-    if (load && initialUrl !== 'about:blank') {
+    if (restoringHistory || load && initialUrl !== 'about:blank') {
       let navigate = async () => {
         await live.ready
         if (!isLiveTabOpen(live)) return
@@ -1522,7 +1522,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let live = tabs.get(tabId) ?? createLiveTab(tabId, load)
     await live.ready
     if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
-    if (load && live.initialNavigation) {
+    if (live.initialNavigation) {
       try { await live.initialNavigation }
       catch (error) { live.initialNavigation = undefined; throw error }
       live.initialNavigation = undefined
