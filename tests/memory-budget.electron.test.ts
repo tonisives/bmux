@@ -12,7 +12,7 @@ test('background page limit unloads older applications and restores them without
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-page-budget-'))
   let server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html', 'Set-Cookie': 'fixture=retained; Path=/' })
-    response.end('<!doctype html><title>Page budget fixture</title><h1>Page budget fixture</h1><input id="draft" value=""><script>window.loadedAt=Date.now()</script>')
+    response.end('<!doctype html><title>Page budget fixture</title><h1>Page budget fixture</h1><input id="draft" value=""><div contenteditable="true"></div><div id="rich-draft" contenteditable="true"></div><script>window.loadedAt=Date.now()</script>')
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -47,29 +47,33 @@ test('background page limit unloads older applications and restores them without
     await rpc('pane.keep-alive', { pane: kept.pane.id, enabled: true })
     let edited = await create('edited')
     await edited.page.locator('#draft').fill('Unsaved draft')
+    let rich = await create('edited-rich')
+    await rich.page.locator('#rich-draft').fill('Unsaved rich text')
     let newest = await create('newest')
     let selection = (await state()).model.clients
-    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 4 })
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 5 })
     let live = async (pane: string) => (await rpc('memory')).current.panes.find((item: any) => item.paneId === pane).webContentsId
     await expect.poll(() => live(old.pane.id)).toBeNull()
     expect(await live(bot.pane.id)).not.toBeNull()
     expect(await live(newest.pane.id)).not.toBeNull()
     let busy = rpc('eval', { pane: bot.pane.id, expression: 'new Promise(resolve => { window.releaseBudget = () => resolve("finished") })' })
     await expect.poll(async () => (await rpc('memory')).current.panes.find((item: any) => item.paneId === bot.pane.id).busy).toBe(true)
-    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 2 })
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
     await expect.poll(() => live(newest.pane.id)).toBeNull()
     expect(await live(bot.pane.id)).not.toBeNull()
     await bot.page.evaluate(() => (window as any).releaseBudget())
     expect(await busy).toBe('finished')
     // Finishing a command does not change selection; the periodic budget check
     // unloads the now inactive background-profile page as well.
-    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 2 })
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
     await expect.poll(() => live(bot.pane.id), { timeout: 35000 }).toBeNull()
     expect(await live(kept.pane.id)).not.toBeNull()
     expect(await live(edited.pane.id)).not.toBeNull()
+    expect(await live(rich.pane.id)).not.toBeNull()
     expect(await live(client.paneId)).not.toBeNull()
     expect((await state()).model.clients).toEqual(selection)
     await expect(edited.page.locator('#draft')).toHaveValue('Unsaved draft')
+    await expect(rich.page.locator('#rich-draft')).toHaveText('Unsaved rich text')
     expect((await rpc('list-panes', { window: old.window.id }))[0].runtimeState).toBe('unloaded')
 
     // Agent access restores history and cookies even when all budget slots are protected.
@@ -79,7 +83,7 @@ test('background page limit unloads older applications and restores them without
     expect((await state()).model.clients).toEqual(selection)
 
     // Explicit navigation from an unloaded page retains the previous history.
-    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 2 })
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
     await expect.poll(() => live(old.pane.id), { timeout: 35000 }).toBeNull()
     await rpc('navigate', { pane: old.pane.id, url: `${origin}/old-third` })
     await rpc('back', { pane: old.pane.id })

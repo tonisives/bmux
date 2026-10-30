@@ -1552,7 +1552,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       // Cookies and scripts are normal page state. Protect edited controls in all
       // frames, while allowing ordinary authenticated applications to be unloaded.
       let inspections = contents.mainFrame.framesInSubtree.map(frame => frame.executeJavaScript(`(() => {
-        if (document.querySelector('[contenteditable]:not([contenteditable="false"])')?.textContent?.trim()) return false;
+        if ([...document.querySelectorAll('[contenteditable]:not([contenteditable="false"])')].some(field => field.textContent?.trim())) return false;
         return ![...document.querySelectorAll('input,textarea,select')].some(field => {
           if (field instanceof HTMLSelectElement) {
             let options = [...field.options];
