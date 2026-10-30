@@ -3330,7 +3330,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       owner.chrome.webContents.focus()
       return client
     }
-    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, capture: { error: frameCaptureError() ?? null, panes: [...tabs].map(([pane, live]) => ({ pane, contentsId: live.contents.id, crashed: live.contents.isCrashed(), bounds: live.view.getBounds() })) }, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), filePickers: filePickers.snapshot(), processes: app.getAppMetrics() }
+    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, capture: { error: frameCaptureError() ?? null, panes: [...tabs].filter(([, live]) => !live.disposed && !live.contents.isDestroyed()).map(([pane, live]) => ({ pane, contentsId: live.contents.id, crashed: live.contents.isCrashed(), bounds: live.view.getBounds() })) }, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), filePickers: filePickers.snapshot(), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = resolve(model.clients, args.client, 'Client')
       let session = resolve(model.sessions, args.session, 'Session')
