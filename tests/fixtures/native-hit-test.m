@@ -40,6 +40,11 @@ static napi_value scroll(napi_env env, napi_callback_info info) {
   CGEventSetLocation(cg, location);
   CGEventPost(kCGHIDEventTap, cg);
   CFRelease(cg);
+  // Reset the session's modifier state before another native-input fixture runs.
+  CGEventRef release = CGEventCreateKeyboardEvent(NULL, 56, false);
+  CGEventSetFlags(release, 0);
+  CGEventPost(kCGHIDEventTap, release);
+  CFRelease(release);
   napi_get_undefined(env, &result); return result;
 }
 static void describe(NSView *view, NSMutableString *text, NSUInteger depth) {

@@ -250,6 +250,7 @@ for (let route of ['history', 'noopener']) test(`native trackpad holds a scrolle
     int main(int argc, char **argv) {
       if (argc != 6) return 1;
       CGEventRef event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitPixel, 2, atoi(argv[3]), atoi(argv[2]));
+      CGEventSetFlags(event, 0);
       int phase = !strcmp(argv[1], "begin") ? kCGScrollPhaseBegan : !strcmp(argv[1], "change") ? kCGScrollPhaseChanged : !strcmp(argv[1], "cancel") ? kCGScrollPhaseCancelled : kCGScrollPhaseEnded;
       CGEventSetIntegerValueField(event, kCGScrollWheelEventScrollPhase, phase);
       CGEventSetLocation(event, CGPointMake(atof(argv[4]), atof(argv[5])));
