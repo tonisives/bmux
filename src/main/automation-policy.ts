@@ -125,5 +125,5 @@ export let createAutomationPolicy = (options: { file: string; settings: () => Au
       return { group: groupId, profileId, active: activeLeases.length, activeLeases, hourly: usage(eventsFor(groupId, profileId), now() - windowMs.hourly, now()), daily: usage(eventsFor(groupId, profileId), now() - windowMs.daily, now()), limits: { hourly: group.hourly, daily: group.daily, maxConcurrent: group.maxConcurrent } }
     }))
   }
-  return { acquire, release, authorize, like, status, close: () => leases.clear() }
+  return { acquire, release, authorize, like, status, hasLease: (token: string) => { expire(); return leases.has(token) }, close: () => leases.clear() }
 }

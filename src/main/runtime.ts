@@ -1503,6 +1503,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let unloadProtected = (tabId: string, live: LiveTab) => {
     let { pane, tab, session } = tabById(model, tabId)
     let contents = live.contents
+    let token = tabAutomation.get(tabId)
+    if (token && !automation?.hasLease(token)) tabAutomation.delete(tabId)
     return tab.keepAlive || session.private || remotePages.has(tabId) || remoteSizes.has(tabId) || tabIsVisible(tabId) || tabQueues.has(tabId) || tabAutomation.has(tabId) || agentInputDue(tabId)
       || live.disposed || !!live.closing || contents.isDestroyed() || contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()
       || [...permissions.values()].some(request => request.paneId === tabId) || downloads.some(download => download.profileId === pane.profileId && download.active)

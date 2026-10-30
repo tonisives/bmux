@@ -34,6 +34,17 @@ test('requires the configured plugin and serializes a shared group', () => {
   expect(policy.acquire({ profileId: 'bot', tabId: 'tab-2', url: 'https://linkedin.com/feed' }).group).toBe('social')
 })
 
+test('page lifetime checks retain active leases and expire abandoned ones', () => {
+  let { policy, advance } = fixture()
+  let lease = policy.acquire({ profileId: 'bot', tabId: 'tab-1', url: 'https://x.com/home', pluginId: 'bmux.x' })
+  expect(policy.hasLease(lease.token)).toBe(true)
+  advance(4 * 60_000)
+  expect(policy.hasLease(lease.token)).toBe(true)
+  advance(60_001)
+  expect(policy.hasLease(lease.token)).toBe(false)
+  expect(policy.status()[0].active).toBe(0)
+})
+
 test('persists rolling run and navigation counts, with idle time excluded', () => {
   let { policy, restart, advance } = fixture()
   let first = policy.acquire({ profileId: 'bot', tabId: 'tab-1', url: 'https://x.com/home', pluginId: 'bmux.x' })
