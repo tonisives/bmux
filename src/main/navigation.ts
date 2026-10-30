@@ -22,3 +22,18 @@ export let settlePageNavigation = async (contents: Contents, navigation: Promise
 }
 
 export let loadPage = (contents: WebContents, url: string, options?: Electron.LoadURLOptions) => settlePageNavigation(contents, contents.loadURL(url, options))
+
+export let goToPageHistory = (contents: WebContents, index: number) => new Promise<void>((resolve, reject) => {
+  let cleanup = () => { contents.off('did-finish-load', finish); contents.off('did-fail-load', fail); contents.off('destroyed', destroyed) }
+  let finish = () => { cleanup(); resolve() }
+  let destroyed = () => { cleanup(); reject(new Error('Page closed while restoring history')) }
+  let fail = (_event: Electron.Event, code: number, description: string, url: string, mainFrame: boolean) => {
+    if (!mainFrame || code === -3) return
+    cleanup(); reject(Object.assign(new Error(description), { code: description, url }))
+  }
+  contents.once('did-finish-load', finish)
+  contents.on('did-fail-load', fail)
+  contents.once('destroyed', destroyed)
+  try { contents.navigationHistory.goToIndex(index) }
+  catch (error) { cleanup(); reject(error) }
+})

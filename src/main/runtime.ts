@@ -92,7 +92,7 @@ import { automationWarningScript, createAutomationSafety } from './automation-sa
 import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
-import { loadPage, settlePageNavigation } from './navigation'
+import { loadPage, settlePageNavigation, goToPageHistory } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createPreviewCache } from './preview-cache'
 import { createPreviewRefresh } from './preview-refresh'
@@ -1166,6 +1166,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     idleUnloaded.delete(tabId)
     let savedHistory = idleHistory.get(tabId)
     idleHistory.delete(tabId)
+    // Electron only restores history into fresh WebContents. Restore a temporary
+    // blank entry first, so page tools and device settings precede the website.
+    let restoringHistory = !!savedHistory?.entries.length
+    let bootstrap = restoringHistory ? contents.navigationHistory.restore({ entries: [...savedHistory!.entries, { url: 'about:blank', title: '' }], index: savedHistory!.entries.length })
+      : pane.device ? contents.loadURL('about:blank') : Promise.resolve()
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
     extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), contents, parent)
@@ -1174,7 +1179,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       profileNetworkReady.get(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane)),
       // Let Chromium open native pickers. CDP interception aborts the File System
       // Access API, whose requests have no input node to receive selected files.
-      (pane.device ? contents.loadURL('about:blank').then(() => { if (isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device!) }) : Promise.resolve()).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents) }),
+      bootstrap.then(() => { if (pane.device && isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device) }).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents && !restoringHistory) }),
     ]).then(async () => { if (isLiveTabOpen(live)) { await installSwipe?.(); return startSecurity() } }).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { setNavigationError(tabId, `Device identity failed: ${errorText(error)}`); publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
@@ -1494,7 +1499,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         await live.ready
         if (!isLiveTabOpen(live)) return
         if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
-        if (savedHistory?.entries.length) await settlePageNavigation(contents, contents.navigationHistory.restore(savedHistory))
+        if (restoringHistory) {
+          await settlePageNavigation(contents, goToPageHistory(contents, savedHistory!.index))
+          if (isLiveTabOpen(live)) contents.navigationHistory.removeEntryAtIndex(savedHistory!.entries.length)
+        }
         else await loadPage(contents, initialUrl, initialLoadOptions)
       }
       let result = (serializedRestore ? queueRestoredNavigation(navigate) : navigate()).then(() => { navigationCrashMarker.clear(tabId, initialUrl) })
