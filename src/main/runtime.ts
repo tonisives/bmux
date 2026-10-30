@@ -92,7 +92,7 @@ import { automationWarningScript, createAutomationSafety } from './automation-sa
 import type { AutomationWarning } from '../shared/automation'
 import { recordHistory } from '../shared/history'
 import { localMediaResponse } from './local-media'
-import { loadPage, settlePageNavigation } from './navigation'
+import { loadPage, settlePageNavigation, goToPageHistory } from './navigation'
 import { createFaviconCache } from './favicon-cache'
 import { createPreviewCache } from './preview-cache'
 import { createPreviewRefresh } from './preview-refresh'
@@ -234,6 +234,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let lastTabUse = new Map<string, number>()
   let previouslyVisibleTabs = new Set<string>()
   let idleCheckRunning = false
+  let pageLimitTimer: ReturnType<typeof setTimeout> | undefined
   let hosts = new Map<string, BaseWindow>()
   let filePickers = createFilePickers(() => { void scheduleVisuals() })
   let memoryTimer: ReturnType<typeof setInterval> | undefined
@@ -982,6 +983,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       accessibilityPreference = configuration.accessibility
       app.setAccessibilitySupportEnabled(accessibilityPreference)
     }
+    schedulePageLimit()
     publish()
   }
   let matchesContext = (binding: Shortcut, contents: WebContents) => {
@@ -1164,6 +1166,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     idleUnloaded.delete(tabId)
     let savedHistory = idleHistory.get(tabId)
     idleHistory.delete(tabId)
+    // Electron only restores history into fresh WebContents. Restore a temporary
+    // blank entry first, so page tools and device settings precede the website.
+    let restoringHistory = !!savedHistory?.entries.some(entry => entry.url !== 'about:blank')
+    let bootstrap = restoringHistory ? contents.navigationHistory.restore({ entries: [...savedHistory!.entries, { url: 'about:blank', title: '' }], index: savedHistory!.entries.length })
+      : pane.device ? contents.loadURL('about:blank') : Promise.resolve()
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
     extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), contents, parent)
@@ -1172,7 +1179,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       profileNetworkReady.get(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane)),
       // Let Chromium open native pickers. CDP interception aborts the File System
       // Access API, whose requests have no input node to receive selected files.
-      (pane.device ? contents.loadURL('about:blank').then(() => { if (isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device!) }) : Promise.resolve()).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents) }),
+      bootstrap.then(() => { if (pane.device && isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device) }).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents && !restoringHistory) }),
     ]).then(async () => { if (isLiveTabOpen(live)) { await installSwipe?.(); return startSecurity() } }).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { setNavigationError(tabId, `Device identity failed: ${errorText(error)}`); publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
@@ -1487,12 +1494,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       }
       void show().catch(reportError)
     })
-    if (load && initialUrl !== 'about:blank') {
+    if (restoringHistory || load && initialUrl !== 'about:blank') {
       let navigate = async () => {
         await live.ready
         if (!isLiveTabOpen(live)) return
         if (!session.private) navigationCrashMarker.mark(pane.id, tabId, initialUrl)
-        if (savedHistory?.entries.length) await settlePageNavigation(contents, contents.navigationHistory.restore(savedHistory))
+        if (restoringHistory) {
+          await settlePageNavigation(contents, goToPageHistory(contents, savedHistory!.index))
+          if (isLiveTabOpen(live)) contents.navigationHistory.removeEntryAtIndex(savedHistory!.entries.length)
+        }
         else await loadPage(contents, initialUrl, initialLoadOptions)
       }
       let result = (serializedRestore ? queueRestoredNavigation(navigate) : navigate()).then(() => { navigationCrashMarker.clear(tabId, initialUrl) })
@@ -1509,10 +1519,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     deferredTabs.delete(tabId)
     idleUnloaded.delete(tabId)
     lastTabUse.set(tabId, Date.now())
+    let restoringHistory = !tabs.has(tabId) && !!idleHistory.get(tabId)?.entries.length
     let live = tabs.get(tabId) ?? createLiveTab(tabId, load)
     await live.ready
     if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
-    if (load && live.initialNavigation) {
+    if ((load || restoringHistory) && live.initialNavigation) {
       try { await live.initialNavigation }
       catch (error) { live.initialNavigation = undefined; throw error }
       live.initialNavigation = undefined
@@ -1520,11 +1531,42 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (!isLiveTabOpen(live) || tabs.get(tabId) !== live) throw new Error(`Tab ${tabId} was closed while loading`)
     return live
   }
-  let canUnloadIdleTab = async (tabId: string, live: LiveTab) => {
+  let tabIsVisible = (tabId: string) => model.clients.some(client => {
+    let owner = clients.get(client.id)
+    return owner && !owner.window.isDestroyed() && owner.window.isVisible() && !owner.window.isMinimized() && visiblePaneIds(client).includes(tabId)
+  })
+  let unloadProtected = (tabId: string, live: LiveTab) => {
     let { pane, tab, session } = tabById(model, tabId)
     let contents = live.contents
-    if (tab.keepAlive || scriptTouchedTabs.has(tabId) || session.private || resolve(model.profiles, pane.profileId, 'Profile').background || live.disposed || live.closing || contents.isDestroyed() || contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()) return false
-    if (tabAutomation.has(tabId) || permissions.size && [...permissions.values()].some(request => request.paneId === tabId) || downloads.some(download => download.profileId === pane.profileId && download.active)) return false
+    let token = tabAutomation.get(tabId)
+    if (token && !automation?.hasLease(token)) tabAutomation.delete(tabId)
+    return tab.keepAlive || session.private || remotePages.has(tabId) || remoteSizes.has(tabId) || tabIsVisible(tabId) || tabQueues.has(tabId) || tabAutomation.has(tabId) || agentInputDue(tabId)
+      || live.disposed || !!live.closing || contents.isDestroyed() || contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()
+      || [...permissions.values()].some(request => request.paneId === tabId) || downloads.some(download => download.profileId === pane.profileId && download.active)
+  }
+  let canUnloadIdleTab = async (tabId: string, live: LiveTab, budget = false) => {
+    let { pane, tab } = tabById(model, tabId)
+    let contents = live.contents
+    if (unloadProtected(tabId, live)) return false
+    if (budget) {
+      // Cookies and scripts are normal page state. Protect edited controls in all
+      // frames, while allowing ordinary authenticated applications to be unloaded.
+      let inspections = contents.mainFrame.framesInSubtree.map(frame => frame.executeJavaScript(`(() => {
+        if ([...document.querySelectorAll('[contenteditable]:not([contenteditable="false"])')].some(field => field.textContent?.trim())) return false;
+        return ![...document.querySelectorAll('input,textarea,select')].some(field => {
+          if (field instanceof HTMLSelectElement) {
+            let options = [...field.options];
+            if (field.multiple) return options.some(option => option.selected !== option.defaultSelected);
+            let initial = options.findLastIndex(option => option.defaultSelected);
+            return field.selectedIndex !== (initial < 0 && options.length ? 0 : initial);
+          }
+          if (field instanceof HTMLInputElement && ['checkbox','radio'].includes(field.type)) return field.checked !== field.defaultChecked;
+          return field.value !== field.defaultValue;
+        });
+      })()`))
+      return await Promise.race([Promise.all(inspections).then(values => values.every(value => value === true)), sleep(2000).then(() => false)])
+    }
+    if (scriptTouchedTabs.has(tabId) || resolve(model.profiles, pane.profileId, 'Profile').background) return false
     if (contents.mainFrame.framesInSubtree.length !== 1) return false
     let url = contents.getURL() || tab.url
     if (!url || !['about:', 'http:', 'https:'].includes(new URL(url).protocol)) return false
@@ -1545,21 +1587,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let checkIdleTabs = async () => {
     let minutes = configuration?.memory.idleUnloadMinutes ?? 0
-    if (!minutes || idleCheckRunning || shuttingDown) return
+    let limit = configuration?.memory.maxLoadedBackgroundPages ?? DEFAULT_MEMORY.maxLoadedBackgroundPages
+    if ((!minutes && !limit) || idleCheckRunning || shuttingDown) return
     idleCheckRunning = true
     try {
-      for (let [tabId, live] of tabs) {
+      let hidden = [...tabs].filter(([id, live]) => !remotePages.has(id) && !live.disposed && !live.contents.isDestroyed() && !tabIsVisible(id)).sort(([a], [b]) => (lastTabUse.get(a) ?? 0) - (lastTabUse.get(b) ?? 0))
+      let excess = limit ? Math.max(0, hidden.length - limit) : 0
+      for (let [tabId, live] of hidden) {
         if (remotePages.has(tabId)) continue
         let last = lastTabUse.get(tabId) ?? Date.now()
-        if (Date.now() - last < minutes * 60_000 || tabQueues.has(tabId)) continue
-        let visible = model.clients.some(client => {
-          let owner = clients.get(client.id)
-          return owner && owner.window.isVisible() && !owner.window.isMinimized() && visiblePaneIds(client).some(paneId => paneById(model, paneId).pane.id === tabId)
-        })
-        if (visible) { lastTabUse.set(tabId, Date.now()); continue }
+        let budget = excess > 0
+        if (!budget && (!minutes || Date.now() - last < minutes * 60_000)) continue
         try {
-          if (!await canUnloadIdleTab(tabId, live)) continue
-          if (tabs.get(tabId) !== live || tabQueues.has(tabId) || lastTabUse.get(tabId) !== last || live.contents.isDestroyed() || live.contents.isLoading()) continue
+          if (!await canUnloadIdleTab(tabId, live, budget)) continue
+          if (tabs.get(tabId) !== live || unloadProtected(tabId, live) || lastTabUse.get(tabId) !== last) continue
           let history = live.contents.navigationHistory
           idleHistory.set(tabId, { entries: history.getAllEntries(), index: history.getActiveIndex() })
           idleClosing.add(tabId)
@@ -1568,6 +1609,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
               if (await closeLiveTab(tabId) && tabs.get(tabId) === live) {
                 idleUnloaded.add(tabId)
                 disposeTab(tabId)
+                excess--
                 void scheduleVisuals()
               } else idleHistory.delete(tabId)
             } finally { idleClosing.delete(tabId) }
@@ -1577,6 +1619,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         } catch (error) { reportError(error) }
       }
     } finally { idleCheckRunning = false }
+  }
+  let schedulePageLimit = () => {
+    if (pageLimitTimer || shuttingDown || !configuration?.memory.maxLoadedBackgroundPages) return
+    pageLimitTimer = setTimeout(() => { pageLimitTimer = undefined; void checkIdleTabs() }, 1000)
+    pageLimitTimer.unref()
   }
   let keepClientFocus = (live: LiveTab) => {
     if (!live.parent.isDestroyed() && live.parent.isFocused() && !live.contents.isDestroyed() && live.contents.isFocused()) {
@@ -1857,6 +1904,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     for (let tabId of previouslyVisibleTabs) if (liveIds.has(tabId) && !visibleSelected.has(tabId)) lastTabUse.set(tabId, Date.now())
     for (let tabId of visibleSelected) lastTabUse.set(tabId, Date.now())
     previouslyVisibleTabs = visibleSelected
+    schedulePageLimit()
     for (let candidate of model.clients) { let live = clients.get(candidate.id); if (live) prepareFloats(candidate, live) }
     let client = model.clients.find(client => client.id === focusedClientId)
     let owner = client && !overlays.has(client.id) ? clients.get(client.id) : undefined
@@ -2906,7 +2954,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         configuration.updateMany(Object.entries(next).map(([key, value]) => [['agentFeedback', key], value]))
         return next
       }
-      let allowed = new Set(['remotePreviews.updates', 'remotePreviews.saveLocally', 'accessibility', 'statusBar', 'showBuildId', 'showTabCloseButtons', 'showDarkModeButton', 'vimEditing', 'searchApps.normal', 'searchApps.private', 'memory.lazyRestore', 'memory.idleUnloadMinutes', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
+      let allowed = new Set(['remotePreviews.updates', 'remotePreviews.saveLocally', 'accessibility', 'statusBar', 'showBuildId', 'showTabCloseButtons', 'showDarkModeButton', 'vimEditing', 'searchApps.normal', 'searchApps.private', 'memory.lazyRestore', 'memory.idleUnloadMinutes', 'memory.maxLoadedBackgroundPages', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
       if (!allowed.has(key)) throw new Error('Unknown setting')
       configuration.update(key.split('.'), args.value)
       return { key, value: args.value }
@@ -3999,6 +4047,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     proxyRecovery.close()
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)
+    clearTimeout(pageLimitTimer)
     clearInterval(previewTimer)
     previewRefresh.close()
     app.off('login', proxyLogin)

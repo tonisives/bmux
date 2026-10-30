@@ -21,7 +21,7 @@ import type { AgentFeedbackSettings } from '../shared/agent-feedback'
 import { DEFAULT_REMOTE_PREVIEWS, parseRemotePreviews } from '../shared/remote-preview-settings'
 import type { RemotePreviewSettings } from '../shared/remote-preview-settings'
 
-export let DEFAULT_MEMORY: MemorySettings = { lazyRestore: true, idleUnloadMinutes: 0 }
+export let DEFAULT_MEMORY: MemorySettings = { lazyRestore: true, idleUnloadMinutes: 0, maxLoadedBackgroundPages: 8 }
 type Settings = { remotePreviews: RemotePreviewSettings; agentFeedback: AgentFeedbackSettings; automaticUpdates: boolean; keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showBuildId: boolean; showTabCloseButtons: boolean; showDarkModeButton: boolean; vimEditing: boolean; searchApps: SearchApps; memory: MemorySettings; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
 
 export let configPath = (dataDirectory: string) => {
@@ -50,10 +50,11 @@ let parseMemory = (value: unknown): MemorySettings => {
   if (value === undefined) return { ...DEFAULT_MEMORY }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('memory must be a mapping')
   let raw = value as Record<string, unknown>
-  for (let key of Object.keys(raw)) if (!['lazyRestore', 'idleUnloadMinutes'].includes(key)) throw new Error(`Unknown memory setting: ${key}`)
+  for (let key of Object.keys(raw)) if (!['lazyRestore', 'idleUnloadMinutes', 'maxLoadedBackgroundPages'].includes(key)) throw new Error(`Unknown memory setting: ${key}`)
   if (raw.lazyRestore !== undefined && typeof raw.lazyRestore !== 'boolean') throw new Error('memory.lazyRestore must be true or false')
   if (raw.idleUnloadMinutes !== undefined && (!Number.isInteger(raw.idleUnloadMinutes) || Number(raw.idleUnloadMinutes) < 0 || Number(raw.idleUnloadMinutes) > 1440)) throw new Error('memory.idleUnloadMinutes must be an integer from 0 to 1440')
-  return { lazyRestore: raw.lazyRestore === undefined ? true : raw.lazyRestore as boolean, idleUnloadMinutes: raw.idleUnloadMinutes === undefined ? 0 : raw.idleUnloadMinutes as number }
+  if (raw.maxLoadedBackgroundPages !== undefined && (!Number.isInteger(raw.maxLoadedBackgroundPages) || Number(raw.maxLoadedBackgroundPages) < 0 || Number(raw.maxLoadedBackgroundPages) > 256)) throw new Error('memory.maxLoadedBackgroundPages must be an integer from 0 to 256')
+  return { lazyRestore: raw.lazyRestore === undefined ? true : raw.lazyRestore as boolean, idleUnloadMinutes: raw.idleUnloadMinutes === undefined ? 0 : raw.idleUnloadMinutes as number, maxLoadedBackgroundPages: raw.maxLoadedBackgroundPages === undefined ? DEFAULT_MEMORY.maxLoadedBackgroundPages : raw.maxLoadedBackgroundPages as number }
 }
 let parseClickMode = (value: unknown): ClickModeSettings => {
   if (value === undefined) return structuredClone(DEFAULT_CLICK_MODE)
