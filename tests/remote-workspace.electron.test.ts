@@ -132,5 +132,5 @@ test('remote workspace shares local layout, keeps client selection independent, 
     expect(await application.evaluate(() => (globalThis as any).pendingWorkspaceOpen)).toContain('closed')
     await application.evaluate(() => (globalThis as any).workspaceFixture.flush())
     expect(current(await state()).sessionId).toBe(local.sessionId)
-  } finally { await closeTestApplication(application); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true }) }
+  } finally { await closeTestApplication(application); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 })
