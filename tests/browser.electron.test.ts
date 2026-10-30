@@ -3318,6 +3318,9 @@ test('status shares constrained space equally between automatic tabs and proport
   let session = await cli('new-session', { name: 'tab-widths' })
   let client = await cli('attach-session', { session: session.id })
   let chrome = await rendererForClient(client.id)
+  await cli('activate-client', { client: client.id })
+  let nativeId = (await cli('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
+  await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.setBounds({ x: 90, y: 90, width: 1280, height: 700 }), nativeId)
   let windows = [session.windows[0]]
   try {
     await cli('navigate', { pane: windows[0].panes[0].id, url })
@@ -3331,10 +3334,10 @@ test('status shares constrained space equally between automatic tabs and proport
     await expect(list.locator('[data-automatic="true"]')).toHaveCount(3)
     let widths = () => list.locator('[data-window-id]').evaluateAll(tabs => tabs.map(tab => tab.getBoundingClientRect().width))
     await expect(list.locator('[data-window-id]').last().locator('button[data-active]')).toHaveAttribute('title', 'A manually renamed tab with a longer title')
+    await chrome.evaluate(() => document.fonts.ready.then(() => undefined))
+    await expect(list).toHaveAttribute('data-compressed', 'false')
     let roomy = await widths()
-    await application.evaluate(({ BaseWindow }, clientId) => {
-      (BaseWindow.getAllWindows().find(window => window.getTitle().includes(clientId)) ?? BaseWindow.getFocusedWindow())?.setBounds({ x: 90, y: 90, width: 640, height: 700 })
-    }, client.id)
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)?.setBounds({ x: 90, y: 90, width: 640, height: 700 }), nativeId)
     await expect(list).toHaveAttribute('data-compressed', 'true')
     await expect.poll(async () => {
       let sizes = await widths()

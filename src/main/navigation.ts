@@ -28,8 +28,8 @@ export let goToPageHistory = (contents: WebContents, index: number) => new Promi
   let finish = () => { cleanup(); resolve() }
   let inPage = (_event: Electron.Event, _url: string, mainFrame: boolean) => { if (mainFrame) finish() }
   let destroyed = () => { cleanup(); reject(new Error('Page closed while restoring history')) }
-  let fail = (_event: Electron.Event, code: number, description: string, url: string, mainFrame: boolean) => {
-    if (!mainFrame || code === -3) return
+  let fail = (_event: Electron.Event, _code: number, description: string, url: string, mainFrame: boolean) => {
+    if (!mainFrame) return
     cleanup(); reject(Object.assign(new Error(description), { code: description, url }))
   }
   contents.once('did-finish-load', finish)

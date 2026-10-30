@@ -10,8 +10,15 @@ import { sendNativeKeys } from './native-focus'
 test('background page limit unloads older applications and restores them without changing selection', async () => {
   test.setTimeout(120000)
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-page-budget-'))
-  let server = http.createServer((_request, response) => {
-    response.writeHead(200, { 'Content-Type': 'text/html', 'Set-Cookie': 'fixture=retained; Path=/' })
+  let holdOldRestore = false
+  let heldOld = new Set<http.ServerResponse>()
+  let server = http.createServer((request, response) => {
+    if (holdOldRestore && request.url === '/old') {
+      heldOld.add(response)
+      response.once('close', () => heldOld.delete(response))
+      return
+    }
+    response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store', 'Set-Cookie': 'fixture=retained; Path=/' })
     response.end('<!doctype html><title>Page budget fixture</title><h1>Page budget fixture</h1><input id="draft" value=""><div contenteditable="true"></div><div id="rich-draft" contenteditable="true"></div><script>window.loadedAt=Date.now()</script>')
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -88,6 +95,22 @@ test('background page limit unloads older applications and restores them without
     await rpc('navigate', { pane: old.pane.id, url: `${origin}/old-third` })
     await rpc('back', { pane: old.pane.id })
     await expect.poll(async () => (await rpc('list-panes', { window: old.window.id }))[0].url).toBe(`${origin}/old`)
+
+    // Selecting an unloaded page starts restoration. A new navigation must
+    // interrupt even a server that never answers the restored request.
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
+    await expect.poll(() => live(old.pane.id), { timeout: 35000 }).toBeNull()
+    holdOldRestore = true
+    await rpc('select-window', { client: client.id, window: old.window.id })
+    await expect.poll(() => heldOld.size).toBeGreaterThan(0)
+    await rpc('navigate', { pane: old.pane.id, url: `${origin}/old-third` })
+    expect(await rpc('eval', { pane: old.pane.id, expression: 'location.href' })).toBe(`${origin}/old-third`)
+    holdOldRestore = false
+    for (let response of heldOld) response.destroy()
+    await rpc('back', { pane: old.pane.id })
+    await expect.poll(async () => (await rpc('list-panes', { window: old.window.id }))[0].url).toBe(`${origin}/old`)
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    expect((await state()).model.clients).toEqual(selection)
 
     // The setting is editable through the existing Memory panel and applies live.
     await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 0 })
