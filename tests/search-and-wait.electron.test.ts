@@ -126,6 +126,18 @@ test.beforeEach(async () => {
   await rpc('select-pane', { client, pane: original })
   await rpc('navigate', { pane: original, url: `${url}/fixture` }); await activate()
   await expect(chrome.locator(`[data-pane-id="${original}"]`)).toHaveAttribute('data-focused-pane', 'true')
+  // Switching away may unload the fixture. Address the restored renderer rather
+  // than retaining a Playwright Page from before that renderer was disposed.
+  if (page.isClosed()) {
+    let contentsId = (await rpc('memory')).current.panes.find((item: any) => item.paneId === original).webContentsId
+    await application.evaluate(({ webContents }, id) => webContents.fromId(id)!.executeJavaScript('globalThis.__bmuxSearchFixture = true'), contentsId)
+    await expect.poll(async () => {
+      for (let candidate of application.context().pages().filter(item => item.url() === `${url}/fixture`)) {
+        if (await candidate.evaluate(() => (window as any).__bmuxSearchFixture === true).catch(() => false)) { page = candidate; return true }
+      }
+      return false
+    }).toBe(true)
+  }
 })
 test.afterEach(async ({}, info) => { await recordNativeFocus(application, info) })
 test.afterAll(async () => {
