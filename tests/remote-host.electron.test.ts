@@ -199,7 +199,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       let clip = (await command('record','list')).find((item: {id:string})=>item.id===recording.id).clips[0]
       let bytes = await fs.readFile(clip.file)
       expect([...bytes.subarray(0,4)]).toEqual([0x1a,0x45,0xdf,0xa3])
-      let artifact=path.resolve('artifacts','recorded-remote-pane.webm');await fs.mkdir(path.dirname(artifact),{recursive:true});await fs.writeFile(artifact,bytes)
+      let artifact = test.info().outputPath('recorded-remote-pane.webm')
+      await fs.writeFile(artifact, bytes)
       await test.info().attach('recorded-remote-pane',{path:artifact,contentType:'video/webm'})
     })
     let resizeViewer = async (width: number, height = 800) => {
