@@ -54,6 +54,8 @@ test('remote workspace shares local layout, keeps client selection independent, 
     await application.evaluate(() => (globalThis as any).workspaceFixture.publish(false))
     await application.evaluate((_electron, session) => (globalThis as any).workspaceFixture.runtime.remote.acquire(session, 'fixture-control', false), local.sessionId)
     await test.step('Hide remote tab tooltips while another session remains controlled', async () => {
+      // A previous local tab can finish its tooltip cleanup after switching workspaces.
+      await chrome.evaluate(windowId => (window as any).bmux.command({ method: 'client.tooltip', args: { visible: false, window: windowId } }), local.windowId)
       let tooltipVisible = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('#tab-tooltip') && view.getVisible())))
       await chrome.getByRole('button', { name: 'Help', exact: true }).hover()
       await expect.poll(tooltipVisible).toBe(false)

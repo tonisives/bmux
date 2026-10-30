@@ -182,7 +182,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     publish()
   }
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
-  let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait'])
+  let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait', 'client.tooltip'])
   let checkControl = (method: string, args: Record<string, unknown>) => {
     if (controlObservation.has(method)) return
     let actor = remoteActor.getStore()
