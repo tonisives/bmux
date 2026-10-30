@@ -183,10 +183,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   }
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
   let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait', 'client.tooltip'])
-  let checkControl = (method: string, args: Record<string, unknown>) => {
+  let checkControl = (method: string, args: Record<string, unknown>, sourceClientId?: string) => {
     if (controlObservation.has(method)) return
     let actor = remoteActor.getStore()
     let paneId = args.tab ?? args.pane
+    let clientId = typeof args.client === 'string' ? args.client : sourceClientId
+    let clientSession = ['client.overlay', 'focus-ui', 'focus-page', 'click-mode'].includes(method) ? model.clients.find(client => client.id === clientId)?.sessionId : undefined
     let affectedProfile = typeof args.profile === 'string' ? args.profile : undefined
     if (method === 'browser.set' && args.scope === 'global') paneId = undefined
     if (method === 'browser.set' && args.scope === 'profile' && typeof paneId === 'string') { affectedProfile = paneById(model, paneId).pane.profileId; paneId = undefined }
@@ -194,8 +196,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let sessions = typeof paneId === 'string' ? [paneById(model, paneId).session]
       : typeof args.session === 'string' ? model.sessions.filter(session => session.id === args.session)
         : typeof args.window === 'string' ? model.sessions.filter(session => session.windows.some(window => window.id === args.window))
-          : affectedProfile ? model.sessions.filter(session => session.windows.some(window => window.panes.some(pane => pane.profileId === affectedProfile)))
-            : model.sessions
+          : clientSession ? model.sessions.filter(session => session.id === clientSession)
+            : affectedProfile ? model.sessions.filter(session => session.windows.some(window => window.panes.some(pane => pane.profileId === affectedProfile)))
+              : model.sessions
     for (let session of sessions) controls.assert(session.id, actor?.owner, actor?.generation)
   }
   let crashRecovery = startNavigationCrashRecovery(dataDirectory, model)
@@ -2521,7 +2524,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let result = attention.verify(pane.id,required(args,'episode'),required(args,'attempt'),required(args,'agentId'),outcome as 'verified' | 'verification-failed',typeof args.code === 'string' ? args.code : undefined)
       publish(); return result
     }
-    checkControl(method, args)
+    checkControl(method, args, sourceClientId)
     if (!sourceClientId && !remoteActor.getStore() && typeof args.tab === 'string' && ['navigate','back','forward','reload','hard-reload','stop','eval','click','type','key','cdp','forms.fill','plugin.run','kill-pane','kill-window','kill-session'].includes(method)) attention.assert(args.tab)
     if (method === 'remote.attention') {
       if (!sourceClientId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)

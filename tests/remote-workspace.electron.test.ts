@@ -56,6 +56,11 @@ test('remote workspace shares local layout, keeps client selection independent, 
     await test.step('Hide remote tab tooltips while another session remains controlled', async () => {
       // A previous local tab can finish its tooltip cleanup after switching workspaces.
       await chrome.evaluate(windowId => (window as any).bmux.command({ method: 'client.tooltip', args: { visible: false, window: windowId } }), local.windowId)
+      await chrome.evaluate(async client => {
+        await (window as any).bmux.command({ method: 'client.overlay', args: { client, visible: false } })
+        await (window as any).bmux.command({ method: 'focus-ui' })
+        await (window as any).bmux.command({ method: 'focus-page', args: { client } })
+      }, local.id)
       let tooltipVisible = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL().endsWith('#tab-tooltip') && view.getVisible())))
       await chrome.getByRole('button', { name: 'Help', exact: true }).hover()
       await expect.poll(tooltipVisible).toBe(false)
@@ -63,6 +68,7 @@ test('remote workspace shares local layout, keeps client selection independent, 
       await expect.poll(tooltipVisible).toBe(true)
       await chrome.getByRole('button', { name: 'Help', exact: true }).hover()
       await expect.poll(tooltipVisible).toBe(false)
+      expect(await application.evaluate(() => (globalThis as any).workspaceFixture.controlErrors)).toEqual([])
       await expect(chrome.getByText('CONTROL_HELD', { exact: true })).toHaveCount(0)
     })
     await chrome.evaluate(() => (window as any).bmux.command({ method: 'cycle-window', args: { direction: 1 } }))

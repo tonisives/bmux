@@ -15,7 +15,8 @@ void app.whenReady().then(async () => {
   let other = newWindow('Other host window', session.defaultProfileId, false, host); other.number = 9; session.windows.push(other)
   let snapshot: RemoteWorkspaceSnapshot = { session, profiles: host.profiles.map(({ id, name }) => ({ id, name })), selection: { windowId: window.id, paneId: window.panes[1].id } }
   let updates = new Set<(update: RemoteViewUpdate) => void>(), media = new Map<number, string>(), mediaUpdates = new Map<number, (update: RemoteViewUpdate) => void>(), held: (() => void)[] = []
-  let fixture: { hold: boolean; held: typeof held; runtime: typeof runtime; snapshot: typeof snapshot; open: typeof open; media: typeof media; publish: (controlling?: boolean) => void; publishMedia: () => void; flush: () => void }
+  let controlErrors: string[] = []
+  let fixture: { controlErrors: typeof controlErrors; hold: boolean; held: typeof held; runtime: typeof runtime; snapshot: typeof snapshot; open: typeof open; media: typeof media; publish: (controlling?: boolean) => void; publishMedia: () => void; flush: () => void }
   let view = { hostId: 'fixture-host', generation: 'fixture-generation', sessionId: session.id, name: session.name, service: 'Fixture machine', canControl: true, connected: true, controlling: false, occupied: false, panes: session.windows.flatMap(window => window.panes) }
   let open = async (client: string, pane?: string) => {
     let page: RemotePage = { key: 'fixture-host:session', title: session.name, workspace: true, view: { ...view, pane }, attach: (contents, _close, update, pane) => {
@@ -25,10 +26,13 @@ void app.whenReady().then(async () => {
     } }
     await runtime.openRemotePage(client, page)
   }
-  fixture = { hold: false, held, runtime, snapshot, open, media, publish: controlling => { if (controlling !== undefined) { view.controlling = controlling; view.occupied = controlling }; for (let update of updates) update({ ...view, workspace: structuredClone(snapshot) }) }, publishMedia: () => { for (let update of mediaUpdates.values()) update({ ...view, controlling: false, occupied: false }) }, flush: () => { for (let send of held.splice(0)) send() } }
+  fixture = { controlErrors, hold: false, held, runtime, snapshot, open, media, publish: controlling => { if (controlling !== undefined) { view.controlling = controlling; view.occupied = controlling }; for (let update of updates) update({ ...view, workspace: structuredClone(snapshot) }) }, publishMedia: () => { for (let update of mediaUpdates.values()) update({ ...view, controlling: false, occupied: false }) }, flush: () => { for (let send of held.splice(0)) send() } }
   ;(globalThis as any).workspaceFixture = fixture
   ipcMain.handle('state', event => runtime.state(runtime.sourceClient(event.sender.id)))
-  ipcMain.handle('command', (event, command) => runtime.execute(command, runtime.sourceClient(event.sender.id)))
+  ipcMain.handle('command', async (event, command) => {
+    try { return await runtime.execute(command, runtime.sourceClient(event.sender.id)) }
+    catch (error) { if (String(error).includes('CONTROL_HELD')) controlErrors.push(command.method); throw error }
+  })
   ipcMain.on('bounds', (event, bounds) => runtime.setBounds(event.sender.id, bounds))
   // Layout tests supply host snapshots directly; transport is covered by remote-host.
   ipcMain.handle('remote-client-selection', () => new Promise(() => {}))
