@@ -126,6 +126,10 @@ test.beforeEach(async () => {
   await rpc('select-pane', { client, pane: original })
   await rpc('navigate', { pane: original, url: `${url}/fixture` }); await activate()
   await expect(chrome.locator(`[data-pane-id="${original}"]`)).toHaveAttribute('data-focused-pane', 'true')
+  // The background page budget can replace the original renderer between cases.
+  await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/fixture`)).toBe(true)
+  page = application.context().pages().find(page => page.url() === `${url}/fixture`)!
+  await expect(page.locator('h1')).toHaveText('Search fixture')
 })
 test.afterEach(async ({}, info) => { await recordNativeFocus(application, info) })
 test.afterAll(async () => {

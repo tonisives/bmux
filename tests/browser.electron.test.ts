@@ -3332,10 +3332,13 @@ test('status shares constrained space equally between automatic tabs and proport
     let widths = () => list.locator('[data-window-id]').evaluateAll(tabs => tabs.map(tab => tab.getBoundingClientRect().width))
     await expect(list.locator('[data-window-id]').last().locator('button[data-active]')).toHaveAttribute('title', 'A manually renamed tab with a longer title')
     let roomy = await widths()
+    // Leave room for the selected title beside the recording controls while
+    // still compressing the automatic tabs.
     await application.evaluate(({ BaseWindow }, clientId) => {
-      (BaseWindow.getAllWindows().find(window => window.getTitle().includes(clientId)) ?? BaseWindow.getFocusedWindow())?.setBounds({ x: 90, y: 90, width: 640, height: 700 })
+      (BaseWindow.getAllWindows().find(window => window.getTitle().includes(clientId)) ?? BaseWindow.getFocusedWindow())?.setBounds({ x: 90, y: 90, width: 800, height: 700 })
     }, client.id)
     await expect(list).toHaveAttribute('data-compressed', 'true')
+    await expect.poll(async () => (await list.boundingBox())!.width).toBeGreaterThanOrEqual(roomy[3])
     await expect.poll(async () => {
       let sizes = await widths()
       return Math.max(...sizes.slice(0, 3)) - Math.min(...sizes.slice(0, 3))
