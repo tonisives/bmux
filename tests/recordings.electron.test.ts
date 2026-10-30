@@ -5,11 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
 import { pathToFileURL } from 'node:url'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 
 test('records a pane without changing selection, saves playable video, and preserves history across restarts',async()=>{
-  let directory=await fs.mkdtemp(path.join(os.tmpdir(),'bmux-recording-')),application:Awaited<ReturnType<typeof electron.launch>>|undefined
+  let directory=await fs.mkdtemp(path.join(os.tmpdir(),'bmux-recording-')),application:Awaited<ReturnType<typeof electron.launch>>|undefined,observer:ChildProcess|undefined
   let server=http.createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Recording fixture</title><style>body{margin:0;background:#181818;color:white;font:32px monospace}h1{padding:32px}</style><h1>Recording fixture</h1><canvas width="480" height="160"></canvas><script>let n=0,c=document.querySelector("canvas").getContext("2d");setInterval(()=>{c.fillStyle=n++%2?"#228844":"#224488";c.fillRect(0,0,480,160)},100)</script>')})
   try{
     await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve))
@@ -19,15 +20,24 @@ test('records a pane without changing selection, saves playable video, and prese
     let chrome=await launch(),rpc=(method:string,args:Record<string,unknown>={})=>chrome.evaluate(({method,args})=>(window as any).bmux.command({method,args}),{method,args})
     let state=await chrome.evaluate(()=>(window as any).bmux.state()),client=state.model.clients.find((item:any)=>item.id===state.clientId),pane=client.paneId
     await rpc('navigate',{pane,url,agentId:'fixture'})
-    let first=await rpc('record.start',{pane,output,id:'fixture-recording'}) as any
+    let observed:Buffer[]=[]
+    observer=spawn(process.execPath,[path.resolve('bin/bmux.mjs'),'observe','-t',pane,'--output',output,'--id','fixture-recording'],{env:{...process.env,BMUX_DATA_DIR:directory}})
+    observer.stdout!.on('data',chunk=>observed.push(chunk))
+    let observedDone=new Promise<number|null>((resolve,reject)=>{observer!.once('exit',resolve);observer!.once('error',reject)})
+    await expect.poll(async()=>((await rpc('record.list')) as any[]).some(item=>item.id==='fixture-recording')).toBe(true)
+    let first={id:'fixture-recording'}
     expect(await rpc('record.start',{pane,output,id:first.id})).toMatchObject({id:first.id})
     await expect.poll(async()=>((await rpc('record.list')) as any[]).find(item=>item.id===first.id)?.state).toBe('recording')
     await promisify(execFile)(process.execPath,[path.resolve('bin/bmux.mjs'),'rpc','cdp',JSON.stringify({pane,agentId:'recording-fixture',method:'Input.dispatchMouseEvent',params:{type:'mouseMoved',x:300,y:200}})],{env:{...process.env,BMUX_DATA_DIR:directory},timeout:30000})
-    let fixture=application!.context().pages().find(page=>page.url()===url)!;await expect(fixture.locator('#bmux-virtual-mouse')).toHaveCSS('display','block')
+    let fixture=application!.context().pages().find(page=>page.url()===`${url}/`)!;await expect(fixture.locator('#bmux-virtual-mouse')).toHaveCSS('display','block')
     await expect.poll(async()=>{let clips=((await rpc('record.list')) as any[]).find(item=>item.id===first.id)?.clips;return clips?.[0] ? (await fs.stat(clips[0].file)).size : 0},{timeout:15000}).toBeGreaterThan(4096)
     expect((await chrome.evaluate(()=>(window as any).bmux.state())).model.clients.find((item:any)=>item.id===client.id).paneId).toBe(pane)
     await rpc('record.stop',{id:first.id})
     await expect.poll(async()=>((await rpc('record.list')) as any[]).find(item=>item.id===first.id)?.clips[0]?.state,{timeout:15000}).toMatch(/^saved/)
+    expect(await observedDone).toBe(0);observer=undefined
+    let sourceClip=((await rpc('record.list')) as any[])[0].clips[0]
+    expect(Buffer.concat(observed)).toEqual(await fs.readFile(sourceClip.file))
+    expect([...Buffer.concat(observed).subarray(0,4)]).toEqual([0x1a,0x45,0xdf,0xa3])
     let clip=((await rpc('record.list')) as any[])[0].clips[0],file=clip.state==='saved'?clip.file.replace(/\.webm$/,'.mp4'):clip.file
     let player=path.join(directory,'player.html');await fs.writeFile(player,`<!doctype html><title>Recorded video</title><video controls autoplay muted src="${pathToFileURL(file).href}"></video>`)
     await test.info().attach('recorded-pane',{body:await fs.readFile(file),contentType:clip.state==='saved'?'video/mp4':'video/webm'})
@@ -36,5 +46,5 @@ test('records a pane without changing selection, saves playable video, and prese
     expect((await rpc('record.list')) as any[]).toHaveLength(1)
     await rpc('record.start',{pane,output,id:'second-recording'});await rpc('record.stop',{id:'second-recording'})
     expect(JSON.parse(await fs.readFile(path.join(directory,'recordings.json'),'utf8')).map((item:any)=>item.id)).toContain(first.id)
-  }finally{await closeTestApplication(application);await new Promise<void>(resolve=>server.close(()=>resolve()));await fs.rm(directory,{recursive:true,force:true})}
+  }finally{observer?.kill('SIGTERM');await closeTestApplication(application);await new Promise<void>(resolve=>server.close(()=>resolve()));await fs.rm(directory,{recursive:true,force:true})}
 })

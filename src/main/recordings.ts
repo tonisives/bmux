@@ -18,7 +18,7 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
   let records = new Map<string, Recording>(), contents = new Map<WebContents,{ record: Recording; clip: Clip }>()
   let manifest = path.join(directory,'recordings.json')
   let save = () => { fs.mkdirSync(directory,{recursive:true}); fs.writeFileSync(manifest+'.tmp',JSON.stringify(history()),{mode:0o600}); fs.renameSync(manifest+'.tmp',manifest) }
-  let list = () => [...records.values()].map(({id,options,startedAt,finishedAt,state,error,gaps,directory: destination,clips}) => ({id,options,startedAt,finishedAt,state,error,gaps,directory:destination,clips:clips.map(({pane,file,state})=>({pane,file,state}))}))
+  let list = () => [...records.values()].map(({id,options,startedAt,finishedAt,state,error,gaps,directory: destination,clips}) => ({id,options,startedAt,finishedAt,state,error,gaps,directory:destination,clips:clips.map(({pane,file,state,writer})=>({pane,file,state,complete:writer.writableFinished}))}))
   let previous: ReturnType<typeof list> = []
   try { previous = JSON.parse(fs.readFileSync(manifest,'utf8')) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
   let history = () => [...previous.filter(old => !records.has(old.id)).map(old => ({...old,state:old.finishedAt ? old.state : 'interrupted'})),...list()]

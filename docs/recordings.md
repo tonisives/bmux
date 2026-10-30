@@ -15,6 +15,7 @@ in history after BMUX restarts. Reconnects appear as gaps in the video and in th
 local recording manifest. The Mac must remain awake and connected.
 
 ```
+bmux observe -t %29 --format webm > session.webm
 bmux record start -t %29
 bmux record list
 bmux record stop RECORDING_ID
@@ -61,7 +62,7 @@ bmux hooks test HOOK_ID
 ```
 
 **Test delivery** queues a fixture event with `test: true`. The bundled recording
-consumer checks connectivity and returns without opening a browser. Custom
+consumer checks connectivity and returns without starting a browser. BMUX must already be running for that check. Custom
 webhook consumers should treat this as a test. Delivery history shows pending,
 delivered, skipped and expired events. Tokens and response bodies stay out of
 delivery errors.

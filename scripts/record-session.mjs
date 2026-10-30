@@ -8,7 +8,7 @@ let value=process.env.CLAWTAB_PARAM_EVENT
 if(!value || value.length>65536)throw new Error('Missing activity event')
 let event=JSON.parse(value)
 if(event.version!==1 || !['agent.session.start','agent.action','agent.session.end'].includes(event.type))throw new Error('Unsupported activity event')
-let child=spawn(process.execPath,[fileURLToPath(new URL('../bin/bmux.mjs',import.meta.url)),'record','event','--stdin'],{stdio:['pipe','pipe','inherit']})
+let child=spawn(process.execPath,[fileURLToPath(new URL('../bin/bmux.mjs',import.meta.url)),'record','event','--stdin',...(event.test ? ['--no-start'] : [])],{stdio:['pipe','pipe','inherit']})
 child.stdin.end(JSON.stringify(event))
 let chunks=[],size=0
 child.stdout.on('data',chunk=>{size+=chunk.length;if(size>1048576)child.kill();else chunks.push(chunk)})
