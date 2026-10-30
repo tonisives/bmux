@@ -1523,10 +1523,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     restore.cancelled = true
     let navigation = live.initialNavigation
     live.initialNavigation = undefined
+    let wasLoading = live.contents.isLoading()
     live.contents.stop()
     // Drain the stopped request's abort before loadURL for the same URL installs
     // its listeners; otherwise Electron can reject the new request with it.
-    if (restore.started) await navigation?.catch(() => undefined)
+    if (restore.started && wasLoading) await navigation?.catch(() => undefined)
     if (!isLiveTabOpen(live)) return
     let history = live.contents.navigationHistory
     if (history.getActiveIndex() === restore.blankIndex) {

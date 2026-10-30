@@ -24,8 +24,12 @@ export let settlePageNavigation = async (contents: Contents, navigation: Promise
 export let loadPage = (contents: WebContents, url: string, options?: Electron.LoadURLOptions) => settlePageNavigation(contents, contents.loadURL(url, options))
 
 export let goToPageHistory = (contents: WebContents, index: number) => new Promise<void>((resolve, reject) => {
-  let cleanup = () => { contents.off('did-finish-load', finish); contents.off('did-navigate-in-page', inPage); contents.off('did-fail-load', fail); contents.off('did-fail-provisional-load', fail); contents.off('destroyed', destroyed) }
+  let cleanup = () => { contents.off('did-finish-load', finish); contents.off('did-stop-loading', stopped); contents.off('did-navigate-in-page', inPage); contents.off('did-fail-load', fail); contents.off('did-fail-provisional-load', fail); contents.off('destroyed', destroyed) }
   let finish = () => { cleanup(); resolve() }
+  let stopped = () => {
+    if (contents.navigationHistory.getActiveIndex() === index) finish()
+    else { cleanup(); reject(Object.assign(new Error('History navigation stopped'), { code: 'ERR_ABORTED' })) }
+  }
   let inPage = (_event: Electron.Event, _url: string, mainFrame: boolean) => { if (mainFrame) finish() }
   let destroyed = () => { cleanup(); reject(new Error('Page closed while restoring history')) }
   let fail = (_event: Electron.Event, code: number, description: string, url: string, mainFrame: boolean) => {
@@ -34,6 +38,7 @@ export let goToPageHistory = (contents: WebContents, index: number) => new Promi
     cleanup(); reject(Object.assign(new Error(reason), { code: reason, url }))
   }
   contents.once('did-finish-load', finish)
+  contents.once('did-stop-loading', stopped)
   contents.on('did-navigate-in-page', inPage)
   contents.on('did-fail-load', fail)
   contents.on('did-fail-provisional-load', fail)
