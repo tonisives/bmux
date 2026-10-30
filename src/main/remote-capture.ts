@@ -3,6 +3,7 @@ import path from 'node:path'
 import { assertFrameCapture, capturePageFrame, createFrameCapture, stopFrameCapture } from './frame-capture'
 import { randomUUID } from 'node:crypto'
 import { remoteStreamQuality, type RemoteStreamQuality } from '../shared/remote-management'
+import { remoteWebPreferences } from '../shared/remote-web-preferences'
 
 type CaptureOptions = { contents?: Electron.WebContents; quality?: RemoteStreamQuality; iceServers: RTCIceServer[]; relayOnly?: boolean; signal: (sdp: RTCSessionDescriptionInit) => void; candidate?: (value: RTCIceCandidateInit) => void; data: (message: string) => void; closed: () => void }
 let frameSize = (frame: Electron.NativeImage) => {
@@ -32,7 +33,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   if (error) throw error
   // A hidden native window supports focus enumeration on Linux; an offscreen
   // transport has no native view for Electron's global focus lookup.
-  let window = new BrowserWindow({ show: false, width: 16, height: 16, webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: 'bmux-trusted-transport' } })
+  let window = new BrowserWindow({ show: false, width: 16, height: 16, webPreferences: { ...remoteWebPreferences, preload: path.join(import.meta.dirname, '../preload/remote.cjs'), partition: 'bmux-trusted-transport' } })
   window.webContents.setWebRTCIPHandlingPolicy('default')
   let framePending = false, disposed = false
   let shutdown: ReturnType<typeof setTimeout> | undefined

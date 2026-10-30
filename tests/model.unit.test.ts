@@ -8,6 +8,35 @@ import { pendingBookmarkEditsPath, readModel, writeModel } from '../src/main/sto
 import { backOpener } from '../src/shared/opener-navigation'
 
 describe('session layouts and persistence', () => {
+  it('persists viewport locks, remaps copies, and forgets closed pane dimensions before ID reuse', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-viewport-lock-'))
+    try {
+      let model = initialModel(), window = model.sessions[0].windows[0], first = window.panes[0]
+      let second = newPane(first.profileId, 'about:blank', model)
+      window.panes.push(second)
+      window.layout = splitLayout(window.layout, first.id, second.id, 'horizontal')
+      window.lockedViewports = { [first.id]: { width: 700, height: 500 }, [second.id]: { width: 420, height: 650 } }
+      writeModel(directory, model)
+      expect(readModel(directory).sessions[0].windows[0].lockedViewports).toEqual(window.lockedViewports)
+      let copy = cloneWindow(window, model)
+      expect(copy.lockedViewports).toEqual({ [copy.panes[0].id]: { width: 700, height: 500 }, [copy.panes[1].id]: { width: 420, height: 650 } })
+      let reopened = structuredClone(window)
+      reassignConflictingPaneIds(reopened, model)
+      expect(reopened.lockedViewports).toEqual({ [reopened.panes[0].id]: { width: 700, height: 500 }, [reopened.panes[1].id]: { width: 420, height: 650 } })
+      window.panes.pop(); window.layout = removePane(window.layout, second.id)
+      repairClientSelections(model)
+      expect(window.lockedViewports).toEqual({ [first.id]: { width: 700, height: 500 } })
+      expect(newPane(first.profileId, 'about:blank', model).id).toBe(second.id)
+      window.lockedViewports[first.id].width = 0
+      expect(() => validateModel(model)).toThrow('Invalid locked viewport size')
+      window.lockedViewports[first.id].width = 700.5
+      expect(() => validateModel(model)).toThrow('Invalid locked viewport size')
+      window.lockedViewports = {} // New and unloaded panes capture their size when first displayed.
+      expect(() => validateModel(model)).not.toThrow()
+      delete window.lockedViewports
+      expect(() => validateModel(model)).not.toThrow()
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
   it('persists the last agent interaction separately from human activity and current agent metadata', () => {
     let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-last-agent-'))
     try {
@@ -75,6 +104,20 @@ describe('session layouts and persistence', () => {
       expect(restored[1].pinned).toBeUndefined()
       let invalid = { ...model, sessions: [{ ...session, windows: [{ ...pinned, pinned: 'yes' }] }] }
       expect(() => validateModel(invalid)).toThrow('Invalid pinned window setting')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
+  it('persists locked windows and accepts older state without a lock', () => {
+    let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-locked-'))
+    try {
+      let model = initialModel(), session = model.sessions[0], window = session.windows[0]
+      expect(validateModel(structuredClone(model)).sessions[0].windows[0].locked).toBeUndefined()
+      for (let locked of [true, false]) {
+        window.locked = locked
+        writeModel(directory, model)
+        expect(readModel(directory).sessions[0].windows[0].locked).toBe(locked)
+      }
+      let invalid = { ...model, sessions: [{ ...session, windows: [{ ...window, locked: 'yes' }] }] }
+      expect(() => validateModel(invalid)).toThrow('Invalid locked window setting')
     } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
   it('returns to an eligible opener across windows and forgets closed openers before IDs are reused', () => {

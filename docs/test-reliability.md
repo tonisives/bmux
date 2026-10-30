@@ -1,5 +1,47 @@
 # Focused test verification
 
+## Pane movement setup
+
+The full Check on `3e8d834` found the pane-movement fixture starting with another
+pane focused after its split pages initialized. The case now selects its intended
+pane after loading those pages and waits for native focus before moving them.
+Its layout, retained selection, live-page identity, profile, and native attachment
+assertions keep their existing deadlines. Repeat it with the adjacent pane-join
+and window-movement cases.
+
+## Remote data-channel observer ordering
+
+The October 28 Portable hosts failure decoded all seven streams but observed
+only six open control channels. Repeated Linux runs reproduced it on both x64
+and ARM. Channel events and native WebRTC stats showed the seventh channel open,
+while its JavaScript `readyState` had returned to `connecting`.
+
+Chromium 152's [transferable-channel initialization](https://chromium.googlesource.com/chromium/src/+/refs/tags/152.0.7977.78/third_party/blink/renderer/modules/peerconnection/rtc_data_channel.cc)
+defers observer registration and posts state snapshots across threads. The
+observed regression is consistent with a stale snapshot arriving after opening.
+BMUX-owned remote renderers now disable channel transfer to register observers
+synchronously; these channels stay in their original renderer. The hidden test
+viewers share those preferences and retain channel events and native stats on
+failure. Verify the capture cases with repetitions on both Linux architectures
+and macOS, retaining all seven open channels and delivered control messages.
+
+## October 27 full-suite failures
+
+The full Check on `e8b8516` found two stale fixture assumptions. Profile settings
+retain the native page beneath a focused chrome overlay; the Bot settings case
+now verifies the attached page, native stacking, and chrome focus. Click mode
+also retains the page's last-agent button after manual input. Its fixture still
+requires no interactive click-action buttons and checks that the address bar's
+only button is Last agent, with the existing overflow and native input assertions
+intact.
+
+The 371-case serial suite reached case 257 at the 30-minute step deadline.
+Check now runs static checks once, then divides the complete Electron suite into
+two shards on separate disposable desktops. Each shard keeps one GUI worker,
+the existing deadlines, and zero retries. Focused dispatches run their selected
+tests once before applying `repeat_each`; they do not duplicate them across shards.
+Failure artifacts use `electron-test-results-1` and `electron-test-results-2`.
+
 ## Proxy guidance in failed panes
 
 Failed network loads in proxied panes show connection guidance beside Reload.

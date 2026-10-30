@@ -80,7 +80,16 @@ for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${releas
         await popup.getByRole('button', { name: 'Continue', exact: true }).click()
         await expect(popup.getByRole('textbox', { name: /master password/i })).toBeVisible({ timeout: 20000 })
         await expect(popup.getByText('Attempting to use a disconnected port object', { exact: true })).toHaveCount(0)
-        await test.step(`Close popup in ${profile}`, () => popup.close(), { timeout: 10000 })
+        await test.step(`Close popup in ${profile}`, async () => {
+          // Dispose the native window after the inspector call returns, then
+          // wait for both native disposal and Playwright's target-close event.
+          let window = await application.browserWindow(popup)
+          try {
+            await window.evaluate(window => { setImmediate(() => window.destroy()) })
+            await expect.poll(() => window.evaluate(window => window.isDestroyed())).toBe(true)
+            await expect.poll(() => popup.isClosed()).toBe(true)
+          } finally { await window.dispose() }
+        }, { timeout: 10000 })
       })
     }
   } finally {

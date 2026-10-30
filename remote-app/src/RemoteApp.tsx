@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Link } from 'expo-router'
 import { useRemote } from './RemoteContext'
+import { prepareSignIn } from './auth'
 import { pendingAttention } from './attention-presentation'
 import { canManageHost } from './host-access'
 import { colors, styles } from './theme'
@@ -18,6 +19,7 @@ import { SessionList } from './components/SessionList'
 import { DemoWorkspace } from './components/DemoWorkspace'
 import { AttentionInbox } from './components/AttentionInbox'
 import { NotificationSetup } from './components/NotificationSetup'
+import { AccountProviders } from './components/AccountProviders'
 import { RemoteHeader, RemoteTabs, type RemoteTab } from './components/RemoteNavigation'
 import { useSplitView } from './useSplitView'
 import type { Host } from './types'
@@ -30,6 +32,10 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let [demo, setDemo] = useState(false)
   let [setup, setSetup] = useState(false)
   let [busy, setBusy] = useState(false)
+  let [signInReady, setSignInReady] = useState(false)
+  let [appleEnabled, setAppleEnabled] = useState(false)
+  let [signInAttempt, setSignInAttempt] = useState(0)
+  let [signInFailed, setSignInFailed] = useState(false)
   let [disconnect, setDisconnect] = useState<string>()
   let [newHost, setNewHost] = useState<Host>()
   let [profileHost, setProfileHost] = useState<Host>()
@@ -38,6 +44,12 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let profileHosts = remote.hosts.filter(host => canManageHost(host) && host.capabilities?.profiles === 1)
   let openAttention = (id: string) => { remote.rememberAttention(id); setSection('sessions') }
   let action = async (run: () => Promise<unknown>) => { setBusy(true); try { await run() } catch (value) { remote.setError((value as Error).message) } finally { setBusy(false) } }
+  useEffect(() => {
+    let active = true
+    setSignInFailed(false)
+    void prepareSignIn().then(config => { if (active) { setSignInReady(true); setAppleEnabled(config.appleEnabled) } }).catch(value => { if (active) { setSignInFailed(true); remote.setError(value.message) } })
+    return () => { active = false }
+  }, [signInAttempt])
   useEffect(() => { if (attentionId) { setDemo(false); remote.rememberAttention(attentionId); setSection('sessions') } }, [attentionId])
   useEffect(() => { if (remote.selection) setSection('sessions') }, [remote.selection])
   useEffect(() => {
@@ -56,7 +68,9 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   if (!remote.account) return <SafeAreaView style={[styles.screen, local.center]}>
     <View style={local.welcome}>
       <Brand />
-      <View style={local.welcomeActions}><Button title="Sign in" primary busy={busy} onPress={() => void action(remote.login)} /><Button title="Demo" onPress={openDemo} /></View>
+      <View style={local.welcomeActions}><Button title="Sign in with Google" primary busy={busy} disabled={!signInReady} onPress={() => void action(remote.login)} /><Button title="Demo" onPress={openDemo} /></View>
+      {appleEnabled && <Button title="Sign in with Apple" busy={busy} onPress={() => void action(() => remote.login('apple'))} />}
+      {signInFailed && <Button title="Retry sign-in" onPress={() => setSignInAttempt(value => value + 1)} />}
       {!!remote.error && <Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text>}
       <HelpLinks />
     </View>
@@ -78,6 +92,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
     {section === 'settings' && <ScrollView contentContainerStyle={local.content}>
       <Text style={styles.title}>Settings</Text>
       <View style={styles.card}><Text style={styles.label}>Account</Text><Text style={styles.text}>{remote.account.name || remote.account.email || 'Signed in'}</Text>{!!remote.account.email && <Text style={styles.secondary}>{remote.account.email}</Text>}<Text style={styles.secondary}>Relay {remote.billing?.relay.active ? 'active' : 'inactive'}</Text><Button title="Sign out" busy={busy} onPress={() => void action(remote.logout)} /></View>
+      <AccountProviders />
       <View style={styles.card}><Text style={styles.label}>Machines</Text><Pressable accessibilityRole="button" accessibilityLabel="Connect a machine" onPress={() => setSetup(true)} style={local.connectionRow}><Ionicons name="add" size={18} color={colors.secondary} /><Text style={styles.text}>Connect a machine</Text></Pressable></View>
       <IncludedBrowserCard compact />
       <NotificationSetup />

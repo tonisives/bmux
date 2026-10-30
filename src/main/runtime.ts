@@ -40,8 +40,10 @@ import { agentScrollParams, smoothAgentScroll } from './agent-scroll'
 import { createAgentInputLock, createAgentInputOverrides, scheduleAgentInputUnlock } from './agent-input-lock'
 import { DEFAULT_AGENT_FEEDBACK, parseAgentFeedback, resolveAgentFeedback } from '../shared/agent-feedback'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
+import { remoteWebPreferences } from '../shared/remote-web-preferences'
 import { agentCommandLabel } from './agent-command-feedback'
 import { movePointer } from './pointer'
+import { createActivity } from './activity'
 import type { PluginContext } from '../shared/plugins'
 import { createRequestFilters } from './request-filters'
 import { createSavedForms } from './saved-forms'
@@ -50,7 +52,7 @@ import { createPageTools } from './page-tools'
 import { waitOptions } from './wait'
 import { DEFAULT_BROWSER, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserToolsState } from '../shared/browser-tools'
-import { windowCloseBehavior } from '../shared/window-close'
+import { sessionIsLocked, windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
 import { createExtensions } from './extensions'
 import { installBitwardenExtension } from './bitwarden-extension'
@@ -97,10 +99,12 @@ import { createPreviewRefresh } from './preview-refresh'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
+import { createViewportPan } from './viewport-pan'
+import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
-type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
-type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; viewportPan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
@@ -147,6 +151,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let viewportSequence = 0
   let remoteViewports = new Map<string, { width: number; height: number; generation: number }>()
   let remoteSizes = new Map<string, { width: number; height: number; lease: number; previous: Electron.Rectangle }>()
+  let lockedViewport = (paneId: string) => walkPanes(model).find(item => item.pane.id === paneId)?.window.lockedViewports?.[paneId]
+  let fixedViewport = (paneId: string) => {
+    let { session, window } = paneById(model, paneId), remote = remoteSizes.get(paneId)
+    return window.lockedViewports?.[paneId] ?? (remote && controls.get(session.id)?.generation === remote.lease ? remote : undefined)
+  }
   let remoteViewport = (pane: string) => {
     let bounds = tabs.get(pane)?.view.getBounds()
     if (!bounds) return undefined
@@ -160,7 +169,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let session = walkPanes(model).find(item => item.pane.id === pane)?.session
       if (session && controls.get(session.id)?.generation === size.lease) continue
       let live = tabs.get(pane)
-      if (live && !live.disposed) { removeRemoteFrame(live); live.view.setBounds(size.previous) }
+      if (live && !live.disposed && !lockedViewport(pane)) { removeRemoteFrame(live); live.view.setBounds(size.previous) }
       remoteSizes.delete(pane)
       changed = true
     }
@@ -382,6 +391,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let target = agentTarget.getStore()
     if (target?.id === paneId && currentPane(paneId) !== target) throw new Error(`Pane '${paneId}' was closed or replaced`)
   }
+  let activity = createActivity(path.join(dataDirectory, 'agent-activity.json'))
+  let activityTimer = setInterval(() => activity.tick(), 1000); activityTimer.unref()
+  let trackActivity = (paneId: string, agentId: string, method: string) => { let { pane, session } = paneById(model, paneId); return activity.begin({ paneId, sessionId: session.id, profileId: pane.profileId, agentId }, method) }
   let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
   let agentFeedback = () => configuration?.agentFeedback ?? DEFAULT_AGENT_FEEDBACK
   let virtualMouse = createVirtualMouse(undefined, undefined, paneId => resolveAgentFeedback(agentFeedback(), currentPane(paneId)?.profileId))
@@ -901,10 +913,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let session = model.sessions.find(session => session.id === client.sessionId)!
     let window = session.windows.find(window => window.id === client.windowId)!
     if (action === 'close-pane' || (action === 'close-pane-or-window' && pane && window.floating?.some(item => item.paneId === pane.id))) {
+      if (window.locked && window.panes.length === 1) return
       invoke({ method: pane ? 'kill-pane' : 'kill-window', args: { pane: pane?.id, window: client.windowId, confirm: true } }); return
     }
     if (action === 'close-window' || action === 'close-pane-or-window') {
       let behavior = windowCloseBehavior(session, window)
+      if (behavior === 'locked') return
       if (behavior === 'close-window') { invoke({ method: 'kill-window', args: { window: window.id, confirm: true } }); return }
     }
     if (['plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'select-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
@@ -1067,7 +1081,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let remoteWorkspaces = new Map<string, { page: RemotePage; metadata: WebContentsView; sessionId?: string; profileId: string; visited: string[]; blocked: Set<string>; previewAt: number; fetching: boolean }>()
   let createLiveRemoteTab = (tabId: string, remote: RemotePage) => {
     let { pane } = tabById(model, tabId)
-    let view = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote-client.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    let view = new WebContentsView({ webPreferences: { ...remoteWebPreferences, preload: path.join(import.meta.dirname, '../preload/remote-client.cjs') } })
     let contents = view.webContents, parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
     view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
@@ -1115,7 +1129,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let view = new WebContentsView({ ...(popupOptions?.webContents ? { webContents: popupOptions.webContents } : {}), webPreferences: { spellcheck: true, ...popupOptions?.webPreferences, session: browserSession(paneConnectionId(pane), session.private ? session.id : undefined), nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: !profile.background, disableDialogs: false, safeDialogs: true } })
     let parent = parkHost(pane.profileId)
     parent.contentView.addChildView(view)
-    view.setBounds({ x: 0, y: 0, width: 1280, height: 800 })
+    view.setBounds({ x: 0, y: 0, width: 1280, height: 800, ...lockedViewport(tabId) })
     let contents = view.webContents
     let live: LiveTab = { view, contents, parent, disposed: false, ready: Promise.resolve() }
     filePickers.watchPage(tabId, contents, () => !isLiveTabOpen(live) || live.parent.isDestroyed() ? { visible: false } : { windowId: live.parent.id, visible: live.parent.isVisible() && !live.parent.isMinimized() && view.getVisible() })
@@ -1249,7 +1263,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     contents.on('render-process-gone', () => { invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
-    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), installKeys, () => {
+    let panEnabled = () => isLiveTabOpen(live) && !!fixedViewport(tabId)
+    let pan = (x: number, y: number) => {
+      let owner = [...clients.values()].find(owner => owner.window === live.parent)
+      if (!owner || !live.remoteFrame || automatedContents.has(contents.id)) return
+      let target = owner.floats.get(tabId)?.webContents ?? owner.chrome.webContents
+      target.send('viewport-scroll', tabId, x, y)
+    }
+    live.viewportPan = createViewportPan(contents, panEnabled, expression => pageTools?.frameContexts(tabId, expression) ?? Promise.resolve(), pan)
+    live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), contents => {
+      installKeys(contents)
+      live.shieldPan = createViewportPan(contents, panEnabled, expression => contents.executeJavaScript(expression), pan)
+      void live.shieldPan.refresh()
+    }, () => {
       let owner = [...clients.values()].find(owner => owner.window === live.parent)
       if (!owner) return
       owner.chrome.webContents.focus()
@@ -1749,13 +1775,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     let placement = window.floating?.find(item => item.paneId === paneId)
     if (!placement) return
     let rect = floatRect(client, placement)
+    let reported = clients.get(client.id)?.floatingBounds.get(paneId)
+    if (fixedViewport(paneId) && reported) return { ...reported, x: rect.x + reported.x, y: rect.y + reported.y }
     return { paneId: pane.id, x: rect.x + FLOAT_CONTENT_INSET, y: rect.y + FLOAT_HEADER + FLOAT_CONTENT_VERTICAL_INSET, width: Math.max(1, rect.width - FLOAT_CONTENT_INSET * 2), height: Math.max(1, rect.height - FLOAT_HEADER - FLOAT_CONTENT_VERTICAL_INSET * 2) }
   }
   let prepareFloats = (client: Client, live: LiveClient) => {
     let window = model.sessions.flatMap(session => session.windows).find(window => window.id === client.windowId)
     let visible = client.zoomedPaneId ? [] : window?.floating ?? []
     for (let [paneId, frame] of live.floats) if (!visible.some(item => item.paneId === paneId)) {
-      live.window.contentView.removeChildView(frame); frame.webContents.close(); live.floats.delete(paneId)
+      live.window.contentView.removeChildView(frame); frame.webContents.close(); live.floats.delete(paneId); live.floatingBounds.delete(paneId)
     }
     for (let placement of visible) {
       let frame = live.floats.get(placement.paneId)
@@ -1880,14 +1908,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         let tabId = paneById(model, paneId).pane.id
         let floatingBounds = floatBounds(candidate, paneId)
         let reported = live.bounds.find(bounds => bounds.paneId === tabId)
-        let bounds = remoteSizes.has(tabId) ? reported ?? floatingBounds : floatingBounds ?? reported
-        if (!remoteSizes.has(tabId) && !floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
+        let bounds = floatingBounds ?? reported
+        if (!fixedViewport(tabId) && !floatingBounds && paneIds.length === 1 && !paneById(model, tabId).pane.device) bounds = singlePaneBounds(tabId, live, bounds)
         // A remounted device frame has no screen size until its layout effect runs.
         if (!bounds || bounds.width <= 0 || bounds.height <= 0) continue
         let entries = viewers.get(tabId) ?? []
         entries.push({ id: candidate.id, live, bounds }); viewers.set(tabId, entries)
       }
     }
+    let capturedViewport = false
     for (let [tabId, live] of tabs) {
       let candidates = viewers.get(tabId) ?? []
       // Focus chooses between competing viewers; losing focus alone keeps the
@@ -1908,13 +1937,22 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       live.view.setVisible(!retainPickerOwner)
       live.inputLock?.refresh()
       live.camera?.setVisible(!retainPickerOwner)
-      let { session, pane } = tabById(model, tabId)
+      let { session, window, pane } = tabById(model, tabId)
+      if (window.lockedViewports && !window.lockedViewports[tabId] && bounds) {
+        let size = pane.device ? fittedDeviceBounds(bounds, pane.device) : bounds
+        window.lockedViewports[tabId] = { width: Math.max(1, Math.round(size.width)), height: Math.max(1, Math.round(size.height)) }
+        capturedViewport = true
+      }
+      let fixedSize = fixedViewport(tabId)
+      void live.viewportPan?.refresh()
+      void live.shieldPan?.refresh()
+      if (!fixedSize) removeRemoteFrame(live)
       // Remote viewer contents belong to the app session, outside profile extensions.
       if (!remotePages.get(tabId)?.attach) extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
       if (target === viewer?.live.window && bounds) {
-        let persona = remoteSizes.has(tabId) ? undefined : tabById(model, tabId).pane.device
+        let persona = fixedSize ? undefined : pane.device
         let fitted = persona ? fittedDeviceBounds(bounds, persona) : { x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)), scale: undefined }
-        if (!remoteSizes.has(tabId)) live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
+        if (!fixedSize) live.view.setBounds({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height })
         let shape = persona ? deviceScreenShape(persona, fitted) : undefined
         live.view.setBorderRadius(shape ? Math.round(shape.radius) : 0)
         if (shape) {
@@ -1933,20 +1971,24 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           live.camera.webContents.close()
           live.camera = undefined
         }
-        if (persona && live.deviceScale !== fitted.scale) {
-          live.deviceScale = fitted.scale
+        let deviceScale = fixedSize && pane.device ? fittedDeviceBounds({ x: 0, y: 0, ...fixedSize }, pane.device).scale : fitted.scale
+        if (pane.device && live.deviceScale !== deviceScale) {
+          live.deviceScale = deviceScale
           void live.ready.then(() => {
-            if (!live.disposed && live.deviceScale === fitted.scale) return applyDeviceMetrics(live.contents, persona, fitted.scale)
+            if (!live.disposed && live.deviceScale === deviceScale) return applyDeviceMetrics(live.contents, pane.device!, deviceScale)
           }).catch(error => {
-            if (live.disposed || live.deviceScale !== fitted.scale) return
+            if (live.disposed || live.deviceScale !== deviceScale) return
             live.deviceScale = undefined
             reportError(error)
           })
         }
       }
-      let remoteSize = remoteSizes.get(tabId)
-      if (remoteSize && controls.get(tabById(model, tabId).session.id)?.generation === remoteSize.lease) {
-        if (!live.remoteFrame) {
+      if (fixedSize) {
+        let area = target === viewer?.live.window && bounds ? bounds : { x: 0, y: 0, ...fixedSize }
+        let width = Math.max(1, Math.round(area.width)), height = Math.max(1, Math.round(area.height))
+        let fits = width >= fixedSize.width && height >= fixedSize.height
+        if (fits) removeRemoteFrame(live)
+        if (!fits && !live.remoteFrame) {
           live.remoteFrame = new View()
           // A backing layer is required for Electron to mask native child layers.
           live.remoteFrame.setBackgroundBlur(0)
@@ -1955,15 +1997,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
           live.remoteFrame.addChildView(live.view)
           live.parent.contentView.addChildView(live.remoteFrame)
         }
-        let area = target === viewer?.live.window && bounds ? bounds : { x: 0, y: 0, width: remoteSize.width, height: remoteSize.height }
-        let width = Math.max(1, Math.round(area.width)), height = Math.max(1, Math.round(area.height))
-        let scrollX = Math.min(Math.max(0, bounds?.scrollX ?? 0), Math.max(0, remoteSize.width - width))
-        let scrollY = Math.min(Math.max(0, bounds?.scrollY ?? 0), Math.max(0, remoteSize.height - height))
-        live.remoteFrame.setBounds({ x: Math.round(area.x), y: Math.round(area.y), width, height })
-        live.view.setBounds({ x: Math.max(0, Math.round((width - remoteSize.width) / 2)) - Math.round(scrollX), y: Math.max(0, Math.round((height - remoteSize.height) / 2)) - Math.round(scrollY), width: remoteSize.width, height: remoteSize.height })
+        let scrollX = Math.min(Math.max(0, bounds?.scrollX ?? 0), Math.max(0, fixedSize.width - width))
+        let scrollY = Math.min(Math.max(0, bounds?.scrollY ?? 0), Math.max(0, fixedSize.height - height))
+        live.remoteFrame?.setBounds({ x: Math.round(area.x), y: Math.round(area.y), width, height })
+        live.view.setBounds({ x: (fits ? Math.round(area.x) : 0) + Math.max(0, Math.round((width - fixedSize.width) / 2)) - Math.round(scrollX), y: (fits ? Math.round(area.y) : 0) + Math.max(0, Math.round((height - fixedSize.height) / 2)) - Math.round(scrollY), width: fixedSize.width, height: fixedSize.height })
       }
       live.inputLock?.refresh()
     }
+    if (capturedViewport) save()
     for (let candidate of model.clients) {
       let live = clients.get(candidate.id)
       if (!live) continue
@@ -2073,7 +2114,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     disconnectRemoteWorkspace(clientId)
     let local = resolve(model.sessions, client.sessionId, 'Session')
     let requestedPane = page.view?.pane
-    let metadata = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/remote-client.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } })
+    let metadata = new WebContentsView({ webPreferences: { ...remoteWebPreferences, preload: path.join(import.meta.dirname, '../preload/remote-client.cjs') } })
     let workspace = { page, metadata, profileId: local.defaultProfileId, sessionId: undefined as string | undefined, visited: [] as string[], blocked: new Set<string>(), previewAt: 0, fetching: false }
     remoteWorkspaces.set(clientId, workspace)
     let initialized = false, timer: ReturnType<typeof setTimeout>
@@ -2194,7 +2235,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       view.webContents.on('render-process-gone', (_event, details) => trace(`${name} renderer ${details.reason}`))
     }
     let resizeChrome = () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
-    let owner: LiveClient = { window, chrome, floats: new Map(), linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
+    let owner: LiveClient = { window, chrome, floats: new Map(), floatingBounds: new Map(), linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
     resizeChrome()
@@ -2310,10 +2351,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     touchAgent(actor, pane)
   }
   let setBounds = (contentsId: number, bounds: Bounds[]) => {
-    let clientId = [...clients].find(([, live]) => live.chrome.webContents.id === contentsId)?.[0]
+    let clientId = sourceClient(contentsId)
     if (!clientId || !Array.isArray(bounds)) return
     let valid = bounds.filter(bound => ['x', 'y', 'width', 'height'].every(key => Number.isFinite(bound[key as keyof Bounds]))).map(bound => ({ ...bound, scrollX: Number.isFinite(bound.scrollX) ? Math.max(0, bound.scrollX!) : 0, scrollY: Number.isFinite(bound.scrollY) ? Math.max(0, bound.scrollY!) : 0 }))
-    clients.get(clientId)!.bounds = valid
+    let live = clients.get(clientId)!
+    if (live.chrome.webContents.id === contentsId) live.bounds = valid
+    else {
+      let paneId = [...live.floats].find(([, frame]) => frame.webContents.id === contentsId)![0]
+      let bound = valid.find(bound => bound.paneId === paneId)
+      if (bound) live.floatingBounds.set(paneId, bound)
+      else live.floatingBounds.delete(paneId)
+    }
     void scheduleVisuals()
   }
 
@@ -2338,13 +2386,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (targetPane) assertAgentTarget(targetPane.id)
     let activity = !sourceClientId && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
     if (activity) { validateAgentInfo(activity); paneById(model, activity.paneId).pane.lastUsedBy = 'agent'; activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); publish() }
+    let finishActivity: ((outcome?: 'success' | 'error') => void) | undefined
+    let actionOutcome: 'success' | 'error' = 'error'
     let result: unknown
     try {
+      finishActivity = activity && targetPane ? trackActivity(targetPane.id, String(command.args?.agentId ?? targetPane.agentId ?? 'agent'), command.method) : undefined
       let read = () => { if (targetPane) assertAgentTarget(targetPane.id); return perform(command, sourceClientId) }
       let automationPane = !sourceClientId && !remoteActor.getStore() && typeof paneId === 'string' ? paneId : undefined
       let operation = () => automationPane && readsPage(command.method, command.args) ? readAutomationPage(automationPane, read) : read()
       let run = () => automationPane && agentAction(command.method, command.args) ? runAgentAction(automationPane, command.method, command.args ?? {}, operation) : operation()
       result = await (targetPane ? agentTarget.run(targetPane, run) : run())
+      actionOutcome = 'success'
     } finally {
       let current = activity ? activeAgents.get(activity.paneId) : undefined
       if (current && targetPane && currentPane(targetPane.id) === targetPane) {
@@ -2353,6 +2405,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (pane && pane.agentId === current.agentId) Object.assign(current, agentInfo(pane))
         touchAgent(current, targetPane)
       }
+      finishActivity?.(actionOutcome)
     }
     if (client && sourceClientId) {
       let selection = ['select-window', 'cycle-window', 'switch-client', 'select-pane', 'cycle-pane', 'select-pane-direction', 'focus-page'].includes(command.method)
@@ -2623,10 +2676,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         { label: window.pinned ? 'Unpin Window' : 'Pin Window', click: () => invoke('toggle-window-pin', { window: window.id }) },
         { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
         { type: 'separator' },
+        { label: window.locked ? 'Unlock Window' : 'Lock Window', icon: lockMenuIcon('window'), click: () => invoke(window.locked ? 'unlock-window' : 'lock-window', { window: window.id }) },
+        { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', icon: lockMenuIcon('viewport'), click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id, client: client.id }) },
+        { type: 'separator' },
         { label: 'Move Left', enabled: index > 0 && !!session.windows[index - 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
         { label: 'Move Right', enabled: index < session.windows.length - 1 && !!session.windows[index + 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
         { type: 'separator' },
-        { label: 'Close Window', click: () => invoke('kill-window', { window: window.id, confirm: true }) },
+        { label: 'Close Window', enabled: !window.locked, click: () => invoke('kill-window', { window: window.id, confirm: true }) },
       ]).popup({ window: clients.get(client.id)!.window })
       return null
     }
@@ -3180,8 +3236,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'kill-session') {
       let session = resolve(model.sessions, args.session, 'Session')
+      if (sessionIsLocked(session)) throw new Error('Session contains a locked window; unlock it before closing')
       if (args.confirm !== true) throw new Error('Closing a session requires confirmation; pass --confirm')
       if (!(await closeTabsBeforeRemoval(session.windows.flatMap(window => window.panes.map(pane => pane.id))))) return { cancelled: session.id }
+      if (sessionIsLocked(session)) throw new Error('Session contains a locked window; unlock it before closing')
       if (session.private) {
         closedTabs = closedTabs.filter(item => item.kind === 'window' ? item.sessionId !== session.id : !session.windows.some(window => window.id === item.windowId))
         for (let key of permissionGrants.keys()) if (key.startsWith(`private:${session.id}:`)) permissionGrants.delete(key)
@@ -3294,6 +3352,28 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if (method === 'toggle-window-pin') {
       let window = toggleWindowPin(model, args.window)
       changed(); await visualQueue; return window
+    }
+    if (method === 'lock-viewport' || method === 'unlock-viewport') {
+      let window = resolveWindow(model, args.window)
+      if (method === 'unlock-viewport') delete window.lockedViewports
+      else if (!window.lockedViewports) {
+        let client = model.clients.find(client => client.id === (sourceClientId ?? args.client) && client.windowId === window.id)
+        let owner = client && clients.get(client.id)
+        window.lockedViewports = Object.fromEntries(window.panes.flatMap(pane => {
+          // A prompt can move the native page to another client while it is open.
+          let reported = (client && floatBounds(client, pane.id)) ?? owner?.bounds.find(bounds => bounds.paneId === pane.id)
+          let bounds = fixedViewport(pane.id) ?? (reported ? pane.device ? fittedDeviceBounds(reported, pane.device) : reported : tabs.get(pane.id)?.view.getBounds())
+          return bounds ? [[pane.id, { width: Math.max(1, Math.round(bounds.width)), height: Math.max(1, Math.round(bounds.height)) }]] : []
+        }))
+      }
+      // A released lock returns to client sizing, including after a remote lease.
+      for (let pane of window.panes) remoteSizes.delete(pane.id)
+      changed(); await visualQueue; return window
+    }
+    if (method === 'lock-window' || method === 'unlock-window') {
+      let window = resolveWindow(model, args.window)
+      window.locked = method === 'lock-window'
+      save(); return window
     }
     if (method === 'rename-window') { let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window'); window.name = required(args, 'name'); window.automaticName = false; save(); return window }
     if (method === 'move-window') {
@@ -3517,8 +3597,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     }
     if (method === 'kill-window') {
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
+      if (window.locked) throw new Error('Window is locked; unlock it before closing')
       if (window.panes.length > 1 && args.confirm !== true) throw new Error('Window contains multiple panes; pass --confirm')
       if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
+      if (window.locked) throw new Error('Window is locked; unlock it before closing')
       let session = model.sessions.find(session => session.windows.includes(window))!
       if (!session.private && !session.ephemeral) {
         closedTabs.push({ kind: 'window', sessionId: session.id, index: session.windows.indexOf(window), window: structuredClone(window) })
@@ -3547,7 +3629,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
       let replacement = cloneWindow(saved.window, model)
-      window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating
+      window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating; window.lockedViewports = replacement.lockedViewports
       changed(); await visualQueue; return window
     }
     if (method === 'tab.list') return walkPanes(model).filter(item => !args.pane || item.pane.id === args.pane).map(({ session, window, pane }) => ({ ...pane, paneId: pane.id, windowId: window.id, sessionId: session.id, active: model.clients.some(client => client.id === focusedClientId && client.windowId === window.id && client.paneId === pane.id), runtimeState: !tabs.has(pane.id) ? 'unloaded' : (loading[pane.id] || tabs.get(pane.id)?.pendingNavigation ? 'loading' : 'live') }))
@@ -3907,7 +3989,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute, before: async (context, method, args) => {
+    plugins = createPlugins({ activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run') : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute, before: async (context, method, args) => {
       await guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
       if (context.paneId) tabs.get(context.paneId)?.inputLock?.showCommand(agentCommandLabel(method, args))
     } }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
@@ -3945,6 +4027,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     await app.dock?.show(); selected.window.show(); await focusWindow(selected.window)
   }
   let shutdown = () => {
+    clearInterval(activityTimer); activity.close()
     if (shuttingDown) return previewCache.flush()
     shuttingDown = true
     for (let workspace of remoteWorkspaces.values()) workspace.metadata.webContents.close({ waitForBeforeUnload: false })
@@ -4062,7 +4145,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       controls.release(session.id)
       return await execute({ method: 'kill-pane', args: { pane: paneId, confirm: true } }) as { closed?: string; cancelled?: string }
     },
-    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral).map(session => ({ ...session, revision: management.sessionRevision(session.id) })); return { capabilities: management.capabilities, sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
+    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral).map(session => ({ ...session, revision: management.sessionRevision(session.id) })); return { activity: activity.episodes(), capabilities: management.capabilities, sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
     workspace: (sessionId: string) => {
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
       if (!session) return undefined
@@ -4119,11 +4202,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let live = await ensureLiveTab(pane)
       controls.assert(paneById(model, pane).session.id, owner, generation)
       if (!Number.isInteger(width) || !Number.isInteger(height) || width < 320 || width > 1920 || height < 200 || height > 1080) throw new Error('Invalid viewport')
+      let locked = lockedViewport(pane)
+      if (locked) {
+        if (locked.width !== width || locked.height !== height) throw new Error('Viewport is locked; unlock it before resizing')
+        return remoteViewport(pane)
+      }
       let previous = remoteSizes.get(pane)?.previous ?? live.view.getBounds()
       remoteSizes.set(pane, { width, height, previous, lease: generation })
       await scheduleVisuals()
       return remoteViewport(pane)
     },
   }
-  return { get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

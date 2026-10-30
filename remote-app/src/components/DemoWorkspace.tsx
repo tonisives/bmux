@@ -40,7 +40,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
   let list = <View style={split ? local.sidebar : local.list}>
     {tab === 'settings' ? <ScrollView contentContainerStyle={local.settings}>
       <Text style={styles.title}>Settings</Text>
-      <Button title="Sign in" onPress={connect} />
+      <Button title="Sign in with Google" onPress={connect} />
       <Button title="Exit demo" onPress={close} />
     </ScrollView> : <SessionList hosts={[demoHost]} selection={selection} select={open} searchVisible={split || tab === 'search'} focusSearch={focusSearch} />}
     <RemoteTabs active={tab} select={selectTab} />

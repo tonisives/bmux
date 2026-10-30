@@ -34,6 +34,15 @@ test('pane move targets include sessions and distinct windows, and every complet
   expect(commandTargetSuggestions('movep -t work -v', current)).toBeUndefined()
 })
 
+test('viewport commands complete window targets across sessions', () => {
+  let current = state(), target = current.model.sessions[1]
+  for (let method of ['lock-viewport', 'unlock-viewport']) {
+    let entries = commandTargetSuggestions(`${method} -t bmux-marketing`, current)!.entries
+    expect(entries).toHaveLength(2)
+    expect(parseCommandLine(entries[1].command, current)).toMatchObject({ method, args: { window: target.windows[1].id } })
+  }
+})
+
 test('session close completion targets stable session IDs and preserves explicit confirmation', () => {
   let current = state(), target = current.model.sessions[1]
   target.name = 'work "notes"'

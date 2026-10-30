@@ -64,7 +64,7 @@ test.beforeAll(async () => {
     if (request.url === '/api/hosts') {
       let signedIn = request.headers.cookie?.includes('bmux_session=fixture-token')
       response.writeHead(signedIn ? 200 : 401, { 'Content-Type': 'application/json' })
-      response.end(JSON.stringify(signedIn ? [{ id: 'fixture-host', key: { x: 'fixture-key' }, service: 'fixture', machine: { name: 'Research Linux', platform: 'linux', arch: 'x64', version: '0.1.10', revision: 'fixture' }, permission: 'control', sessions: [{ id: 'fixture-session', private: false, workspace: 1, name: 'Remote fixture', lastActivityAt: Date.now() - 150000, panes: [{ id: 'fixture-pane', title: 'Fixture page', agentId: 'researcher', agentName: 'Research', agentType: 'scraper', agentPurpose: 'Checking source links', agentData: { task: 'Article discovery' }, agentFields: { task: 'Current task' } }] }, { id: 'next-session', workspace: 1, name: 'Next fixture', panes: [{ id: 'next-pane', title: 'Next page' }] }] }, { id: 'other-host', key: { x: 'other-key' }, service: 'fixture', machine: { name: 'Personal Mac', platform: 'darwin', arch: 'arm64' }, permission: 'watch', sessions: [{ id: 'other-session', name: 'Other fixture', panes: [] }] }] : { error: 'Login required' }))
+      response.end(JSON.stringify(signedIn ? [{ id: 'fixture-host', key: { x: 'fixture-key' }, service: 'fixture', machine: { name: 'Research Linux', platform: 'linux', arch: 'x64', version: '0.1.10', revision: 'fixture' }, permission: 'control', sessions: [{ id: 'fixture-session', private: false, workspace: 1, name: 'Remote fixture', lastActivityAt: Date.now() - 150000, panes: [{ id: 'fixture-pane', title: 'Fixture page', agentId: 'researcher', agentName: 'Research', agentType: 'scraper', agentPurpose: 'Checking source links', agentData: { task: 'Article discovery' }, agentFields: { task: 'Current task' } }] }, { id: 'next-session', workspace: 1, name: 'Next fixture', windows: [{ id: docsWindow.id, name: 'Next page', panes: [{ id: docsWindow.panes[0].id, title: 'Next page' }] }], panes: [{ id: docsWindow.panes[0].id, title: 'Next page' }] }] }, { id: 'other-host', key: { x: 'other-key' }, service: 'fixture', machine: { name: 'Personal Mac', platform: 'darwin', arch: 'arm64' }, permission: 'watch', sessions: [{ id: 'other-session', name: 'Other fixture', panes: [] }] }] : { error: 'Login required' }))
       return
     }
     if (request.url === '/api/connect') { response.writeHead(503); response.end(); return }
@@ -150,7 +150,7 @@ test('session picker creates and attaches sessions with default names', async ()
   let sessions = chrome.getByRole('group', { name: 'Choose session', exact: true })
   let create = sessions.getByRole('button', { name: 'new session', exact: true })
   await expect(sessions.getByRole('button', { name: 'new private session', exact: true })).toBeVisible()
-  await expect(sessions.getByRole('button', { name: 'sign in to remote' })).toHaveCount(0)
+  await expect(sessions.getByRole('button', { name: 'Sign in with Google' })).toHaveCount(0)
   await expect(chrome.getByRole('dialog', { name: 'Sessions' }).getByRole('tab', { name: 'Remote' })).toBeVisible()
   await create.click()
   await expect(sessions).toHaveCount(0)
@@ -363,6 +363,9 @@ test('session reorder toggle supports dragging and keyboard moves while preservi
 })
 
 test('remote sessions open from the sessions popup title bar', async ({}, info) => {
+  await rpc('select-window', { client: (await state()).clientId, window: docsWindow.id })
+  await expect.poll(async () => (await state()).favicons[docsWindow.panes[0].id]).toBeTruthy()
+  await rpc('select-window', { client: (await state()).clientId, window: session.windows[0].id })
   let extensionPath = path.join(directory, 'remote-layout-extension')
   await fs.mkdir(extensionPath, { recursive: true })
   await fs.writeFile(path.join(extensionPath, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Remote layout fixture', version: '1.0', permissions: ['tabs'] }))
@@ -402,7 +405,7 @@ test('remote sessions open from the sessions popup title bar', async ({}, info) 
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)
   let clients = current.model.clients.length, previousSession = client.sessionId
   let nativeWindows = await rpc('diagnostics')
-  await picker.getByRole('button', { name: 'sign in to remote' }).click()
+  await picker.getByRole('button', { name: 'Sign in with Google' }).click()
   await expect(dialog).toHaveCount(0)
   await expect.poll(async () => (await state()).model.clients.length).toBe(clients)
   current = await state()
@@ -435,6 +438,12 @@ test('remote sessions open from the sessions popup title bar', async ({}, info) 
   await chrome.keyboard.press('Escape')
   await expect(machineButton).toBeFocused()
   await expect(machineIcon).toHaveAttribute('stroke', '#e5a450')
+  // Remote pane IDs can match a local page that already has a favicon.
+  await expect.poll(async () => (await state()).favicons[docsWindow.panes[0].id]).toBeTruthy()
+  let collidingPage = picker.locator(`[data-remote-tree="fixture-host:next-session"] [data-remote-pane="${docsWindow.panes[0].id}"] [data-session-row]`)
+  await expect(collidingPage).toContainText('Next page')
+  await expect(collidingPage.locator('img, [data-tab-loading]')).toHaveCount(0)
+  await expect(collidingPage.locator('svg')).toHaveCount(1)
   let remoteTree = picker.locator('[data-remote-tree="fixture-host:fixture-session"]')
   let remoteParent = (await remoteTree.locator('[data-session-target]:not([data-preview-window]) [data-session-row] > span').last().boundingBox())!
   let remoteChild = (await remoteTree.locator('[data-remote-pane="fixture-pane"] [data-session-row] > span').last().boundingBox())!

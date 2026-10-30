@@ -1,0 +1,24 @@
+name: Record BMUX session
+job_type: binary
+enabled: true
+path: /opt/homebrew/bin/node
+args:
+  - /Users/tonis/workspace/tgs/bmux/public/scripts/record-session.mjs
+secret_keys: []
+env: {}
+work_dir: /Users/tonis/workspace/tgs/bmux/public
+group: bmux
+slug: bmux/record-session
+job_id: record-session
+params:
+  - name: event
+    value: ''
+notify:
+  start: false
+  working: false
+  logs: false
+  finish: false
+notify_target: none
+kill_on_end: true
+auto_yes: false
+max_history: 20

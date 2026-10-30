@@ -74,8 +74,6 @@ let launch = async () => {
   let packaged = process.env.BMUX_TEST_PACKAGED === '1'
   application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
-  await application.evaluate(async ({ app }) => { await app.whenReady() })
-  await observeNativeFocus(application)
   // The public CLI auto-starts a server. During a slow restore that can launch the
   // installed build against this same fixture before the test app starts listening.
   let socket = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(directory).digest('hex').slice(0, 16)}.sock`)
@@ -89,6 +87,8 @@ let launch = async () => {
     connection.on('end', () => { try { resolve(JSON.parse(response).result.pid) } catch (error) { reject(error) } })
   })
   await expect.poll(() => serverPid().catch(() => null), { timeout: 20000 }).toBe(application.process().pid)
+  // Let startup finish before entering the main process through the inspector.
+  await observeNativeFocus(application)
 }
 let frontmost = async () => (await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to get unix id of first application process whose frontmost is true'])).stdout.trim()
 let fixture = `<!doctype html><html><head><title>bmux fixture</title><style>body{margin:0;font:20px sans-serif;background:#e8eef8}header{padding:30px;background:#173353;color:white}section{height:2500px;padding:30px}footer{height:200px;background:#bd4135;color:white;padding:30px}</style></head><body><header>Fixture top</header><section><input id="text" placeholder="Type here"><button id="inc" onclick="window.count++;document.querySelector('#count').textContent=window.count">Increment</button><span id="count">0</span><a id="popup" href="/popup" target="_blank" rel="noopener">Popup</a><a id="background-link" href="/popup">Background link</a><a href="/download">Download</a></section><footer id="bottom">BOTTOM OF FULL PAGE</footer><script>window.count=0;window.identity=Math.random();window.ticks=0;setInterval(()=>window.ticks++,100);</script></body></html>`
@@ -492,27 +492,42 @@ test('Command+W closes an internal window or its session while the command and m
   let session = await cli('new-session', { name: 'window-closing' })
   let client = await cli('attach-session', { session: session.id })
   let clientsBefore = await cli('list-clients')
+  // Cmd+N registers the client before its renderer and native focus are ready.
+  let activate = async (clientId: string, window?: { id: string; panes: { id: string }[] }) => {
+    let chrome = await rendererForClient(clientId)
+    if (window) {
+      await expect(chrome.locator(`[data-window-id="${window.id}"]`)).toHaveAttribute('data-selected', 'true')
+      await expect(chrome.locator(`[data-pane-id="${window.panes[0].id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    }
+    await cli('activate-client', { client: clientId })
+    await expect.poll(async () => {
+      let diagnostics = await cli('diagnostics')
+      return diagnostics.focusedClientId === clientId && diagnostics.windows.some((window: { id: string; focused: boolean }) => window.id === clientId && window.focused)
+    }).toBe(true)
+  }
   try {
-    await cli('activate-client', { client: client.id })
+    await activate(client.id, session.windows[0])
     await sendNativeKeys(application, [{ keyCode: 'n', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length + 1)
     let openedClientId = (await cli('list-clients')).find((item: { id: string }) => !clientsBefore.some((prior: { id: string }) => prior.id === item.id)).id
+    await activate(openedClientId, session.windows[0])
     let secondWindow = await cli('new-window', { session: session.id, client: openedClientId })
-    await cli('activate-client', { client: openedClientId })
+    await activate(openedClientId, secondWindow)
     await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-windows', { session: session.id })).length).toBe(1)
     expect((await cli('list-windows', { session: session.id })).some((window: { id: string }) => window.id === secondWindow.id)).toBe(false)
     expect((await cli('list-clients')).some((item: { id: string }) => item.id === openedClientId)).toBe(true)
-    await cli('activate-client', { client: openedClientId })
+    await activate(openedClientId, session.windows[0])
     await sendNativeKeys(application, [{ keyCode: 'w', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-sessions')).some((item: { id: string }) => item.id === session.id)).toBe(false)
     expect((await cli('list-clients')).some((item: { id: string }) => item.id === openedClientId)).toBe(true)
     expect((await cli('list-clients')).some((item: { id: string; sessionId: string }) => item.id === openedClientId && item.sessionId === session.id)).toBe(false)
     await cli('detach-client', { client: openedClientId })
-    await cli('activate-client', { client: client.id })
+    await activate(client.id)
     await sendNativeKeys(application, [{ keyCode: 'n', modifiers: ['meta'] }])
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length + 1)
     openedClientId = (await cli('list-clients')).find((item: { id: string }) => !clientsBefore.some((prior: { id: string }) => prior.id === item.id)).id
+    await activate(openedClientId)
     expect(await application.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('close-system-window')?.label)).toBe('Close System Window')
     await cli('command-line', { client: openedClientId, line: 'close-system-window' })
     await expect.poll(async () => (await cli('list-clients')).length).toBe(clientsBefore.length)
@@ -2019,9 +2034,12 @@ test('native click mode activates with Option taps and performs each click actio
     expect((await cli('click-mode', { client: client.id })).active).toBe(true)
     await expect(page.locator('[data-bmux-click-mode]')).toHaveCount(1)
     await expect(chrome.locator('[data-bmux-click-mode]')).toHaveCount(0)
-    await expect(chrome.getByRole('group', { name: 'Click mode actions' })).toHaveCount(1)
-    let bar = chrome.getByRole('group', { name: 'Click mode actions' }).locator('..')
-    await expect(bar.getByRole('button')).toHaveCount(0)
+    let actions = chrome.getByRole('group', { name: 'Click mode actions' })
+    await expect(actions).toHaveCount(1)
+    await expect(actions.getByRole('button')).toHaveCount(0)
+    let bar = actions.locator('..')
+    await expect(bar.getByRole('button')).toHaveCount(1)
+    await expect(bar.getByRole('button')).toHaveAccessibleName('Last agent')
     expect(await bar.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   }
   let keys = async (...keyCodes: string[]) => sendNativeKeys(application, keyCodes.map(keyCode => ({ keyCode })))
@@ -3823,7 +3841,9 @@ test('session picker toggles sound for background sessions and windows in tree a
     await expect(audio(tree)).toHaveCount(0)
     await cli('eval', { tab: media.id, expression: 'document.querySelector("video").loop = true; document.querySelector("video").play()' })
     await expect(audio(windowRow)).toHaveAttribute('data-muted', 'false')
+    await expect(audio(windowRow)).toHaveAccessibleName(/^Mute window /)
     await expect(audio(sessionRow)).toHaveAttribute('data-muted', 'false')
+    await expect(audio(sessionRow)).toHaveAccessibleName('Mute session session-audio')
     await expect(audio(picker.locator(`[data-window-row="${background.id}"]`).locator('..'))).toHaveCount(0)
     await alignedAudio()
     await tree.getByRole('button', { name: 'Collapse windows in session-audio', exact: true }).click()
@@ -3841,7 +3861,9 @@ test('session picker toggles sound for background sessions and windows in tree a
     await alignedAudio()
     await clickAudio(windowRow)
     await expect(audio(windowRow)).toHaveAttribute('data-muted', 'true')
+    await expect(audio(windowRow)).toHaveAccessibleName(/^Unmute window /)
     await expect(audio(otherRow)).toHaveAttribute('data-muted', 'false')
+    await expect.poll(async () => (await cli('state')).audio[other.panes[0].id]?.muted).toBe(false)
     await expect(audio(sessionRow)).toHaveAttribute('data-muted', 'false')
     await clickAudio(sessionRow)
     await expect.poll(async () => (await cli('state')).audio[other.panes[0].id]?.muted).toBe(true)
@@ -3853,6 +3875,7 @@ test('session picker toggles sound for background sessions and windows in tree a
     await alignedAudio()
     await clickAudio(windowRow)
     await expect.poll(async () => (await cli('state')).audio[media.id]?.muted).toBe(true)
+    await expect(audio(otherRow)).toHaveAttribute('data-muted', 'false')
     await clickAudio(windowRow)
     await expect.poll(async () => (await cli('state')).audio[media.id]?.muted).toBe(false)
     await unchangedSelection()
@@ -3870,28 +3893,72 @@ test('session picker toggles sound for background sessions and windows in tree a
   }
 })
 
-test('window audio control appears during playback and toggles sound', async () => {
+for (let pinned of [false, true]) test(`${pinned ? 'pinned ' : ''}window audio control mutes only its own window during playback`, async ({}, info) => {
   let session = await cli('new-session', { name: 'window-audio' })
   let client = await cli('attach-session', { session: session.id })
   let window = session.windows[0], tab = window.panes[0].id
   let chrome = await rendererForClient(client.id)
   let controls = chrome.locator(`[data-window-id="${window.id}"]`)
-  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
-  await cli('navigate', { tab, url: pathToFileURL(path.join(root, 'tests/fixtures/local-media.html')).href })
-  await cli('eval', { tab, expression: 'document.querySelector("video").loop = true; document.querySelector("video").play()' })
-  await expect(controls.getByRole('button', { name: 'Mute Local media fixture', exact: true })).toBeVisible()
-  await controls.getByRole('button', { name: 'Mute Local media fixture', exact: true }).click()
-  await expect.poll(async () => (await cli('state')).audio[tab]?.muted).toBe(true)
-  await expect(controls.getByRole('button', { name: 'Unmute Local media fixture', exact: true })).toBeVisible()
-  await cli('eval', { tab, expression: 'document.querySelector("video").pause()' })
-  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
-  await cli('eval', { tab, expression: 'document.querySelector("video").play()' })
-  await expect(controls.getByRole('button', { name: 'Unmute Local media fixture', exact: true })).toBeVisible()
-  await controls.getByRole('button', { name: 'Unmute Local media fixture', exact: true }).click()
-  await expect.poll(async () => (await cli('state')).audio[tab]?.muted).toBe(false)
-  await cli('eval', { tab, expression: 'document.querySelector("video").pause()' })
-  await expect(controls.locator('button[data-muted]')).toHaveCount(0)
-  await cli('detach-client', { client: client.id })
+  try {
+    await cli('select-window', { client: client.id, window: window.id })
+    if (pinned) await cli('toggle-window-pin', { window: window.id })
+    await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+    let mediaUrl = pathToFileURL(path.join(root, 'tests/fixtures/local-media.html')).href
+    await cli('navigate', { tab, url: mediaUrl })
+    let split = await cli('split-window', { pane: tab, url: mediaUrl })
+    let other = await cli('new-window', { session: session.id, name: 'Other audio', url: mediaUrl })
+    let otherTab = other.panes[0].id
+    expect(other.panes[0].profileId).toBe(window.panes[0].profileId)
+    let otherControls = chrome.locator(`[data-window-id="${other.id}"]`)
+    let panes = [tab, split.id, otherTab]
+    for (let pane of panes) await cli('eval', { tab: pane, expression: 'document.querySelector("video").loop = true; document.querySelector("video").play()' })
+    await expect(controls.getByRole('button', { name: 'Mute window Local media fixture', exact: true })).toBeVisible()
+    await expect(otherControls.getByRole('button', { name: 'Mute window Other audio', exact: true })).toBeVisible()
+    await expect.poll(async () => {
+      let state = await cli('state')
+      return panes.map(pane => state.audio[pane]?.playing)
+    }).toEqual([true, true, true])
+    let diagnostics = await cli('diagnostics')
+    let contentsIds = panes.map(pane => diagnostics.capture.panes.find((item: { pane: string }) => item.pane === pane).contentsId)
+    let muted = () => application.evaluate(({ webContents }, ids) => ids.map(id => webContents.fromId(id)!.isAudioMuted()), contentsIds)
+    let unchangedSelection = async () => {
+      await expect(controls).toHaveAttribute('data-selected', 'true')
+      expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).windowId).toBe(window.id)
+    }
+    if (pinned) {
+      await expect(controls).toHaveAttribute('data-pinned', 'true')
+      await expect.poll(async () => (await controls.boundingBox())!.width).toBe(46)
+      let select = (await controls.locator('button[data-active]').boundingBox())!
+      let audio = (await controls.locator('button[data-muted]').boundingBox())!
+      expect(select.width).toBe(26)
+      expect(audio.x).toBeGreaterThanOrEqual(select.x + select.width)
+    }
+    await controls.getByRole('button', { name: 'Mute window Local media fixture', exact: true }).click()
+    await expect.poll(muted).toEqual([true, true, false])
+    await unchangedSelection()
+    await chrome.screenshot({ path: info.outputPath('window-audio.png') })
+    await otherControls.getByRole('button', { name: 'Mute window Other audio', exact: true }).click()
+    await expect.poll(muted).toEqual([true, true, true])
+    await unchangedSelection()
+    await controls.getByRole('button', { name: 'Unmute window Local media fixture', exact: true }).click()
+    await expect.poll(muted).toEqual([false, false, true])
+    await otherControls.getByRole('button', { name: 'Unmute window Other audio', exact: true }).click()
+    await expect.poll(muted).toEqual([false, false, false])
+    await unchangedSelection()
+    await controls.getByRole('button', { name: 'Mute window Local media fixture', exact: true }).click()
+    for (let pane of [tab, split.id]) await cli('eval', { tab: pane, expression: 'document.querySelector("video").pause()' })
+    await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+    if (pinned) await expect.poll(async () => (await controls.boundingBox())!.width).toBe(28)
+    await cli('eval', { tab, expression: 'document.querySelector("video").play()' })
+    await expect(controls.getByRole('button', { name: 'Unmute window Local media fixture', exact: true })).toBeVisible()
+    await controls.getByRole('button', { name: 'Unmute window Local media fixture', exact: true }).click()
+    await expect.poll(muted).toEqual([false, false, false])
+    await cli('eval', { tab, expression: 'document.querySelector("video").pause()' })
+    await expect(controls.locator('button[data-muted]')).toHaveCount(0)
+  } finally {
+    await cli('detach-client', { client: client.id })
+    await cli('kill-session', { session: session.id, confirm: true })
+  }
 })
 
 test('open command renders a local HTML file given relative to home', async () => {

@@ -1,5 +1,6 @@
 import { remoteWorkspaceShortcut } from '../shared/remote-workspace'
 import { RemotePaneControls } from './RemotePaneControls'
+import { useViewportPan } from './useViewportPan'
 import { PROFILE_COLORS, profileHash, profileColor } from '../shared/profile-color'
 import type { RemoteView } from '../shared/remote'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
@@ -11,6 +12,7 @@ import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
 import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 import { RemoteAccount } from './RemoteAccount'
+import { RecordControl, RecordingPanel, HooksPanel } from './Observations'
 import { RemoteMachineDetails, RemoteMachineHeading, remoteMachineName, useRemoteMachines } from './RemoteMachine'
 import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
@@ -48,7 +50,7 @@ import { commandEntries, fuzzyMatch, HELP_NOTES, literalCommand, PANEL_COMMANDS,
 import type { CommandEntry } from '../shared/command-search'
 import { commandTargetSuggestions } from '../shared/command-completion'
 import { searchBookmarkPages, searchBookmarks, searchHistory, searchSessions, searchRecentWindows } from '../shared/picker-search'
-import { windowCloseBehavior } from '../shared/window-close'
+import { sessionIsLocked, windowCloseBehavior } from '../shared/window-close'
 import { backOpener } from '../shared/opener-navigation'
 import { addressDestination, addressUrlCompletion, inlineUrlCompletion, prioritizeInlineHistory, searchUrlDestination, urlDestinationTitle, withAddressSearch } from '../shared/address-suggestions'
 import { deduplicateAddressEntries } from '../shared/address-result-deduplication'
@@ -210,12 +212,13 @@ let useOverlayFocus = (state: PublicState | null, control: Control | null, panel
 }
 
 let BrowserStatus = ({ collapsedAlerts, expandAlerts }: { collapsedAlerts: Notification[]; expandAlerts: () => void }) => {
-  let { state, control, message } = useUI()
-  let { client } = selection(state)
+  let { state, control, message, run, show } = useUI()
+  let { client, pane } = selection(state)
   if (!client) return null
   return <footer className={css.status} aria-label="Browser status">
     {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     {collapsedAlerts.length > 0 && <button type="button" className={css.agentAlertsButton} aria-label="Show agent alerts" aria-expanded="false" title={collapsedAlerts.map(notice => notice.text).join('\n')} onClick={expandAlerts}><AgentStatusIcon /><span>{collapsedAlerts.length} {collapsedAlerts.length === 1 ? 'alert' : 'alerts'}</span><AlertChevron collapsed /></button>}
+    <RecordControl run={run} pane={pane?.id} open={()=>show('activity')} />
     <BuildId />
   </footer>
 }
@@ -703,6 +706,9 @@ let PageIcon = ({ paneId }: { paneId?: string }) => {
   if (paneId && state.favicons[paneId]) return <img className={css.tabFavicon} src={state.favicons[paneId]} alt="" />
   return <svg className={css.tabPlaceholder} viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></svg>
 }
+let WindowLockIcon = () => <svg className={css.windowLock} viewBox="0 0 16 16" role="img" aria-label="Locked"><rect x="3" y="7" width="10" height="7" rx="1" /><path d="M5 7V5a3 3 0 0 1 6 0v2" /></svg>
+let ViewportLockIcon = () => <svg className={css.windowLock} viewBox="0 0 16 16" role="img" aria-label="Viewport locked"><path d="M1.5 5.5v-4h4m5 0h4v4m0 5v4h-4m-5 0h-4v-4M5 5h6v6H5z" /></svg>
+let WindowIcons = ({ window, paneId }: { window: InternalWindow; paneId?: string }) => <>{!window.locked && !window.lockedViewports && <PageIcon paneId={paneId} />}{window.locked && <WindowLockIcon />}{window.lockedViewports && <ViewportLockIcon />}</>
 let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; index: number; active: boolean; now: number }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
@@ -735,14 +741,14 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
   let toggleAudio = () => { void run('window.audio.toggle', { window: window.id }) }
   let close = () => { void run('kill-window', { window: window.id, confirm: true }) }
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); if (!remote) void run('window.menu', { window: window.id }) }
-  return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
+  return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-locked={window.locked === true} data-viewport-locked={!!window.lockedViewports} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
     <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable={!remote}>
-      <PageIcon paneId={tabId} />
+      <WindowIcons window={window} paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
       {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last activity ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
     </button>
-    {!window.pinned && playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
-    {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} disabled={remote} className={css.windowClose} aria-label={`Close ${window.name}`} title={`Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
+    {playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} window ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} window ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
+    {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} disabled={remote || window.locked} className={css.windowClose} aria-label={`Close ${window.name}`} title={window.locked ? 'Unlock window to close' : `Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
   </span>
 }
 
@@ -1352,13 +1358,14 @@ let FloatingPreview = ({ paneId }: { paneId: string }) => {
 }
 let BrowserPane = ({ paneId }: { paneId: string }) => {
   let { state, run, control } = useUI()
-  let { client } = selection(state)
+  let { client, window: selectedWindow } = selection(state)
   let pane = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)!
   let tab = pane
   let remote = state.remoteViews?.[paneId]
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
-  let remoteSize = state.remoteSizes?.[paneId]
+  let remoteSize = selectedWindow?.lockedViewports?.[paneId] ?? state.remoteSizes?.[paneId]
+  useViewportPan(ref, paneId, !!remoteSize)
   useLayoutEffect(() => {
     if (!ref.current || !remoteSize) return
     ref.current.style.setProperty('--remote-width', `${remoteSize.width}px`)
@@ -1514,11 +1521,12 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {type === 'history' && <HistoryPicker />}
       {type === 'downloads' && <DownloadManager />}
       {type === 'extensions' && <ExtensionsContent />}
-      {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
+      {type === 'activity' && <><RecordingsContent /><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
   return <PanelBackContext.Provider value={setDetailBack}>{content}</PanelBackContext.Provider>
 }
+let RecordingsContent = () => { let {run}=useUI();return <RecordingPanel run={run} /> }
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
   let panes = state.model.sessions.filter(session => !('sessionId' in agentDetails) || session.id === agentDetails.sessionId).flatMap(session => session.windows.filter(window => !('windowId' in agentDetails) || window.id === agentDetails.windowId).flatMap(window => window.panes))
@@ -2125,7 +2133,7 @@ let RemoteSessionPicker = () => {
   let back = useMemo(() => view ? { label: 'Back to remote sessions', run: backToSessions } : null, [view, backToSessions])
   usePanelBack(back)
   let open = (next: 'relay' | 'boxes' | 'settings') => { origin.current = next; setView(next) }
-  if (view) return <div className={css.remoteAccountPage}>{view === 'settings' ? <><h3>Remote settings</h3><RemotePreviewSettings /></> : <DesktopRemoteAccount view={view} rent={view === 'boxes'} />}</div>
+  if (view) return <div className={css.remoteAccountPage}>{view === 'settings' ? <><h3>Remote settings</h3><RemotePreviewSettings /><HooksPanel account={bridge.remoteAccount} /></> : <DesktopRemoteAccount view={view} rent={view === 'boxes'} />}</div>
   return <RemoteSessionLibrary open={open} returnFocus={origin.current} />
 }
 let useRemotePreviewImages = (all: { host: RemoteHost; session: RemoteSession }[], settings: RemotePreviewSettings) => {
@@ -2266,7 +2274,7 @@ let RemoteSessionLibrary = ({ open, returnFocus }: { open: (view: 'relay' | 'box
         {expanded && <div role="group" aria-label={`Sessions on ${name}`}>{children.map(({ host, session }) => <RemoteSessionTree key={`${host.id}:${session.id}`} host={host} session={session} active={lastActive === `${host.id}:${session.id}`} now={now} query={query} onSelect={openRemote} onClosed={refresh} dragProps={dragProps(sessionKey(host.id, session.id), siblings)} handle={handle(sessionKey(host.id, session.id), session.name, siblings)} />)}</div>}
       </div>
     })}
-    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>sign in to remote</button>}
+    {remote && !remote.authenticated && <button className={css.listRow} data-picker-action onClick={signIn} disabled={openingSignIn}>Sign in with Google</button>}
     {remote?.authenticated && !sessions.length && !query && <p className={css.sessionGroupEmpty}>No remote sessions.</p>}
     {remote?.authenticated && !sessions.length && !!query && <p role="status">No matching sessions.</p>}
     </div>
@@ -2392,12 +2400,13 @@ let SessionAudio = ({ window, sessionId }: { window?: InternalWindow; sessionId?
   let playing = panes.filter(pane => state.audio[pane.id]?.playing)
   if (!playing.length) return null
   let muted = playing.every(pane => state.audio[pane.id].muted)
-  let label = `${muted ? 'Unmute' : 'Mute'} sound in ${window?.name ?? session?.name}`
+  let label = `${muted ? 'Unmute' : 'Mute'} ${window ? 'window' : 'session'} ${window?.name ?? session?.name}`
   let toggle = () => { void run(window ? 'window.audio.toggle' : 'session.audio.toggle', window ? { window: window.id } : { session: sessionId }) }
   return <button type="button" className={css.sessionAudio} data-picker-action onClick={toggle} aria-label={label} title={label} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>
 }
 let SessionRow = ({ id, name, privateSession }: { id: string; name: string; privateSession: boolean }) => {
   let { state, run, dismiss } = useUI()
+  let locked = state.model.sessions.some(session => session.id === id && sessionIsLocked(session))
   let [confirming, setConfirming] = useState(false), [busy, setBusy] = useState(false)
   let active = selection(state).client?.sessionId === id
   let select = async () => { if (await run('switch-client', { client: state.clientId, session: id }) && active) dismiss() }
@@ -2416,7 +2425,7 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
     if (!result?.closed) cancel(); else restore.current()
   }
   let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close session ${name}?`}><span>Close session "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
-  return <div className={css.sessionRow} data-session-target data-preview-session={id}>{confirming ? confirmation : <><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><SessionAudio sessionId={id} /><SessionAgent sessionId={id} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close session ${name}`}>x</button></>}</div>
+  return <div className={css.sessionRow} data-session-target data-preview-session={id}>{confirming ? confirmation : <><button className={`${css.listRow} ${css.sessionLabelRow}`} ref={row} data-session-row onClick={select} title={name}><SessionNumber /><span className={css.sessionChevronSpace} aria-hidden="true" /><span className={css.sessionLabelText}>{name}</span>{privateSession && <PrivateIcon />}</button><SessionAudio sessionId={id} /><SessionAgent sessionId={id} /><button className={css.sessionClose} data-picker-action onClick={ask} disabled={locked} aria-label={`Close session ${name}`} title={locked ? 'Unlock windows to close session' : undefined}>x</button></>}</div>
 }
 let SessionWindowRow = ({ window, now, remote }: { window: InternalWindow; now: number; remote?: { host: string; session: string; active: boolean; select: (host: string, session: string, pane: string) => void } }) => {
   let { state, run, dismiss } = useUI()
@@ -2437,9 +2446,9 @@ let SessionWindowRow = ({ window, now, remote }: { window: InternalWindow; now: 
   let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target data-preview-window={window.id} data-remote-session={remote && `${remote.host}:${remote.session}`} data-remote-pane={remote && pane?.id}>{confirming ? confirmation : <>
     <button ref={row} className={css.listRow} data-window-row={window.id} data-session-row={remote || undefined} data-active={active} aria-current={active || undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={remote ? undefined : pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
       {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
-    </button>{!remote && <><SessionAudio window={window} /><SessionAgent window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} aria-label={`Close window ${name}`}>x</button></>}
+    </button>{!remote && <><SessionAudio window={window} /><SessionAgent window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} disabled={window.locked} aria-label={`Close window ${name}`} title={window.locked ? 'Unlock window to close' : undefined}>x</button></>}
   </>}</div>
 }
 type DeviceSettingsProps = { profile: Profile; pane: { id: string; device?: Profile['device'] }; session: { device?: Profile['device'] } }

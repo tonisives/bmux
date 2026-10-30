@@ -8,6 +8,11 @@ let bridge: Bridge = {
     ipcRenderer.on('focus-control', handler)
     return () => ipcRenderer.removeListener('focus-control', handler)
   },
+  viewportScroll: listener => {
+    let handler = (_event: Electron.IpcRendererEvent, paneId: string, x: number, y: number) => listener(paneId, x, y)
+    ipcRenderer.on('viewport-scroll', handler)
+    return () => ipcRenderer.removeListener('viewport-scroll', handler)
+  },
   linkPreview: listener => {
     let handler = (_event: Electron.IpcRendererEvent, url: string) => listener(url)
     ipcRenderer.on('link-preview', handler)
@@ -20,7 +25,7 @@ let bridge: Bridge = {
   closeRemoteSession: (host: string, session: string) => ipcRenderer.invoke('remote-close-session', host, session),
   closeRemotePage: (host: string, session: string, pane: string) => ipcRenderer.invoke('remote-close-page', host, session, pane),
   openRemote: (host, session, pane) => ipcRenderer.invoke('remote-open', host, session, pane),
-  remoteAccount: (path, body) => ipcRenderer.invoke('remote-account', path, body),
+  remoteAccount: (path, body, method) => ipcRenderer.invoke('remote-account', path, body, method),
   openRemoteBilling: url => ipcRenderer.invoke('remote-billing-open', url),
   bounds: bounds => ipcRenderer.send('bounds', bounds),
   subscribe: listener => {

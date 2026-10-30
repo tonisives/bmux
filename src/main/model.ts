@@ -159,6 +159,7 @@ export let cloneWindow = (window: InternalWindow, model?: Model): InternalWindow
   for (let pane of copy.panes) if (pane.openerPaneId) pane.openerPaneId = paneIds.get(pane.openerPaneId)
   copy.layout = mapLayout(copy.layout, node => node.kind === 'pane' ? { ...node, paneId: paneIds.get(node.paneId)! } : { ...node, id: id('split') })
   copy.floating = copy.floating?.map(item => ({ ...item, paneId: paneIds.get(item.paneId)!, dock: item.dock ? { ...item.dock, siblingIds: item.dock.siblingIds.flatMap(id => paneIds.has(id) ? [paneIds.get(id)!] : []) } : undefined }))
+  if (copy.lockedViewports) copy.lockedViewports = Object.fromEntries(Object.entries(copy.lockedViewports).flatMap(([paneId, size]) => paneIds.has(paneId) ? [[paneIds.get(paneId)!, size]] : []))
   return copy
 }
 export let reassignConflictingPaneIds = (window: InternalWindow, model: Model) => {
@@ -173,6 +174,7 @@ export let reassignConflictingPaneIds = (window: InternalWindow, model: Model) =
   for (let pane of window.panes) if (pane.openerPaneId) pane.openerPaneId = replacements.get(pane.openerPaneId) ?? pane.openerPaneId
   window.layout = mapLayout(window.layout, node => node.kind === 'pane' ? { ...node, paneId: replacements.get(node.paneId) ?? node.paneId } : node)
   window.floating = window.floating?.map(item => ({ ...item, paneId: replacements.get(item.paneId) ?? item.paneId, dock: item.dock ? { ...item.dock, siblingIds: item.dock.siblingIds.map(id => replacements.get(id) ?? id) } : undefined }))
+  if (window.lockedViewports) window.lockedViewports = Object.fromEntries(Object.entries(window.lockedViewports).map(([paneId, size]) => [replacements.get(paneId) ?? paneId, size]))
   return window
 }
 type LegacyTab = { id: string; url: string; title: string; zoom: number; openerTabId?: string; keepAlive?: boolean }
@@ -261,6 +263,13 @@ export let validateModel = (value: unknown): Model => {
       if (window.lastVisitedAt !== undefined && (!Number.isFinite(window.lastVisitedAt) || window.lastVisitedAt < 0)) throw new Error('Invalid window visit time')
       if (window.automaticName !== undefined && typeof window.automaticName !== 'boolean') throw new Error('Invalid automatic window name setting')
       if (window.pinned !== undefined && typeof window.pinned !== 'boolean') throw new Error('Invalid pinned window setting')
+      if (window.lockedViewports !== undefined) {
+        if (!window.lockedViewports || typeof window.lockedViewports !== 'object' || Array.isArray(window.lockedViewports)) throw new Error('Invalid viewport lock')
+        for (let [paneId, size] of Object.entries(window.lockedViewports)) {
+          if (!window.panes.some(pane => pane.id === paneId) || !size || !Number.isInteger(size.width) || !Number.isInteger(size.height) || size.width < 1 || size.height < 1) throw new Error('Invalid locked viewport size')
+        }
+      }
+      if (window.locked !== undefined && typeof window.locked !== 'boolean') throw new Error('Invalid locked window setting')
       let leaves: string[] = []
       mapLayout(window.layout, node => {
         if (node.kind === 'pane') leaves.push(node.paneId)
@@ -311,6 +320,9 @@ export let selectClientWindow = (client: Client, session: WorkspaceSession, wind
 
 export let repairClientSelections = (model: Model) => {
   for (let session of model.sessions) { assignWindowNumbers(session); orderPinnedWindows(session) }
+  for (let window of model.sessions.flatMap(session => session.windows)) if (window.lockedViewports) {
+    for (let paneId of Object.keys(window.lockedViewports)) if (!window.panes.some(pane => pane.id === paneId)) delete window.lockedViewports[paneId]
+  }
   let panes = walkPanes(model).map(item => item.pane), paneIds = new Set(panes.map(pane => pane.id))
   // Pane numbers can be reused after closure. Never return to an unrelated page.
   for (let pane of panes) if (pane.backToOpener && !paneIds.has(pane.openerPaneId!)) pane.backToOpener = false

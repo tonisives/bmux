@@ -212,7 +212,7 @@ let useRemoteState = () => {
     catch { setAccount(undefined) }
     finally { setLoading(false) }
   }, [api])
-  let login = useCallback(async () => { setError(''); await signIn(); await loadAccount() }, [loadAccount])
+  let login = useCallback(async (provider: 'google' | 'apple' = 'google') => { setError(''); await signIn(provider); await loadAccount() }, [loadAccount])
   let logout = useCallback(async () => {
     close()
     await removePush(api).catch(() => {})

@@ -182,6 +182,27 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     },{origin,cookie})
     await expect.poll(()=>application!.context().pages().some(page=>page.url()===origin+'/')).toBe(true)
     let viewer = application.context().pages().find(page=>page.url()===origin+'/')!
+    await test.step('Record the remote stream without taking control or changing selection', async () => {
+      let host = advertised.find((host: { service: string }) => host.service === service)
+      let before = await command('status')
+      let recording = await command('record','start','--host',host.id,'--session',status.model.sessions[0].id,'--generation',host.generation,'-t',pane,'--output',path.join(directory,'movies'))
+      await expect.poll(async () => (await command('record','list')).find((item: {id:string})=>item.id===recording.id)?.state,{timeout:20000}).toBe('recording')
+      await expect.poll(async () => {
+        let clip = (await command('record','list')).find((item: {id:string})=>item.id===recording.id)?.clips[0]
+        return clip ? (await fs.stat(clip.file)).size : 0
+      },{timeout:15000}).toBeGreaterThan(1024)
+      let after = await command('status')
+      expect(after.model.clients).toEqual(before.model.clients)
+      expect(after.remoteControl[status.model.sessions[0].id]).toBeUndefined()
+      await command('record','stop',recording.id)
+      await expect.poll(async () => (await command('record','list')).find((item: {id:string})=>item.id===recording.id)?.clips[0]?.state,{timeout:15000}).toMatch(/^saved/)
+      let clip = (await command('record','list')).find((item: {id:string})=>item.id===recording.id).clips[0]
+      let bytes = await fs.readFile(clip.file)
+      expect([...bytes.subarray(0,4)]).toEqual([0x1a,0x45,0xdf,0xa3])
+      let artifact = test.info().outputPath('recorded-remote-pane.webm')
+      await fs.writeFile(artifact, bytes)
+      await test.info().attach('recorded-remote-pane',{path:artifact,contentType:'video/webm'})
+    })
     let resizeViewer = async (width: number, height = 800) => {
       // Device-metrics emulation can finish before the native input surface
       // follows the new layout. Resize the real disposable viewer instead.
@@ -198,7 +219,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await viewer.route('**/api/me', async route => { await accountCheck; await route.continue(); finishRoutedCheck?.() })
     await viewer.reload({waitUntil:'domcontentloaded'})
     await expect(viewer.getByRole('button',{name:'Account'})).toHaveAttribute('aria-busy','true')
-    await expect(viewer.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0)
+    await expect(viewer.getByRole('button',{name:'Sign in with Google',exact:true})).toHaveCount(0)
     finishAccountCheck?.()
     await routedCheck
     await viewer.unroute('**/api/me')
@@ -566,7 +587,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect(viewer.getByText('Sign in to continue')).toBeVisible()
       await application!.evaluate(async ({session},origin)=>session.defaultSession.cookies.remove(origin,'bmux_session'),origin)
       await viewer.reload()
-      await expect(viewer.getByRole('button',{name:'Sign in',exact:true})).toBeVisible()
+      await expect(viewer.getByRole('button',{name:'Sign in with Google',exact:true})).toBeVisible()
       await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
       await expect(viewer.getByRole('complementary', { name: 'Sessions', exact: true })).toHaveCount(0)
     },{timeout:30000})

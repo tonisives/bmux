@@ -30,11 +30,37 @@ permissions:
   contents: read
 
 concurrency:
-  group: check-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Separate new runs from runs created before automatic cancellation was enabled.
+  group: check-latest-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  hooks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: fixture
+          POSTGRES_DB: bmux_hooks_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - run: pnpm exec vitest run tests/activity-hooks.unit.test.ts --maxWorkers=4
+        env:
+          BMUX_HOOKS_TEST_DATABASE_URL: postgres://postgres:fixture@127.0.0.1:5432/bmux_hooks_test
+
   windows:
+    needs: check
     uses: ./.github/workflows/windows.yml
 
   check:
@@ -49,17 +75,35 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --child-concurrency=4
       - run: pnpm check
+
+  electron:
+    needs: check
+    runs-on: macos-15
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: ${{ fromJSON(inputs.test_pattern && '[1]' || '[1,2]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --child-concurrency=2
       - name: Keep crash dialogs from obscuring later GUI tests
         run: defaults write com.apple.CrashReporter DialogType none
       - name: Electron tests
-        # Keep a bounded suite budget separate from individual test deadlines.
-        # The 306-case suite reached case 214 at 20 minutes on a slower runner.
-        # Keep individual deadlines, one GUI worker, and zero retries unchanged.
+        # Split the full suite across disposable desktops with one GUI worker each.
+        # The 371-case suite reached case 257 at the 30-minute deadline.
         timeout-minutes: 30
         env:
           TEST_PATTERN: ${{ inputs.test_pattern }}
           REPEAT_EACH: ${{ inputs.repeat_each || 1 }}
           BMUX_TEST_TRACE: ${{ inputs.trace && '1' || '0' }}
+          SHARD: ${{ matrix.shard }}
         run: |
           if [ -n "$TEST_PATTERN" ]; then
             case "$REPEAT_EACH" in
@@ -68,15 +112,15 @@ jobs:
             esac
             pnpm test:electron --grep "$TEST_PATTERN" --repeat-each "$REPEAT_EACH"
           else
-            pnpm test:electron
+            pnpm test:electron --shard "$SHARD/2"
           fi
       - name: Visual UI check
-        if: ${{ inputs.visual_check }}
+        if: ${{ inputs.visual_check && matrix.shard == 1 }}
         run: pnpm test:ui
       - uses: actions/upload-artifact@v4
         if: failure() || inputs.visual_check
         with:
-          name: electron-test-results
+          name: electron-test-results-${{ matrix.shard }}
           path: |
             artifacts/
             test-results/

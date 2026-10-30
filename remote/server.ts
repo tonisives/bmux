@@ -11,6 +11,7 @@ import type { RemoteMachine } from '../src/shared/remote-sessions'
 import { createMobileAuth, type LoginContext } from './mobile-auth'
 import type { RemoteCapabilities } from '../src/shared/remote-management'
 import { recordHostAttention } from './attention-records'
+import { createActivityHooks } from './activity-hooks'
 
 let required = (name: string) => { let value = process.env[name]; if (!value) throw new Error(`${name} is required`); return value }
 let publicOrigin = new URL(required('BMUX_PUBLIC_ORIGIN')).origin
@@ -19,6 +20,7 @@ let audience = required('BMUX_GOOGLE_CLIENT_ID')
 let turnSecret = required('BMUX_TURN_SECRET')
 let turnUrls = required('BMUX_TURN_URLS').split(',')
 let pool = new Pool({ connectionString: required('DATABASE_URL'), max: 4 })
+let activityHooks = createActivityHooks(pool)
 let managed = process.env.BMUX_MANAGED_BILLING === 'true'
 let leases = createStreamLeases(pool, managed)
 let ready = false, stopped = false
@@ -87,7 +89,7 @@ let refreshIce = (peer: Peer) => {
   if ((peer.iceExpiresAt ?? 0) > Date.now() + 120000) return
   let configuration = ice(peer.id)
   // Running hosts already accept ready messages; renewal does not replace their streams.
-  if (send(peer, { type: 'ready', id: peer.id, ...configuration, streamPermits: true })) peer.iceExpiresAt = configuration.iceExpiresAt
+  if (send(peer, { type: 'ready', id: peer.id, ...configuration, streamPermits: true, activityHooks: 1 })) peer.iceExpiresAt = configuration.iceExpiresAt
 }
 let server = http.createServer((request, response) => {
   let connectionDeadline = Date.now() + 30000
@@ -135,6 +137,7 @@ let server = http.createServer((request, response) => {
     if (url.pathname.startsWith('/api/')) {
       let auth = authentication ?? await mobileAuth.authenticate(request), owner = auth.owner
       if (auth.nativeSession && !['/api/me','/api/hosts','/api/connect','/api/streams','/api/streams/disconnect'].includes(url.pathname)) throw new Error('Native operation unavailable')
+      if (url.pathname === '/api/hooks' || url.pathname.startsWith('/api/hooks/')) { json(200,await activityHooks.api(owner,request.method ?? 'GET',url.pathname,['POST','PATCH'].includes(request.method ?? '') ? await body(request) : {})); return }
       if (request.method === 'GET' && url.pathname === '/api/me') { let user = (await pool.query('SELECT email,name FROM bmux_accounts WHERE owner=$1', [owner])).rows[0]; json(200, { owner, ...user, entitlement:await leases.status(owner) }); return }
       if (request.method === 'GET' && url.pathname === '/api/streams') { json(200, (await leases.list(owner)).map(view => ({...view,session:peers.get(view.host)?.sessions?.find(session=>session.panes.some(pane=>pane.id===view.pane))?.id}))); return }
       if (request.method === 'POST' && url.pathname === '/api/streams/disconnect') {
@@ -283,6 +286,7 @@ server.on('upgrade', (request, socket, head) => {
             return
           }
           if (message.type === 'stream-release' && current.role === 'host') { if (typeof message.connection !== 'string') throw new Error('Invalid connection'); await leases.release(current.id,current.generation!,message.connection); return }
+          if (message.type === 'activity' && current.role === 'host') { await activityHooks.record({owner:current.owner,id:current.id,service:current.service!,generation:current.generation!},message.event); send(current,{type:'activity-recorded',id:message.event.id}); return }
           if (message.type === 'attention' && current.role === 'host') {
             send(current,await recordHostAttention(pool,{...current,service:current.service!,generation:current.generation!},message)); return
           }
@@ -341,6 +345,7 @@ server.on('upgrade', (request, socket, head) => {
     })
   })().catch(() => socket.destroy())
 })
+let hookTimer = setInterval(() => { if (ready) void activityHooks.deliver().catch(() => undefined) },1000)
 let timer = setInterval(() => {
   if (!ready) return
   for (let [ticket, value] of tickets) if (value.expires <= Date.now()) tickets.delete(ticket)
@@ -354,4 +359,4 @@ let timer = setInterval(() => {
 }, 15000)
 server.listen(Number(process.env.PORT ?? 8788), '0.0.0.0')
 void initialize().catch(error => { console.error(`Database initialization failed: ${(error as { code?: string }).code ?? 'unknown'}`); process.exit(1) })
-for (let signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => { stopped = true; clearInterval(timer); for (let peer of peers.values()) peer.socket.close(); server.close(() => { void pool.end() }) })
+for (let signal of ['SIGTERM', 'SIGINT'] as const) process.once(signal, () => { stopped = true; clearInterval(timer); clearInterval(hookTimer); for (let peer of peers.values()) peer.socket.close(); server.close(() => { void pool.end() }) })

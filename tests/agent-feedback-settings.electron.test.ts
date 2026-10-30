@@ -106,7 +106,13 @@ test('cursor appearance and feedback timers save and apply live without renewing
     await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
     let profile = chrome.getByRole('dialog', { name: 'Profile', exact: true })
     await profile.getByRole('tab', { name: 'Bot', exact: true }).click()
-    await expect.poll(() => application!.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL() === url).every(view => !view.getVisible()), url)).toBe(true)
+    // Profile settings retain the native page beneath the focused chrome overlay.
+    await expect.poll(() => application!.evaluate(({ BaseWindow }, url) => {
+      let window = BaseWindow.getAllWindows().find(window => window.isVisible() && window.contentView.children.some((view: any) => view.webContents?.getURL() === url))
+      let page = window?.contentView.children.find((view: any) => view.webContents?.getURL() === url) as Electron.WebContentsView | undefined
+      let chrome = window?.contentView.children.at(-1) as Electron.WebContentsView | undefined
+      return { pageVisible: page?.getVisible(), pageHeight: (page?.getBounds().height ?? 0) > 200, chromeOnTop: chrome?.webContents.getURL().endsWith('/renderer/index.html'), chromeFocused: chrome?.webContents.isFocused() }
+    }, url)).toEqual({ pageVisible: true, pageHeight: true, chromeOnTop: true, chromeFocused: true })
     await profile.screenshot({ path: testInfo.outputPath('profile-bot-overview.png') })
     let botTabs = profile.getByRole('tablist', { name: 'Bot sections', exact: true })
     await expect(botTabs.getByRole('tab')).toHaveText(['Protection', 'Appearance', 'Timing'])

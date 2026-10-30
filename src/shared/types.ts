@@ -27,7 +27,8 @@ export type Pane = AgentInfo & { lastAgentInteraction?: AgentInfo & { lastUsed: 
 export type Layout = { kind: 'pane'; paneId: string } | { kind: 'split'; id: string; axis: 'horizontal' | 'vertical'; ratio: number; first: Layout; second: Layout }
 export type FloatingPane = { paneId: string; x: number; y: number; width: number; height: number; dock?: { siblingIds: string[]; axis: 'horizontal' | 'vertical'; ratio: number; before: boolean } }
 export type FloatingMemory = { x: number; y: number; width: number; height: number; workspaceWidth: number; workspaceHeight: number }
-export type InternalWindow = { id: string; number?: number; name: string; lastVisitedAt?: number; automaticName?: boolean; pinned?: boolean; layout: Layout | null; panes: Pane[]; floating?: FloatingPane[]; lastFloating?: FloatingMemory }
+export type ViewportSize = { width: number; height: number }
+export type InternalWindow = { id: string; number?: number; name: string; lastVisitedAt?: number; automaticName?: boolean; pinned?: boolean; locked?: boolean; lockedViewports?: Record<string, ViewportSize>; layout: Layout | null; panes: Pane[]; floating?: FloatingPane[]; lastFloating?: FloatingMemory }
 export type WorkspaceSession = { remote?: { clientId: string; hostId: string; sessionId: string; generation: string }; lastActivityAt?: number; id: string; name: string; defaultProfileId: string; device?: DevicePersona; private?: boolean; ephemeral?: boolean; profileExplicit?: boolean; windows: InternalWindow[] }
 export type Client = { id: string; sessionId: string; sessionHistory?: string[]; windowId: string; windowHistory?: string[]; windowZooms?: Record<string, string>; paneId: string | null; zoomedPaneId?: string | null; width: number; height: number }
 export type SavedLayout = { name: string; window: InternalWindow }
@@ -52,6 +53,7 @@ import type { RemotePreviewSettings, RemotePreviewRequest } from './remote-previ
 export type Bridge = {
   clipboard: (text?: string) => Promise<string>
   controls: (listener: (control: string, paneId?: string) => void) => () => void
+  viewportScroll: (listener: (paneId: string, x: number, y: number) => void) => () => void
   linkPreview: (listener: (url: string) => void) => () => void
   state: () => Promise<PublicState>
   command: (command: Command) => Promise<unknown>
@@ -60,7 +62,7 @@ export type Bridge = {
   closeRemoteSession: (host: string, session: string) => Promise<void>
   closeRemotePage: (host: string, session: string, pane: string) => Promise<void>
   openRemote: (host?: string, session?: string, pane?: string) => Promise<void>
-  remoteAccount: <T>(path: string, body?: unknown) => Promise<T>
+  remoteAccount: <T>(path: string, body?: unknown, method?: 'GET' | 'POST' | 'PATCH' | 'DELETE') => Promise<T>
   openRemoteBilling: (url: string) => Promise<void>
   bounds: (bounds: Bounds[]) => void
   subscribe: (listener: (state: PublicState) => void) => () => void

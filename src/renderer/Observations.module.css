@@ -1,0 +1,20 @@
+.panel { display: flex; flex-direction: column; gap: 12px; margin-block: 16px; color: inherit; font: inherit; }
+.panel h3, .panel p { margin: 0; }
+.panel p { line-height: 1.5; text-wrap: pretty; }
+.panel button, .panel input, .panel select, .control button { font: inherit; color: inherit; background: transparent; border: 1px solid #8886; border-radius: 4px; padding: 8px 12px; }
+.panel button, .control button { cursor: pointer; }
+.panel button:hover, .control button:hover { background: #8882; }
+.panel button:active, .control button:active { transform: translateY(1px); }
+.panel :focus-visible, .control :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.panel button:disabled, .control button:disabled { opacity: .5; cursor: default; }
+.panel [role=alert] { color: #e87474; }
+.item, .form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #8885; border-radius: 4px; min-width: 0; }
+.item code { overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.panel > button { align-self: flex-start; }
+.form label { display: flex; flex-direction: column; gap: 4px; }
+.form fieldset { display: flex; flex-direction: column; gap: 8px; border: 1px solid #8885; padding: 12px; }
+.form .checkbox { flex-direction: row; align-items: center; gap: 8px; }
+.control { display: flex; gap: 4px; padding: 4px; white-space: nowrap; }
+.control button { padding: 2px 8px; border: 0; }
+.control button[data-recording=true] { color: #e87474; }

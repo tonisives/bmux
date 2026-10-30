@@ -13,11 +13,17 @@ test('holds the build marker throughout packaging and clears it after success or
   try {
     let bin = path.join(directory, 'bin'), output = path.join(directory, 'tools')
     await fs.mkdir(bin)
-    await fs.writeFile(path.join(bin, 'pnpm'), `#!/bin/sh
-test "$1" = package:bundle || exit 91
+    await fs.writeFile(path.join(bin, 'python3'), `#!/bin/sh
+test "$1" = scripts/build-local.py || exit 91
 test -d "$BMUX_OUTPUT_DIR/.bmux-build.lock" || exit 92
 test ! -e "$BMUX_OUTPUT_DIR/.bmux-build-failed" || exit 93
 exit "\${TEST_EXIT:-0}"
+`, { mode: 0o755 })
+    await fs.writeFile(path.join(bin, 'node'), `#!/bin/sh
+test "$1" = scripts/install-app.mjs || exit 94
+test "$2" = --source || exit 95
+test -d "$BMUX_OUTPUT_DIR/.bmux-build.lock" || exit 96
+exit 0
 `, { mode: 0o755 })
     let env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, BMUX_OUTPUT_DIR: output }
     let run = (extra = {}) => exec('/bin/sh', [script], { env: { ...env, ...extra } })
