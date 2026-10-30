@@ -6,9 +6,12 @@ Memory options are in Settings > Memory and in `config.yaml`:
 memory:
   lazyRestore: true
   idleUnloadMinutes: 0
+  maxLoadedBackgroundPages: 8
 ```
 
 `lazyRestore` defaults to true. On launch, ordinary inactive windows stay unloaded until selected or addressed by an agent command. Windows in background profiles continue loading on launch. Changing this option takes effect on the next launch.
+
+`maxLoadedBackgroundPages` defaults to 8. Choose a limit in Settings > Memory or set an integer from 1 to 256 in the config; 0 disables the limit. Older hidden pages unload first, including pages in background profiles and pages with cookies or scripts. Visible pages, private pages, active automation, downloads, audible media, open developer tools, edited form controls, and Keep Page Loaded panes stay live, so the count can exceed the limit while those pages are protected. Unloaded pages retain their place and navigation history and reload when selected or addressed. JavaScript state is recreated on reload. This limits loaded pages; Chromium may use additional processes for browser controls, extensions, and page frames.
 
 Headless hosts can opt into deferring background-profile panes on cold start with `BMUX_LAZY_RESTORE_BACKGROUND=1`. This requires `lazyRestore: true`; panes with Keep Page Loaded still load immediately. Persisted panes, profile cookies, automation ledgers, and cached previews stay in place. Selection or an addressed command restores a pane; agent commands still pass through the existing automation guards. Passive scripts and notifications wait until that first access. Once restored, background-profile pages continue running; this option reduces startup work and does not cap memory after activation. Foreground launches and hosts without the opt-in retain their existing behavior.
 

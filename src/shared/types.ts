@@ -9,7 +9,7 @@ import type { BookmarkPluginSettings, PluginInfo, PluginPrompt, PluginRun } from
 import type { ClickModeSettings, ClickModeState } from './click-mode'
 import type { AutomationSafetyState } from './automation'
 export type StatusBarPosition = 'top' | 'bottom'
-export type MemorySettings = { lazyRestore: boolean; idleUnloadMinutes: number }
+export type MemorySettings = { lazyRestore: boolean; idleUnloadMinutes: number; maxLoadedBackgroundPages: number }
 export type Bookmark = { id: string; title: string; url?: string; children?: Bookmark[] }
 export type BookmarkParameters = { values: Record<string, string>; hidden: string[] }
 export type BookmarkParameterSettings = Record<string, Record<string, BookmarkParameters>>

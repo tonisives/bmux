@@ -3668,6 +3668,7 @@ let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'appearance', label: 'Double tap to activate', section: 'Click mode', keywords: 'modifier', target: '[name="clickMode.doubleTapModifier"]' },
   { tab: 'memory', label: 'Load inactive sessions on demand', keywords: 'lazy restore', target: '[name="memory.lazyRestore"]' },
   { tab: 'memory', label: 'Unload idle pages', keywords: 'minutes', target: '[name="memory.idleUnloadMinutes"]' },
+  { tab: 'memory', label: 'Loaded background pages', keywords: 'limit maximum memory inactive', target: '[name="memory.maxLoadedBackgroundPages"]' },
   { tab: 'keyboard', label: 'Keyboard prefix', target: '[aria-label="Keyboard prefix"]' },
   { tab: 'keyboard', label: 'Save prefix', target: '[data-setting-id="save-prefix"]' },
   { tab: 'keyboard', label: 'Edit shortcuts in config', target: '[data-setting-id="edit-shortcuts"]' },
@@ -3720,12 +3721,15 @@ let AppearanceSettings = ({ changeSetting, matches }: { changeSetting: (event: C
 let MemorySettings = ({ changeSetting, matches }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; matches?: Set<string> }) => {
   let { state } = useUI()
   let minutes = state.memory?.idleUnloadMinutes ?? 0
+  let limit = state.memory?.maxLoadedBackgroundPages ?? 8
   let show = (target: string) => !matches || matches.has(target)
   return <>
     {show('[name="memory.lazyRestore"]') && <><label className={css.settingsRow}><span>Load inactive sessions on demand</span><input type="checkbox" name="memory.lazyRestore" checked={state.memory?.lazyRestore !== false} onChange={changeSetting} /></label>
     <p className={css.settingsHint}>Applies on the next launch. Agent commands load pages when addressed. Background profiles still start normally.</p></>}
     {show('[name="memory.idleUnloadMinutes"]') && <><label className={css.settingsRow}><span>Unload idle pages</span><select name="memory.idleUnloadMinutes" value={minutes} onChange={changeSetting}><option value="0">Off</option><option value="5">After 5 minutes</option><option value="15">After 15 minutes</option><option value="30">After 30 minutes</option><option value="60">After 1 hour</option>{![0, 5, 15, 30, 60].includes(minutes) && <option value={minutes}>After {minutes} minutes</option>}</select></label>
     <p className={css.settingsHint}>Only hidden, inactive pages that pass safety checks are unloaded. Page memory and JavaScript state cannot always be restored; use Keep Page Loaded for important windows.</p></>}
+    {show('[name="memory.maxLoadedBackgroundPages"]') && <><label className={css.settingsRow}><span>Loaded background pages</span><select name="memory.maxLoadedBackgroundPages" value={limit} onChange={changeSetting}><option value="0">Unlimited</option>{[2, 4, 8, 16, 32].map(value => <option key={value} value={value}>{value} pages</option>)}{![0, 2, 4, 8, 16, 32].includes(limit) && <option value={limit}>{limit} pages</option>}</select></label>
+    <p className={css.settingsHint}>Older hidden pages unload first and reload when used. Visible pages, active tasks, edited forms, and pages marked Keep Page Loaded stay loaded. Background profiles share this limit.</p></>}
   </>
 }
 let KeyboardSettings = ({ prefix, currentPrefix, changePrefix, savePrefix, edit, matches }: { prefix: string; currentPrefix?: string; changePrefix: (event: ChangeEvent<HTMLInputElement>) => void; savePrefix: () => void; edit: () => void; matches?: Set<string> }) => <>
@@ -3773,7 +3777,7 @@ let SettingsContent = () => {
   }
   let changeSetting = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     let target = event.currentTarget
-    void run('settings.set', { key: target.name, value: target instanceof HTMLInputElement ? target.checked : target.name === 'memory.idleUnloadMinutes' ? Number(target.value) : target.value === 'none' ? null : target.value })
+    void run('settings.set', { key: target.name, value: target instanceof HTMLInputElement ? target.checked : ['memory.idleUnloadMinutes', 'memory.maxLoadedBackgroundPages'].includes(target.name) ? Number(target.value) : target.value === 'none' ? null : target.value })
   }
   let changePrefix = (event: ChangeEvent<HTMLInputElement>) => setPrefix(event.target.value)
   let savePrefix = () => { void run('settings.set', { key: 'keyboard.prefix', value: prefix }) }
