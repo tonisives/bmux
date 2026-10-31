@@ -37,9 +37,9 @@ let simctl = (...args) => run('xcrun', ['simctl', ...args])
 if (process.argv[2] === 'prepare') {
   await writeFile(path.join(output, 'runtimes.txt'), await simctl('runtime', 'list'))
   let { runtimes } = JSON.parse(await simctl('list', 'runtimes', '--json'))
-  let runtime = runtimes.find(value => value.isAvailable && value.identifier.includes('.iOS-') && value.version.startsWith('27.'))
-  assert.ok(runtime, 'The startup regression must run on an iOS 27 simulator')
   let deviceType = process.env.BMUX_IOS_SMOKE_DEVICE ?? 'iPhone-17'
+  let runtime = runtimes.find(value => value.isAvailable && value.identifier.includes('.iOS-') && value.version.startsWith('27.') && (deviceType !== 'iPhone-Duo' || Number(value.version.split('.')[1]) >= 1))
+  assert.ok(runtime, 'The startup regression must run on an iOS 27 simulator')
   if (deviceType === 'iPhone-Duo') assert.ok(Number(runtime.version.split('.')[1]) >= 1, 'Duo requires iOS 27.1 or newer')
   let device = await simctl('create', `bmux-launch-${process.pid}`, `com.apple.CoreSimulator.SimDeviceType.${deviceType}`, runtime.identifier)
   await writeFile(stateFile, JSON.stringify({ device, runtime: runtime.version, bundle, startedAt: new Date().toISOString() }))

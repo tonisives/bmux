@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ComponentProps, type ComponentRef, type KeyboardEvent, type ReactNode } from 'react'
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -11,7 +11,7 @@ import { canManageHost } from '../host-access'
 import { colors, styles } from '../theme'
 import { Sheet } from './Sheet'
 
-let webKeys = (run: (event: KeyboardEvent<HTMLElement>) => void) => Platform.OS === 'web' ? { onKeyDown: run } : {}
+let webKeys = (run: (event: KeyboardEvent<HTMLElement>) => void) => Platform.OS === 'web' ? { onKeyDown: run as unknown as ComponentProps<typeof View>['onKeyDown'] } : {}
 let treeKeys = (event: KeyboardEvent<HTMLElement>) => {
   if (event.metaKey || event.ctrlKey || event.altKey || !['j', 'k', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || (event.target as HTMLElement).closest('input')) return
   let rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-testid="remote-tree-row"]')], index = rows.indexOf(event.target as HTMLElement)
@@ -21,7 +21,7 @@ let treeKeys = (event: KeyboardEvent<HTMLElement>) => {
   rows[next]?.focus(); rows[next]?.scrollIntoView({ block: 'nearest' })
 }
 let useDisclosure = (query: string) => {
-  let [expanded, setExpanded] = useState(true), ref = useRef<View>(null)
+  let [expanded, setExpanded] = useState(true), ref = useRef<ComponentRef<typeof View>>(null)
   let focus = () => { if (Platform.OS === 'web') (ref.current as unknown as HTMLElement | null)?.querySelector<HTMLElement>('[data-testid="remote-tree-row"]')?.focus() }
   let toggle = () => { setExpanded(!expanded); focus() }
   useEffect(() => { if (query) setExpanded(true) }, [query])
@@ -94,7 +94,7 @@ export let SessionList = ({ hosts, attention = [], selection, select, create, he
   hosts: Host[]; selection?: Selection; select: (selection: Selection) => void; create?: (host: Host) => void; attention?: Attention[]; header?: ReactNode; footer?: ReactNode; empty?: ReactNode; searchVisible?: boolean; focusSearch?: number
 }) => {
   let [search, setSearch] = useState(''), [machineId, setMachineId] = useState<string>(), [now, setNow] = useState(Date.now)
-  let searchInput = useRef<TextInput>(null)
+  let searchInput = useRef<ComponentRef<typeof TextInput>>(null)
   let [machineColors, setMachineColors] = useState<Record<string, string>>({})
   let machine = hosts.find(host => host.id === machineId), color = (host: Host) => machineColors[host.id] ?? remoteMachineColor(host.id, hosts)
   useEffect(() => { let timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
