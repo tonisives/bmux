@@ -49,6 +49,7 @@ let recordingCommand = async (command: Command) => {
     return recordings!.start({id:event.episodeId,episode:event.episodeId,host:event.hostId,generation:event.generation,pane:event.target.paneId,session:event.target.sessionId})
   }
   if(command.method==='record.play')return recordings!.play(String(args.id))
+  if(command.method==='record.folder')return recordings!.folder()
   if(command.method==='record.stop')return recordings!.stop(String(args.id))
   if(command.method==='record.reveal')return recordings!.reveal(String(args.id))
   if(['record.list','record.status'].includes(command.method))return recordings!.list()
