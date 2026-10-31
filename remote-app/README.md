@@ -132,3 +132,11 @@ records the checkout SHA, source tree and bundle hash separately from the
 retained native executable hashes.
 
 Clawtab theme attribution is recorded in THIRD_PARTY_NOTICES.md.
+
+## Adaptive iPhone layout
+
+The app uses Expo SDK 58 and React Native 0.88. Native builds require Xcode 27.1 or newer. Scene support is supplied by Expo itself.
+
+The workspace measures its available content bounds. At 768 points it shows sessions beside the browser; smaller windows show the selected page with a back action. Left and right safe areas are excluded when deciding whether navigation fits. Reserved display divisions place panels beside a vertical fold or above and below a horizontal fold. If two panels cannot fit, the active panel uses the larger clear region. The list remains mounted while hidden, preserving its disclosure and scroll state. Browser selection and control ownership do not change on resize, and resizing never requests control or resizes the host browser automatically.
+
+iOS forms use native page sheets and their own safe area provider, so the system places them on the appropriate side of a fold. CI builds both native configurations with Xcode 27.1 and launches on a standard iPhone and iPhone Duo. Geometry tests cover fold placement; browser tests cover page and input continuity across compact, open, portrait and narrow app windows. Native hinge transitions still need Device Hub review.

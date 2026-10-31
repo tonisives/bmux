@@ -125,6 +125,16 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByText('notes.example', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Take control', exact: true }).click()
     await page.getByRole('textbox', { name: 'Demo note', exact: true }).fill('A local note')
+    // Folding and app Split View must retain the same editable page instance.
+    let note = page.getByRole('textbox', { name: 'Demo note', exact: true })
+    await note.evaluate(element => { element.setAttribute('data-fold-continuity', 'original') })
+    for (let [width, height] of [[900, 600], [800, 1000], [469, 800], [390, 800]]) {
+      await resize(width, height)
+      await expect(note).toHaveValue('A local note')
+      await expect(note).toBeEditable()
+      await expect(note).toHaveAttribute('data-fold-continuity', 'original')
+      await expect(note).toBeInViewport({ ratio: 1 })
+    }
     await page.getByRole('button', { name: 'Save note', exact: true }).click()
     await expect(page.getByText('Saved', { exact: true })).toBeVisible()
     await page.screenshot({ path: info.outputPath('companion-demo-note-mobile.png') })
@@ -271,6 +281,12 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       return !!bounds && bounds.y <= 54 && Math.abs(bounds.y + bounds.height - viewport.height) <= 1 && Math.abs(bounds.width - viewport.width) <= 1
     }).toBe(true)
     await page.screenshot({ path: info.outputPath('companion-mobile-watch.png') })
+    for (let [width, height] of [[900, 600], [800, 1000], [469, 800], [390, 800]]) {
+      await resize(width, height)
+      await expect(page.getByRole('button', { name: 'Page details', exact: true })).toBeVisible()
+      expect(signals.filter(message => message.type === 'open')).toHaveLength(2)
+      expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
+    }
     await resize(1280)
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     for (let socket of sockets.clients) socket.terminate()

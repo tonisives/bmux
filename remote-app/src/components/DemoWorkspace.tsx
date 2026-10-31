@@ -9,6 +9,7 @@ import { Button } from './Button'
 import { RemoteHeader, RemoteTabs, type RemoteTab } from './RemoteNavigation'
 import { SessionList } from './SessionList'
 import { Sheet } from './Sheet'
+import { Workspace } from './Workspace'
 
 let demoHost: Host = {
   id: 'demo', service: 'Demo Mac', generation: 'demo', permission: 'control',
@@ -37,7 +38,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
     return () => subscription.remove()
   }, [selection, split])
   let selectTab = (value: RemoteTab) => { setTab(value); if (value === 'search') setFocusSearch(count => count + 1) }
-  let list = <View style={split ? local.sidebar : local.list}>
+  let list = <View style={local.list}>
     {tab === 'settings' ? <ScrollView contentContainerStyle={local.settings}>
       <Text style={styles.title}>Settings</Text>
       <Button title="Sign in with Google" onPress={connect} />
@@ -47,9 +48,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
   </View>
   return <SafeAreaView style={styles.screen}>
     {(split || !selection) && <RemoteHeader demo notifications={0} onNotifications={() => setNotifications(true)} />}
-    <View style={local.workspace}>
-      {(split || !selection) && list}
-      {selection ? <View style={local.detail}>
+    <Workspace sidebar={list} selected={!!selection} detail={selection ? <View style={local.detail}>
         <View style={local.titleBar}>
           <Pressable accessibilityRole="button" accessibilityLabel="Back to sessions" onPress={back} style={local.back}><Ionicons name="chevron-back" size={24} color={colors.text} /></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Page details" onPress={() => setDetails(true)} style={local.pageTitle}>
@@ -69,8 +68,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
             <Pressable accessibilityRole="button" accessibilityLabel="Open notes page" disabled={!controlling} accessibilityState={{ disabled: !controlling }} onPress={() => open(pageSelection('demo-notes'))} style={[local.pageLink, !controlling && local.disabled]}><Text style={local.linkText}>Notes</Text><Ionicons name="arrow-forward" size={18} color="#242424" /></Pressable>
           </>}
         </ScrollView>
-      </View> : split && <View style={[local.detail, local.empty]}><Text style={styles.secondary}>Select a page</Text></View>}
-    </View>
+      </View> : <View style={[local.detail, local.empty]}><Text style={styles.secondary}>Select a page</Text></View>} />
     <Sheet title="Page details" visible={details && !!selection} close={() => setDetails(false)}>
       <Text style={styles.secondary}>{notes ? 'notes.example' : 'docs.example'}</Text>
       <Text style={styles.text}>Sample page</Text>
@@ -82,7 +80,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
 }
 
 let local = StyleSheet.create({
-  workspace: { flex: 1, minHeight: 0, flexDirection: 'row' }, sidebar: { width: 340, maxWidth: '45%', minHeight: 0, borderRightWidth: 1, borderRightColor: colors.border }, list: { flex: 1, minHeight: 0 }, detail: { flex: 1, minWidth: 0, minHeight: 0 }, empty: { alignItems: 'center', justifyContent: 'center' }, settings: { padding: 20, gap: 20, flexGrow: 1 },
+  list: { flex: 1, minHeight: 0 }, detail: { flex: 1, minWidth: 0, minHeight: 0 }, empty: { alignItems: 'center', justifyContent: 'center' }, settings: { padding: 20, gap: 20, flexGrow: 1 },
   titleBar: { minHeight: 52, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: colors.border }, back: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }, pageTitle: { flex: 1, minWidth: 0, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingRight: 12 }, title: { flex: 1, minWidth: 0, color: colors.text, fontSize: 16, fontWeight: '600' }, demo: { color: colors.secondary, fontSize: 12 },
   page: { flex: 1, backgroundColor: '#fafafa' }, pageContent: { padding: 28, gap: 24, flexGrow: 1 }, wordmark: { fontSize: 13, letterSpacing: 2, fontWeight: '600', color: '#666666' }, contentTitle: { fontSize: 30, lineHeight: 36, fontWeight: '600', color: '#242424' }, body: { color: '#555555', fontSize: 16, lineHeight: 24 }, pageLink: { minHeight: 44, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 12 }, linkText: { color: '#242424', fontSize: 16, textDecorationLine: 'underline' },
   note: { minHeight: 180, borderWidth: 1, borderColor: '#d5d5d5', borderRadius: 8, padding: 16, fontSize: 16, lineHeight: 24, color: '#242424', textAlignVertical: 'top' }, save: { alignSelf: 'flex-start', minHeight: 44, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, backgroundColor: '#242424' }, saveText: { color: '#ffffff', fontSize: 15 }, disabled: { opacity: 0.4 },
