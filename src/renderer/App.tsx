@@ -849,6 +849,16 @@ let CommandPrompt = () => {
     </section>
 }
 
+let useAddressSuggestionScroll = (ref: RefObject<HTMLDivElement | null>, selected: number, count: number) => {
+  useEffect(() => {
+    let list = ref.current
+    if (!list || selected < 0) return
+    list.children[selected]?.scrollIntoView({ block: 'nearest' })
+    if (selected === 0) list.scrollTop = 0
+    else if (selected === count - 1) list.scrollTop = list.scrollHeight
+  }, [ref, selected, count])
+}
+
 let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, list: RefObject<HTMLDivElement | null>, visible: boolean, statusBar?: string) => {
   useLayoutEffect(() => {
     if (!visible || !form.current || !list.current) return
@@ -979,13 +989,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
-  useEffect(() => {
-    let list = suggestionList.current
-    if (!list || selectedIndex < 0) return
-    list.children[selectedIndex]?.scrollIntoView({ block: 'nearest' })
-    if (selectedIndex === 0) list.scrollTop = 0
-    else if (selectedIndex === results.length - 1) list.scrollTop = list.scrollHeight
-  }, [selectedIndex, results.length])
+  useAddressSuggestionScroll(suggestionList, selectedIndex, results.length)
   useLayoutEffect(() => {
     if (!ref.current || !completing) return
     let start = previewText.toLowerCase().startsWith(query.toLowerCase()) ? query.length : 0
