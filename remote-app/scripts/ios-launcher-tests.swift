@@ -16,7 +16,7 @@ final class BMUXLauncherTests: XCTestCase {
   override func setUpWithError() throws {
     continueAfterFailure = false
     XCUIDevice.shared.orientation = .portrait
-    app.launchArguments = ["-EXDevMenuIsOnboardingFinished", "1", "-EXDevMenuShowsAtLaunch", "0"]
+    app.launchArguments = ["-EXDevMenuIsOnboardingFinished", "1", "-EXDevMenuShowsAtLaunch", "0", "-EXDevMenuShowFloatingActionButton", "0"]
   }
 
   private func capture(_ name: String) {
