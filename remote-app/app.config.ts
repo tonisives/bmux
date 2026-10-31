@@ -29,6 +29,8 @@ let config: ExpoConfig = {
     ['expo-dev-client', { ios: { launchMode: 'launcher' } }],
     ['./plugins/with-ios-remote-metro.cjs', { url: process.env.BMUX_DEV_METRO_URL ?? 'https://metro-mobile.bmux.cc' }],
     'expo-status-bar',
+    // The M155 AAR includes an unused dav1d JNI proxy without the optional decoder interface.
+    ['expo-build-properties', { android: { extraProguardRules: '-dontwarn org.webrtc.Dav1dDecoder$Natives' } }],
     ['expo-notifications', { color: '#7986cb', defaultChannel: 'attention' }],
     ['@config-plugins/react-native-webrtc', { cameraPermission: false, microphonePermission: false }],
   ],
