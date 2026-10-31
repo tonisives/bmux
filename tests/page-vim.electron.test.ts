@@ -483,7 +483,7 @@ test('website Vim removes a closed composer during a pending Draft write and res
   await expect(overlay).toHaveCount(0)
   // Wait beyond the paste render and write-finally callbacks before reopening.
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
-  await composer.evaluate(element => { element.hidden = false })
+  await composer.evaluate(element => element.removeAttribute('hidden'))
   await expect(field).toBeVisible()
   expect(await field.evaluate(element => ['display', 'position', 'opacity', 'pointer-events'].map(property => element.style.getPropertyValue(property)))).toEqual(['', '', '', ''])
   await field.click(); await field.press('Meta+ArrowRight'); await field.pressSequentially(' native')
