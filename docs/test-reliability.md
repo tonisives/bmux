@@ -1,5 +1,14 @@
 # Focused test verification
 
+## Excluded website list rendering
+
+The full Check on `1480f86` scrolled the excluded website list before the final
+bulk additions reached the renderer. Configuration commands return before the
+batched state publication, so an overflowing list can still gain rows after
+scrolling. The fixture now waits for all fifteen rows before scrolling and
+retains the bottom-position, height, search, and removal assertions. Repeat the
+Bot protection case in focused CI verification.
+
 ## Pane movement setup
 
 The full Check on `3e8d834` found the pane-movement fixture starting with another
