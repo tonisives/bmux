@@ -30,3 +30,14 @@ describe('stream coordinates', () => {
     expect(fitViewport({ width: 250, height: 1500 })).toEqual({ width: 320, height: 1080 })
   })
 })
+
+// A fold changes display size without changing which part of the remote page is enlarged.
+it('retains zoom and the viewed page point through display resizing', async () => {
+  let { resizeTransform } = await import('../src/viewport')
+  let viewport = { width: 1200, height: 800 }
+  let open = { width: 600, height: 400 }, folded = { width: 300, height: 600 }
+  let transform = { zoom: 2, x: -80, y: 40 }
+  let resized = resizeTransform(open, folded, viewport, transform)
+  expect(resized).toEqual({ zoom: 2, x: -40, y: 20 })
+  expect(resizeTransform(folded, open, viewport, resized)).toEqual(transform)
+})

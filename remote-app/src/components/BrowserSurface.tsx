@@ -3,7 +3,7 @@ import { ActivityIndicator, PanResponder, StyleSheet, Text, View } from 'react-n
 import type { ViewProps, GestureResponderEvent } from 'react-native'
 import { Video } from './Video'
 import { colors } from '../theme'
-import { contentRect, identityTransform, pagePoint, pinchTransform } from '../viewport'
+import { contentRect, identityTransform, pagePoint, pinchTransform, resizeTransform } from '../viewport'
 import { createPointerDrag } from '../pointer-drag'
 import type { Frame, Transform } from '../viewport'
 import type { Viewport } from '../types'
@@ -13,6 +13,7 @@ type Touch = { locationX: number; locationY: number; pageX: number; pageY: numbe
 export let BrowserSurface = ({ stream, viewport, controlling, busy, input, frameChanged }: { stream?: MediaStream; viewport?: Viewport; controlling: boolean; busy: boolean; input: (event: Input, generation: number) => void; frameChanged: (frame: Frame) => void }) => {
   let [frame, setFrame] = useState<Frame>({ width: 1, height: 1 })
   let [transform, setTransform] = useState<Transform>(identityTransform)
+  let previousFrame = useRef(frame)
   let current = useRef({ frame, transform, viewport, controlling, input })
   current.current = { frame, transform, viewport, controlling, input }
   let gesture = useRef<{ x: number; y: number; lastX: number; lastY: number; generation: number; dragged: boolean; moved: boolean; transform: Transform; distance?: number; center?: { x: number; y: number }; timer?: ReturnType<typeof setTimeout> } | undefined>(undefined)
@@ -29,7 +30,12 @@ export let BrowserSurface = ({ stream, viewport, controlling, busy, input, frame
     gesture.current = undefined
   }
   useEffect(() => { cancel() }, [viewport?.generation, controlling, stream, frame.width, frame.height])
-  useEffect(() => { setTransform(identityTransform) }, [viewport?.generation, stream, frame.width, frame.height])
+  useEffect(() => { setTransform(identityTransform) }, [viewport?.generation, stream])
+  useEffect(() => {
+    let previous = previousFrame.current
+    previousFrame.current = frame
+    if (viewport) setTransform(value => resizeTransform(previous, frame, viewport, value))
+  }, [frame.width, frame.height])
   useEffect(() => () => cancel(), [])
   let responder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
