@@ -9,7 +9,7 @@ export let RecordingPanel = ({run}: {run:Run}) => {
   let action = async (method:string,id?:string) => {
     setBusy(true); setActionError('')
     try { await run(method,id ? {id} : {}); await refresh() }
-    catch(error) { setActionError(error instanceof Error ? error.message : 'Recording request failed') }
+    catch(error) { setActionError((error instanceof Error ? error.message : 'Recording request failed').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')) }
     finally { setBusy(false) }
   }
   let openFolder = () => { void action('record.folder') }

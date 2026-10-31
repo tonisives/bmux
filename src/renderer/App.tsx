@@ -409,6 +409,7 @@ let DownloadStatusIcon = ({ progressing, progress }: { progressing: boolean; pro
 let ExtensionsIcon = () => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7h4V5a2 2 0 0 1 4 0v2h4v9h-4v-2a2 2 0 0 0-4 0v2H4Z" /></svg>
 
 let bridge = (window as unknown as { bmux: Bridge }).bmux
+let runRecording = (method: string, args: Record<string, unknown> = {}) => bridge.command({ method, args })
 let Context = createContext<UIContext | null>(null)
 let useUI = () => useContext(Context)!
 let selection = (state: PublicState) => {
@@ -3632,7 +3633,7 @@ let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; match
   let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let showInAddressBar = (event: ChangeEvent<HTMLInputElement>) => { void run('settings.set', { key: 'showDarkModeButton', value: event.target.checked }) }
   let filters = tools?.filters
-  if (feature === 'recordings') return matches ? null : <RecordingPanel run={run} />
+  if (feature === 'recordings') return matches ? null : <RecordingPanel run={runRecording} />
   if (matches && !Array.from(matches).some(included)) return null
   return <>
     {included('[name="showDarkModeButton"]') && <label className={css.settingsRow}><span>Show next to URL bar</span><input type="checkbox" name="showDarkModeButton" checked={state.showDarkModeButton === true} onChange={showInAddressBar} /></label>}
