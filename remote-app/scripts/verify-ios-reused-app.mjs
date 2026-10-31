@@ -28,15 +28,17 @@ let harnessPaths = new Set([
   'tests/last-page-agent.electron.test.ts',
 ])
 let webPaths = new Set(['remote/web/main.tsx', 'src/renderer/App.tsx', 'src/renderer/RemoteAccount.tsx', 'src/renderer/RemoteAccount.module.css', 'src/shared/remote-prices.ts'])
+let desktopSource = file => /^(?:src\/(?:main|renderer)\/|bin\/|tests\/)/.test(file)
 let metroSource = file => /^remote-app\/src\/.+\.(?:[cm]?js|jsx|ts|tsx|css)$/.test(file)
 
 export let verifyReusedChanges = changed => {
-  let nativeInputChanges = changed.filter(file => !metroSource(file) && !webPaths.has(file) && !harnessPaths.has(file) && !file.startsWith('docs/') && !['README.md', 'AGENTS.md'].includes(file))
+  let nativeInputChanges = changed.filter(file => !metroSource(file) && !desktopSource(file) && !webPaths.has(file) && !harnessPaths.has(file) && !file.startsWith('docs/') && !['README.md', 'AGENTS.md'].includes(file))
   assert.deepEqual(nativeInputChanges, [], 'Retained app reuse requires unchanged native inputs, configuration, dependencies and assets')
   return {
     runtimeSourceChanges: changed.filter(metroSource),
+    desktopSourceChanges: changed.filter(desktopSource),
     webSourceChanges: changed.filter(file => webPaths.has(file)),
-    allowedHarnessChanges: changed.filter(file => !metroSource(file) && !webPaths.has(file)),
+    allowedHarnessChanges: changed.filter(file => !metroSource(file) && !desktopSource(file) && !webPaths.has(file)),
   }
 }
 
