@@ -100,6 +100,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toHaveCount(0)
     await expect.poll(() => page!.evaluate(() => [...document.fonts].filter(font => font.family === 'ionicons').map(font => font.status))).toEqual(['loaded'])
     await page.screenshot({ path: info.outputPath('companion-demo-desktop.png') })
+    await expect(page.getByRole('button', { name: 'Open Docs', exact: true })).toBeInViewport({ ratio: 1 })
     await page.getByRole('button', { name: 'Open Docs', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Open notes page', exact: true })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toHaveCount(0)

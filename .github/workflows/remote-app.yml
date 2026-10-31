@@ -7,12 +7,16 @@ on:
     paths: ['remote-app/**', 'remote/web/client.ts', 'remote/web/viewer-updates.ts', 'src/shared/remote*.ts', 'tests/remote-app.electron.test.ts', '.github/workflows/remote-app.yml']
   workflow_dispatch:
     inputs:
+      web_only:
+        description: 'Run TypeScript, unit, export and browser checks without native compilation'
+        type: boolean
+        default: false
       retained_app_run:
         description: 'Verify the chooser using a compatible compiled Debug app from this run'
         type: string
         default: ''
 concurrency:
-  group: ${{ inputs.retained_app_run != '' && 'remote-chooser-dispatch' || 'remote-app' }}-${{ github.ref }}
+  group: ${{ inputs.web_only && 'remote-web-dispatch' || inputs.retained_app_run != '' && 'remote-chooser-dispatch' || 'remote-app' }}-${{ github.ref }}
   cancel-in-progress: ${{ !inputs.retained_app_run }}
 jobs:
   web:
@@ -63,7 +67,7 @@ jobs:
           name: remote-app-browser-results
           path: test-results/
   android:
-    if: ${{ !inputs.retained_app_run }}
+    if: ${{ !inputs.retained_app_run && !inputs.web_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     defaults:
@@ -97,7 +101,7 @@ jobs:
           name: remote-app-android-preview
           path: remote-app/android/app/build/outputs/apk/release/*.apk
   ios:
-    if: ${{ !inputs.retained_app_run }}
+    if: ${{ !inputs.retained_app_run && !inputs.web_only }}
     runs-on: xcode-27
     timeout-minutes: ${{ matrix.configuration == 'Release' && 60 || 50 }}
     strategy:
