@@ -659,6 +659,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     for (let host of bulkHosts) await command('profile.anti-bot.site.set', { profile: pane.profileId, host, enabled: false })
     let search = exclusions.getByRole('textbox', { name: 'Search excluded websites', exact: true }), websiteList = exclusions.getByRole('group', { name: 'Excluded website list', exact: true })
     await expect(search).toBeVisible()
+    await expect(websiteList.getByRole('group')).toHaveCount(15)
     await expect.poll(() => websiteList.evaluate(element => element.scrollHeight > element.clientHeight && element.clientHeight <= 280)).toBe(true)
     await websiteList.evaluate(element => { element.scrollTop = element.scrollHeight })
     await expect.poll(() => websiteList.evaluate(element => Math.abs(element.scrollTop + element.clientHeight - element.scrollHeight) <= 1)).toBe(true)
