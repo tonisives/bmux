@@ -49,8 +49,9 @@ if (process.argv[2] === 'prepare') {
     if (error.code !== 'ENOENT') throw error
   })
   if (state && !state.cleanedAt) {
-    await run('xcrun', ['simctl', 'shutdown', state.device], 30_000).catch(() => {})
-    await run('xcrun', ['simctl', 'delete', state.device], 30_000)
+    let cleanupTimeout = state.deviceType === 'iPhone-Duo' ? 180_000 : 30_000
+    await run('xcrun', ['simctl', 'shutdown', state.device], cleanupTimeout).catch(() => {})
+    await run('xcrun', ['simctl', 'delete', state.device], cleanupTimeout)
     state.cleanedAt = new Date().toISOString()
     await writeFile(stateFile, JSON.stringify(state, null, 2))
   }

@@ -20,7 +20,7 @@ concurrency:
 jobs:
   ios:
     runs-on: xcode-27
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       BMUX_IOS_BUILD_CONFIGURATION: Debug
       BMUX_RETAINED_APP_RUN: ${{ inputs.source_run }}
