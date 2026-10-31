@@ -14,6 +14,7 @@ let harnessPaths = new Set([
   'remote-app/INTEGRATION.md',
   'remote-app/scripts/add-ios-launcher-tests.rb',
   'remote-app/scripts/ios-launcher-smoke.mjs',
+  'remote-app/scripts/ios-launch-smoke.mjs',
   'remote-app/scripts/ios-launcher-tests.swift',
   'remote-app/scripts/verify-ios-reused-app.mjs',
   'tests/fixtures/remote-workspace-main.ts',
