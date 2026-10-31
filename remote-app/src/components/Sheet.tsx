@@ -7,7 +7,7 @@ import { colors, radius, styles } from '../theme'
 export let Sheet = ({ title, visible, close, children }: { title: string; visible: boolean; close: () => void; children: ReactNode }) => {
   if (Platform.OS === 'web' && !visible) return null
   return (
-  <Modal visible={visible} transparent={Platform.OS !== 'ios'} presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'} animationType="slide" onRequestClose={close}>
+  <Modal visible={visible} transparent={Platform.OS !== 'ios'} presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={close}>
     <SafeAreaProvider><SafeAreaView style={[local.safeArea, Platform.OS === 'ios' && local.nativeSurface]} edges={['top', 'bottom', 'left', 'right']}><KeyboardAvoidingView style={local.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[local.sheet, Platform.OS === 'ios' && local.nativeSheet]}>
         <View style={[styles.row, local.header]}><Text style={local.title}>{title}</Text><Button title="Close" onPress={close} /></View>
