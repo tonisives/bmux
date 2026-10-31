@@ -61,8 +61,8 @@ if (process.argv[2] === 'prepare') {
   let result = { ...state, phase: 'boot' }
   let captured = false
   let capture = async () => {
-    await run('xcrun', ['simctl', 'io', device, 'screenshot', '--display=1', screenshot], 30_000)
-    if (state.deviceType === 'iPhone-Duo') await run('xcrun', ['simctl', 'io', device, 'screenshot', '--display=3', path.join(output, 'ios-launch-inner.png')], 30_000)
+    await run('xcrun', ['simctl', 'io', device, 'screenshot', '--display=1', screenshot], 120_000)
+    if (state.deviceType === 'iPhone-Duo') await run('xcrun', ['simctl', 'io', device, 'screenshot', '--display=3', path.join(output, 'ios-launch-inner.png')], 120_000)
   }
   try {
     await simctl('bootstatus', device, '-b')
