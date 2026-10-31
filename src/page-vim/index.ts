@@ -137,7 +137,10 @@ let install = (): PageVim => {
       finishing = true
       try {
         if (commit ? await save(true) : await discard()) dispose(true)
-      } finally { finishing = false }
+      } finally {
+        finishing = false
+        if (!closing) view.focus()
+      }
     }
     active = { host, close }; scope.bmuxVimEditing = true
     let editorFocus: HTMLElement = view.contentDOM
@@ -185,7 +188,7 @@ let install = (): PageVim => {
       deferredInputs.push(() => view.dispatch({ ...view.state.replaceSelection(input.data!), userEvent: 'input.type' }))
     }
     let keepNativeFocus = (event: FocusEvent) => {
-      if (nativeWrite && event.composedPath().includes(host)) queueMicrotask(() => { if (nativeWrite) field.focus({ preventScroll: true }) })
+      if (nativeWrite && event.composedPath().includes(host)) queueMicrotask(() => { if (!closing && nativeWrite) field.focus({ preventScroll: true }) })
     }
     window.addEventListener('keydown', forwardKey, true)
     window.addEventListener('beforeinput', forwardInput, true)

@@ -478,7 +478,7 @@ test('website Vim removes a closed composer during a pending Draft write and res
     element.addEventListener('paste', () => { document.querySelector<HTMLElement>('#draft')!.hidden = true }, { once: true })
   })
   let { overlay, editor } = await open(field)
-  await editor.pressSequentially('Apending')
+  await editor.pressSequentially('A!')
   await expect(composer).toBeHidden()
   await expect(overlay).toHaveCount(0)
   // Wait beyond the paste render and write-finally callbacks before reopening.
