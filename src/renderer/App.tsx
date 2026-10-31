@@ -979,7 +979,13 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
-  useEffect(() => { if (index >= 0) suggestionList.current?.children[index]?.scrollIntoView({ block: 'nearest' }) }, [index])
+  useEffect(() => {
+    let list = suggestionList.current
+    if (!list || selectedIndex < 0) return
+    list.children[selectedIndex]?.scrollIntoView({ block: 'nearest' })
+    if (selectedIndex === 0) list.scrollTop = 0
+    else if (selectedIndex === results.length - 1) list.scrollTop = list.scrollHeight
+  }, [selectedIndex, results.length])
   useLayoutEffect(() => {
     if (!ref.current || !completing) return
     let start = previewText.toLowerCase().startsWith(query.toLowerCase()) ? query.length : 0
@@ -1017,7 +1023,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     if (inlineUrl?.url === url) { setInlineUrl(undefined); setText(query) }
     setIndex(-1); void run('history.remove', { profile: profile!.id, url }); ref.current?.focus()
   }
-  let vim = useAddressVim(direction => { if (results.length) setIndex((((selectedIndex < 0 ? direction > 0 ? -1 : 0 : selectedIndex) + direction) % results.length + results.length) % results.length) }, addressFocusVersion, previewText ? 'NORMAL' : 'INSERT', state.vimEditing !== false, ref, finish)
+  let vim = useAddressVim(direction => { if (results.length) setIndex(Math.max(0, Math.min(results.length - 1, Math.max(0, selectedIndex) + direction))) }, addressFocusVersion, previewText ? 'NORMAL' : 'INSERT', state.vimEditing !== false, ref, finish)
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (vim.keys(event) || event.nativeEvent.isComposing) return
     if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
@@ -1039,7 +1045,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     }
   }
   return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}>{vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={css.addressInput}><input id="prompt" ref={ref} data-vim-mode={vim.mode} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onMouseUp={vim.select} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /><VimCursor input={ref} mode={vim.mode} value={previewText} /></div>{message && <span className={css.error} role="status">{message}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
-    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === selectedIndex} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
+    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === selectedIndex} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><span className={css.sessionNumber} data-address-number aria-hidden="true">{Math.abs(position - Math.max(0, selectedIndex))}</span><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
 

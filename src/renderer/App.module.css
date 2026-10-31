@@ -396,6 +396,7 @@
 .urlHistory strong, .urlHistory span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .urlHistory strong { flex: 0 1 35%; font-weight: 400; }
 .urlHistory span { flex: 1; color: #8e98a4; }
+.urlHistory .sessionNumber { flex: 0 0 3ch; color: #8995a3; }
 
 .settingsPanel { width: min(1080px, 94vw); height: 94%; max-height: 94%; display: flex; flex-direction: column; overflow: hidden; }
 .settingsPanel .panelBody { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }

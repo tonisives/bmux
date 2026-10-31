@@ -84,3 +84,58 @@ test('address search selects search for phrases and domains for exact known name
     await fs.rm(directory, { recursive: true, force: true })
   }
 })
+
+
+test('address search shows relative numbers and scrolls with counted j/k navigation', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-address-navigation-'))
+  let model = initialModel()
+  model.profiles[0].history = Array.from({ length: 40 }, (_, index) => ({ url: `https://example.test/item/${index}`, title: `Fixture ${index}`, visitedAt: index + 1 }))
+  await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  let application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+  try {
+    await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    await chrome.evaluate(async () => { let bridge = (window as any).bmux; await bridge.command({ method: 'activate-client', args: { client: (await bridge.state()).clientId } }) })
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    let list = chrome.getByRole('listbox', { name: 'Address suggestions' }), options = list.getByRole('option')
+    let numbers = () => options.locator('[data-address-number]').allTextContents()
+    await address.fill('fixture')
+    await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+    await expect.poll(numbers).toEqual(Array.from({ length: await options.count() }, (_, index) => String(index)))
+    await options.filter({ hasText: 'more history matches' }).click()
+    await address.focus()
+    await expect(options).toHaveCount(41)
+    await address.press('Escape')
+    await expect(address).toHaveAttribute('data-vim-mode', 'NORMAL')
+    await address.pressSequentially('3j')
+    await expect(options.nth(3)).toHaveAttribute('aria-selected', 'true')
+    await expect.poll(numbers).toEqual(Array.from({ length: 41 }, (_, index) => String(Math.abs(index - 3))))
+    await address.pressSequentially('2k')
+    await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true')
+    await address.pressSequentially('99j')
+    await expect(options.last()).toHaveAttribute('aria-selected', 'true')
+    await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+    await expect.poll(() => options.last().evaluate(element => {
+      let row = element.getBoundingClientRect(), list = element.closest('[role="listbox"]')!.getBoundingClientRect()
+      return row.top >= list.top && row.bottom <= list.bottom
+    })).toBe(true)
+    await address.press('j')
+    await expect(options.last()).toHaveAttribute('aria-selected', 'true')
+    await address.pressSequentially('99k')
+    await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+    await expect.poll(numbers).toEqual(Array.from({ length: 41 }, (_, index) => String(index)))
+    await expect.poll(() => list.evaluate(element => element.scrollTop)).toBe(0)
+    await address.press('k')
+    await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+    await address.press('i')
+    await address.fill('fixture j k')
+    await expect(address).toHaveValue('fixture j k')
+    await expect(options).toHaveCount(1)
+    await expect.poll(numbers).toEqual(['0'])
+  } finally {
+    await closeTestApplication(application)
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+})
