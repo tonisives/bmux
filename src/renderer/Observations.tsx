@@ -4,17 +4,34 @@ import css from './Observations.module.css'
 
 type Run = (method: string,args?: Record<string,unknown>) => Promise<unknown>
 type Recording = { id: string; state: string; startedAt: number; finishedAt?: number; error?: string; directory: string; options: {pane?: string;sourcePane?:string}; clips: {pane:string;file:string;state:string}[] }
-export let RecordControl = ({run,pane,open}: {run:Run;pane?:string;open:()=>void}) => {
-  let {items,refresh} = useRecordings(run), [busy,setBusy] = useState(false)
-  let active = items.find(item=>!item.finishedAt && item.state !== 'interrupted' && ((item.options.sourcePane ?? item.options.pane) === pane || item.clips.some(clip=>clip.pane === pane)))
-  let toggle = async () => { setBusy(true); try { await run(active ? 'record.stop' : 'record.start',active ? {id:active.id} : {pane}); await refresh() } finally { setBusy(false) } }
-  return <span className={css.control}><button type="button" disabled={!pane || busy} onClick={()=>void toggle()} aria-label={active ? 'Stop recording pane' : 'Record pane'} data-recording={!!active}>{active ? 'Stop recording' : 'Record'}</button><button type="button" onClick={open} aria-label="Show recordings">Clips</button></span>
-}
 export let RecordingPanel = ({run}: {run:Run}) => {
-  let {items,error,refresh} = useRecordings(run)
-  let action = async (method:string,id:string) => { await run(method,{id}); await refresh() }
+  let {items,error,refresh} = useRecordings(run), [actionError,setActionError] = useState(''), [busy,setBusy] = useState(false)
+  let action = async (method:string,id?:string) => {
+    setBusy(true); setActionError('')
+    try { await run(method,id ? {id} : {}); await refresh() }
+    catch(error) { setActionError((error instanceof Error ? error.message : 'Recording request failed').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')) }
+    finally { setBusy(false) }
+  }
+  let openFolder = () => { void action('record.folder') }
   let recordingAction = (event: React.MouseEvent<HTMLButtonElement>) => { void action(event.currentTarget.dataset.method!,event.currentTarget.dataset.id!) }
-  return <section className={css.panel} aria-label="Recordings"><h3>Recordings</h3><p>Video is saved on this computer. Agent pointer movements appear in the captured page.</p>{error && <p role="alert">{error}</p>}{!items.length && <p>Use Record in the status bar, or connect a session hook to record browsing automatically.</p>}{[...items].reverse().map(item=><article key={item.id} className={css.item}><strong>{new Date(item.startedAt).toLocaleString()} · {item.state}</strong><code>{item.directory}</code><span>{item.clips.length} {item.clips.length === 1 ? 'pane' : 'panes'}</span>{item.error && <p role="alert">{item.error}</p>}<div className={css.actions}>{!item.finishedAt && item.state !== 'interrupted' && <button type="button" data-method="record.stop" data-id={item.id} onClick={recordingAction}>Stop</button>}<button type="button" data-method="record.reveal" data-id={item.id} onClick={recordingAction}>Show files</button>{item.clips.some(clip=>['saved','saved-webm'].includes(clip.state)) && <button type="button" data-method="record.play" data-id={item.id} onClick={recordingAction}>Play</button>}</div></article>)}</section>
+  return <section className={css.panel} aria-label="Recordings">
+    <p>Remote agent sessions are saved on this computer with the agent pointer visible.</p>
+    <button type="button" disabled={busy} onClick={openFolder}>Open recordings folder</button>
+    {(actionError || error) && <p role="alert">{actionError || error}</p>}
+    <h3>Session history</h3>
+    {!items.length && <p>No recorded sessions yet. Connect an activity hook in Remote settings to record remote agents automatically.</p>}
+    {[...items].reverse().map(item=><article key={item.id} className={css.item}>
+      <strong>{new Date(item.startedAt).toLocaleString()} · {item.state}</strong>
+      {item.directory && <code>{item.directory}</code>}
+      <span>{item.clips.length} {item.clips.length === 1 ? 'pane' : 'panes'}</span>
+      {item.error && <p role="alert">{item.error}</p>}
+      <div className={css.actions}>
+        {!item.finishedAt && item.state !== 'interrupted' && <button type="button" disabled={busy} data-method="record.stop" data-id={item.id} onClick={recordingAction}>Stop</button>}
+        {item.directory && <button type="button" disabled={busy} data-method="record.reveal" data-id={item.id} onClick={recordingAction}>Show files</button>}
+        {item.clips.some(clip=>['saved','saved-webm'].includes(clip.state)) && <button type="button" disabled={busy} data-method="record.play" data-id={item.id} onClick={recordingAction}>Play</button>}
+      </div>
+    </article>)}
+  </section>
 }
 
 type Hook = { id:string; enabled:boolean; has_secret?:boolean; filter:Record<string,string>; events:string[]; destination:{kind:'webhook'|'clawtab';url:string;deviceId?:string;job?:string} }

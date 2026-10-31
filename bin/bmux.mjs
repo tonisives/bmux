@@ -60,7 +60,7 @@ Other:    permission list | permission respond ID [--allow]
           completions zsh (print shell completion script)
 Observe:  observe -t PANE --format webm > session.webm (Ctrl-C stops capture)
 Record:   record start -t PANE [--host HOST --session SESSION --generation GENERATION]
-          record stop ID | record list | record reveal ID | record play ID
+          record stop ID | record list | record folder | record reveal ID | record play ID
 Hooks:    hooks list | hooks create --file JSON | hooks update ID --file JSON
           hooks enable|disable|delete|test|deliveries ID
           Hook JSON can be passed with --stdin to keep tokens out of command arguments.

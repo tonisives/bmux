@@ -1,9 +1,12 @@
 # Activity hooks and recordings
 
-Use **Record** in the status bar to capture the selected pane. **Clips** opens the
-recording history with Stop, Play and Show files. These controls do not activate
-another window or acquire remote browser control. Remote recordings occupy one
-ordinary live view per pane and use the account's existing stream limits.
+Open **Plugins → Built-in → Recordings** to view recorded agent sessions. **Open
+recordings folder** opens the video directory, including before the first
+recording. Session history contains Stop, Play and Show files. Activity hooks
+start and stop remote agent recordings automatically; the status bar has no
+recording controls. Capturing a session does not activate another window or
+acquire remote browser control. Remote recordings occupy one ordinary live view
+per pane and use the account's existing stream limits.
 
 Video is saved under `/Volumes/sam/movies/bmux/observations/YYYY-MM-DD/EPISODE`
 on this Mac. Other computers use `~/Movies/BMUX`. `record start --output` chooses
@@ -18,6 +21,7 @@ local recording manifest. The Mac must remain awake and connected.
 bmux observe -t %29 --format webm > session.webm
 bmux record start -t %29
 bmux record list
+bmux record folder
 bmux record stop RECORDING_ID
 bmux record reveal RECORDING_ID
 bmux record play RECORDING_ID

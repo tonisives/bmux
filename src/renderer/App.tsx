@@ -12,7 +12,7 @@ import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
 import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 import { RemoteAccount } from './RemoteAccount'
-import { RecordControl, RecordingPanel, HooksPanel } from './Observations'
+import { RecordingPanel, HooksPanel } from './Observations'
 import { RemoteMachineDetails, RemoteMachineHeading, remoteMachineName, useRemoteMachines } from './RemoteMachine'
 import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
@@ -218,7 +218,6 @@ let BrowserStatus = ({ collapsedAlerts, expandAlerts }: { collapsedAlerts: Notif
   return <footer className={css.status} aria-label="Browser status">
     {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     {collapsedAlerts.length > 0 && <button type="button" className={css.agentAlertsButton} aria-label="Show agent alerts" aria-expanded="false" title={collapsedAlerts.map(notice => notice.text).join('\n')} onClick={expandAlerts}><AgentStatusIcon /><span>{collapsedAlerts.length} {collapsedAlerts.length === 1 ? 'alert' : 'alerts'}</span><AlertChevron collapsed /></button>}
-    <RecordControl run={run} pane={pane?.id} open={()=>show('activity')} />
     <BuildId />
   </footer>
 }
@@ -410,6 +409,7 @@ let DownloadStatusIcon = ({ progressing, progress }: { progressing: boolean; pro
 let ExtensionsIcon = () => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7h4V5a2 2 0 0 1 4 0v2h4v9h-4v-2a2 2 0 0 0-4 0v2H4Z" /></svg>
 
 let bridge = (window as unknown as { bmux: Bridge }).bmux
+let runRecording = (method: string, args: Record<string, unknown> = {}) => bridge.command({ method, args })
 let Context = createContext<UIContext | null>(null)
 let useUI = () => useContext(Context)!
 let selection = (state: PublicState) => {
@@ -1521,12 +1521,11 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {type === 'history' && <HistoryPicker />}
       {type === 'downloads' && <DownloadManager />}
       {type === 'extensions' && <ExtensionsContent />}
-      {type === 'activity' && <><RecordingsContent /><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
+      {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
   return <PanelBackContext.Provider value={setDetailBack}>{content}</PanelBackContext.Provider>
 }
-let RecordingsContent = () => { let {run}=useUI();return <RecordingPanel run={run} /> }
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
   let panes = state.model.sessions.filter(session => !('sessionId' in agentDetails) || session.id === agentDetails.sessionId).flatMap(session => session.windows.filter(window => !('windowId' in agentDetails) || window.id === agentDetails.windowId).flatMap(window => window.panes))
@@ -1739,6 +1738,7 @@ let BUILTIN_TOOLS = [
   { id: 'dark-mode', name: 'Dark mode', description: 'Recolor websites with Dark Reader or follow the system.' },
   { id: 'adblock', name: 'Ad and tracker blocking', description: 'Block ads and trackers and update filter lists.' },
   { id: 'userscripts', name: 'Userscripts and styles', description: 'Configure local JavaScript and CSS for websites.' },
+  { id: 'recordings', name: 'Recordings', description: 'Watch remote agent browsing sessions and open saved videos.' },
 ] as const
 
 type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
@@ -3633,6 +3633,7 @@ let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; match
   let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let showInAddressBar = (event: ChangeEvent<HTMLInputElement>) => { void run('settings.set', { key: 'showDarkModeButton', value: event.target.checked }) }
   let filters = tools?.filters
+  if (feature === 'recordings') return matches ? null : <RecordingPanel run={runRecording} />
   if (matches && !Array.from(matches).some(included)) return null
   return <>
     {included('[name="showDarkModeButton"]') && <label className={css.settingsRow}><span>Show next to URL bar</span><input type="checkbox" name="showDarkModeButton" checked={state.showDarkModeButton === true} onChange={showInAddressBar} /></label>}

@@ -22,6 +22,17 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
   let previous: ReturnType<typeof list> = []
   try { previous = JSON.parse(fs.readFileSync(manifest,'utf8')) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
   let history = () => [...previous.filter(old => !records.has(old.id)).map(old => ({...old,state:old.finishedAt ? old.state : 'interrupted'})),...list()]
+  let recordingDirectory = (output?: string) => {
+    let base=output??(process.platform==='darwin'&&fs.existsSync('/Volumes/sam')?'/Volumes/sam/movies/bmux/observations':path.join(os.homedir(),'Movies','BMUX'))
+    if(!path.isAbsolute(base))throw new Error('Choose an absolute recording directory')
+    if(base.startsWith('/Volumes/sam/')&&(!fs.existsSync('/Volumes/sam')||fs.statSync('/Volumes/sam').dev===fs.statSync('/Volumes').dev))throw new Error('Recording volume is not mounted')
+    return base
+  }
+  let folder = async () => {
+    let base=recordingDirectory();fs.mkdirSync(base,{recursive:true,mode:0o700})
+    let error=await shell.openPath(base);if(error)throw new Error(error)
+    return {directory:base}
+  }
   let finalize = (record: Recording, clip: Clip) => {
     if (clip.closed) return
     clip.closed = true; clearTimeout(clip.timer); clip.stop?.(); contents.delete(clip.window.webContents)
@@ -89,9 +100,7 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
     let existing=list().find(item=>item.id===id)??previous.find(item=>item.id===id);if(existing)return existing
     if(!options.pane)throw new Error('Select a pane to record')
     if([...records.values()].filter(record=>!record.finishedAt).length>=4)throw new Error('Four recordings are already active')
-    let base=options.output??(process.platform==='darwin'&&fs.existsSync('/Volumes/sam')?'/Volumes/sam/movies/bmux/observations':path.join(os.homedir(),'Movies','BMUX'))
-    if(!path.isAbsolute(base))throw new Error('Choose an absolute recording directory')
-    if(base.startsWith('/Volumes/sam/')&&(!fs.existsSync('/Volumes/sam')||fs.statSync('/Volumes/sam').dev===fs.statSync('/Volumes').dev))throw new Error('Recording volume is not mounted')
+    let base=recordingDirectory(options.output)
     let destination=path.join(base,new Date().toISOString().slice(0,10),id);fs.mkdirSync(destination,{recursive:true,mode:0o700})
     let record:Recording={id,options,startedAt:Date.now(),state:'starting',directory:destination,clips:[]};records.set(id,record)
     record.timer=setTimeout(()=>stop(id),35*60*1000);save()
@@ -99,5 +108,5 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
     return list().find(item=>item.id===id)
   }
   let activitySubscription=runtime.activity.subscribe(()=>{for(let record of records.values())if(!record.options.host&&record.options.episode&&!record.finishedAt){let episode=runtime.activity.episodes().find(item=>item.id===record.options.episode);if(!episode||episode.endedAt!==undefined)stop(record.id);else for(let pane of episode.panes)void openClip(record,pane).catch(()=>{record.error='Additional pane capture failed';save()})}})
-  return {start,stop,skip:(id:string)=>{if(!/^[a-f0-9-]{36}$/.test(id))throw new Error('Invalid episode');let existing=history().find(item=>item.id===id);if(existing)return stop(id);let receipt={id,options:{episode:id},startedAt:Date.now(),finishedAt:Date.now(),state:'skipped',error:undefined,gaps:undefined,directory:'',clips:[]};previous.push(receipt);save();return receipt},play:async(id:string)=>{let record=history().find(item=>item.id===id),clip=record?.clips.find(clip=>['saved','saved-webm'].includes(clip.state));if(!clip)throw new Error('No completed video');let error=await shell.openPath(clip.state==='saved'?clip.file.replace(/\.webm$/,'.mp4'):clip.file);if(error)throw new Error(error)},list:history,reveal:(id:string)=>{let record=list().find(item=>item.id===id)??previous.find(item=>item.id===id);if(!record)throw new Error('Recording not found');shell.showItemInFolder(record.directory)},close:async()=>{activitySubscription();for(let record of records.values())stop(record.id);await new Promise(resolve=>setTimeout(resolve,1200));for(let record of records.values())for(let clip of record.clips)finalize(record,clip)}}
+  return {start,stop,folder,skip:(id:string)=>{if(!/^[a-f0-9-]{36}$/.test(id))throw new Error('Invalid episode');let existing=history().find(item=>item.id===id);if(existing)return stop(id);let receipt={id,options:{episode:id},startedAt:Date.now(),finishedAt:Date.now(),state:'skipped',error:undefined,gaps:undefined,directory:'',clips:[]};previous.push(receipt);save();return receipt},play:async(id:string)=>{let record=history().find(item=>item.id===id),clip=record?.clips.find(clip=>['saved','saved-webm'].includes(clip.state));if(!clip)throw new Error('No completed video');let error=await shell.openPath(clip.state==='saved'?clip.file.replace(/\.webm$/,'.mp4'):clip.file);if(error)throw new Error(error)},list:history,reveal:(id:string)=>{let record=list().find(item=>item.id===id)??previous.find(item=>item.id===id);if(!record)throw new Error('Recording not found');shell.showItemInFolder(record.directory)},close:async()=>{activitySubscription();for(let record of records.values())stop(record.id);await new Promise(resolve=>setTimeout(resolve,1200));for(let record of records.values())for(let clip of record.clips)finalize(record,clip)}}
 }
