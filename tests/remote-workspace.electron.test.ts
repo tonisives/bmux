@@ -89,6 +89,10 @@ test('remote workspace shares local layout, keeps client selection independent, 
     let secondClient = await application.evaluate(async () => { let fixture = (globalThis as any).workspaceFixture, localSession = fixture.runtime.model.sessions.find((session: any) => !session.ephemeral); let second = await fixture.runtime.createClient(localSession.id); await fixture.open(second.id, fixture.snapshot.session.windows[1].panes[0].id); return second.id })
     expect(current(await state()).paneId).toBe(third)
     await application.evaluate(() => { let fixture = (globalThis as any).workspaceFixture; fixture.snapshot.session.windows[0].name = 'Renamed on host'; fixture.publish() })
+    await expect.poll(async () => { let value = await state(); return value.model.sessions.find((session: any) => session.id === current(value).sessionId)?.windows[0].name }).toBe('Renamed on host')
+    // The second client covers this window on Linux; focus it before checking its rendered tabs.
+    await application.evaluate((_electron, client) => (globalThis as any).workspaceFixture.runtime.execute({ method: 'activate-client', args: { client } }), local.id)
+    await expect.poll(async () => (await state()).focusedClientId).toBe(local.id)
     await expect(chrome.locator('[data-window-list]')).toContainText('Renamed on host')
     expect(current(await state()).paneId).toBe(third)
     await expect.poll(async () => Object.keys((await state()).remoteViews).filter(id => id.startsWith(`remote:${local.id}:pane:`)).length).toBe(5)
