@@ -655,3 +655,16 @@ network attempts still fail; Developer ID, Gatekeeper, architecture, and update
 metadata checks remain required. Four subprocess tests exercise recovery, the
 retry limit, invalid tickets, and unrelated errors through the full DMG/ZIP
 verification script with disposable tool stubs.
+
+## October 31 fixture readiness
+
+The full Check on `fbddfe7` waited for an icon on a newly created inactive
+window that had never loaded its page. The cache restoration fixture now
+explicitly navigates that pane before checking its icon and restarting. All
+three restored panes must still remain unloaded after restart.
+
+The same commit's native iOS launcher run tapped Demo while asynchronous sign-in
+setup could still add the Apple button and move the centered welcome controls.
+The fixture now observes the enabled, hittable Google button before capturing
+the welcome screen and tapping Demo. Demo navigation, page layout, rotation,
+and remembered-server assertions retain their existing deadlines.

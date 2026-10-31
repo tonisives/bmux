@@ -92,7 +92,11 @@ final class BMUXLauncherTests: XCTestCase {
     XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 180), .completed)
     if app.staticTexts["Error loading app"].exists { capture("03-metro-load-failure") }
     XCTAssertFalse(app.staticTexts["Error loading app"].exists, "The native chooser could not reach the disposable Metro server; see the failure capture and Metro health log")
-    XCTAssertTrue(app.buttons["Sign in with Google"].isHittable)
+    let signInReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+      let button = self.app.buttons["Sign in with Google"]
+      return button.exists && button.isEnabled && button.isHittable
+    }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [signInReady], timeout: 10), .completed)
     XCTAssertTrue(app.buttons["Demo"].exists)
     capture("03-metro-welcome")
     app.buttons["Demo"].tap()

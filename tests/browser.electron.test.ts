@@ -3664,6 +3664,7 @@ test('restores cached favicons for inactive windows and sessions without loading
   await cli('navigate', { pane: active.id, url: `${url}/cached-favicon/active` })
   let inactiveWindow = await cli('new-window', { session: session.id, url: `${url}/cached-favicon/inactive` })
   let inactive = inactiveWindow.panes[0]
+  await cli('navigate', { pane: inactive.id, url: inactive.url })
   let dormantSession = await cli('new-session', { name: 'cached-favicons-dormant', profile: 'default' })
   let dormant = dormantSession.windows[0].panes[0]
   await cli('navigate', { pane: dormant.id, url: `${url}/cached-favicon/dormant` })
