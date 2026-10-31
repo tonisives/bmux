@@ -669,3 +669,18 @@ setup could still add the Apple button and move the centered welcome controls.
 The fixture now observes the enabled, hittable Google button before capturing
 the welcome screen and tapping Demo. Demo navigation, page layout, rotation,
 and remembered-server assertions retain their existing deadlines.
+
+## Reply composer Vim teardown
+
+The inline editor previously moved itself into the document body when a page
+removed its field, leaving a detached reply visible over the timeline. It now
+ends the session when the field disappears or the composer is hidden, while
+still reattaching next to a connected field after a sibling redraw. Pending
+native writes restore their temporary styles once; teardown cannot be followed
+by a late callback hiding the native field again. Closing also stops new
+focus-driven synchronization before awaiting the final write.
+
+The page-Vim fixtures remove a reply dialog, hide a Draft.js composer during
+paste, reopen it for four Vim/native editing cycles, and check stacking against
+a page formatting toolbar. Repeat the whole website Vim group to retain the
+preceding focus and selection cases.

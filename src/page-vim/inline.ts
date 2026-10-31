@@ -3,7 +3,7 @@ import type { TextField } from './field'
 export let mountInlineEditor = (field: TextField, host: HTMLElement) => {
   let style = getComputedStyle(field), bounds = field.getBoundingClientRect()
   let display = field.style.getPropertyValue('display'), priority = field.style.getPropertyPriority('display'), hadStyle = field.hasAttribute('style')
-  host.style.cssText = 'all:initial;display:block;position:static;box-sizing:border-box;min-width:0;max-width:100%;overflow:hidden;'
+  host.style.cssText = 'all:initial;display:block;position:relative;z-index:2147483647;isolation:isolate;box-sizing:border-box;min-width:0;max-width:100%;overflow:hidden;'
   for (let property of ['margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'flex-grow', 'flex-shrink', 'flex-basis', 'align-self', 'order', 'grid-area']) host.style.setProperty(property, style.getPropertyValue(property))
   if (field.hasAttribute('slot')) host.slot = field.slot
   host.style.colorScheme = style.colorScheme
@@ -14,6 +14,7 @@ export let mountInlineEditor = (field: TextField, host: HTMLElement) => {
   while ((!background || background === 'rgba(0, 0, 0, 0)' || background === 'transparent') && parent) { background = getComputedStyle(parent).backgroundColor; parent = parent.parentElement }
   host.style.setProperty('--field-background', !background || background === 'rgba(0, 0, 0, 0)' || background === 'transparent' ? 'Canvas' : background)
   host.style.setProperty('--field-border', style.borderTopColor)
+  let mounted = true, restoreWrite: (() => void) | undefined
   let showField = () => {
     if (display) field.style.setProperty('display', display, priority)
     else field.style.removeProperty('display')
@@ -32,25 +33,29 @@ export let mountInlineEditor = (field: TextField, host: HTMLElement) => {
       field.style.setProperty('position', 'absolute', 'important')
       field.style.setProperty('opacity', '0', 'important')
       field.style.setProperty('pointer-events', 'none', 'important')
+      let restored = false
       let restore = () => {
-        hideField()
+        if (restored) return
+        restored = true; restoreWrite = undefined
         host.inert = inert
         for (let { property, value, priority } of properties) {
           if (value) field.style.setProperty(property, value, priority)
           else field.style.removeProperty(property)
         }
+        if (mounted) hideField()
+        else showField()
       }
+      restoreWrite = restore
       try {
         let result = save()
         if (result instanceof Promise) return result.finally(restore)
         restore(); return result
       } catch (error) { restore(); throw error }
     },
-    restore: () => { showField(); host.remove() },
+    restore: () => { mounted = false; restoreWrite?.(); showField(); host.remove() },
     retain: () => {
-      if (host.isConnected) return false
-      if (field.isConnected) field.after(host)
-      else (document.body ?? document.documentElement).append(host)
+      if (!mounted || host.isConnected || !field.isConnected) return false
+      field.after(host)
       return true
     },
   }
