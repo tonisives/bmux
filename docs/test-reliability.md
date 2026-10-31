@@ -660,7 +660,8 @@ verification script with disposable tool stubs.
 
 The full Check on `fbddfe7` waited for an icon on a newly created inactive
 window that had never loaded its page. The cache restoration fixture now
-explicitly navigates that pane before checking its icon and restarting. All
+creates the window blank and explicitly navigates that pane before checking its
+icon and restarting, avoiding a second navigation racing its initial load. All
 three restored panes must still remain unloaded after restart.
 
 The same commit's native iOS launcher run tapped Demo while asynchronous sign-in
