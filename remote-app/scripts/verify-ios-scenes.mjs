@@ -11,7 +11,10 @@ let info = JSON.parse(stdout)
 let manifest = info.UIApplicationSceneManifest
 assert.equal(manifest?.UIApplicationSupportsMultipleScenes, false, 'The iOS app must adopt the single-window scene lifecycle')
 let scenes = manifest.UISceneConfigurations?.UIWindowSceneSessionRoleApplication
-assert.ok(scenes?.some(scene => scene.UISceneDelegateClassName === 'EXExpoAppSceneDelegate'), 'Expo must own the application scene')
+assert.ok(scenes?.some(scene => scene.UISceneDelegateClassName === '$(PRODUCT_MODULE_NAME).SceneDelegate'), 'The app must use the generated scene delegate')
+let sceneDelegate = await readFile(new URL('SceneDelegate.swift', project), 'utf8')
+assert.match(sceneDelegate, /class SceneDelegate: ExpoAppSceneDelegate\s*\{/, 'Expo must own the application scene lifecycle')
+assert.doesNotMatch(sceneDelegate, /UIWindow\s*\(|factory\.startReactNative\s*\(/, 'Expo must create the window and start React Native')
 
 let delegate = await readFile(new URL('AppDelegate.swift', project), 'utf8')
 assert.match(delegate, /class AppDelegate: ExpoAppDelegate, ExpoReactNativeFactoryProvider\s*\{/, 'The scene needs the React Native factory from AppDelegate')
