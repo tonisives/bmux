@@ -1,5 +1,16 @@
 # Focused test verification
 
+## Viewport screenshot flicker
+
+CDP clips temporarily resize the native page view, including when the requested
+clip matches the visible viewport. Device emulation can also be reapplied by
+Chromium's screenshot handler. Viewport screenshots now share the native surface
+copy used by previews and remote streams, keeping hidden pages hidden. Plugins
+can request an in-memory JPEG and bound its final pixel dimensions after capture.
+The plugin regression checks visible and hidden desktop/device pages, preserved
+viewport and window state, PNG file capture, and a JPEG no larger than 768 pixels.
+Repeat this case with the native rendering check in focused CI.
+
 ## Excluded website list rendering
 
 The full Check on `1480f86` scrolled the excluded website list before the final

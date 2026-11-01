@@ -30,7 +30,8 @@ if (action === 'pick') {
 } else if (action === 'changed') { host('eval',{expression:'document.documentElement.dataset.pluginChanged="yes"; true'});
 } else if (action === 'hidden') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
-} else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})}); }
+} else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
+} else if (action === 'capture') { host('result',host('screenshot',{fullPage:false,encoding:'base64',format:'jpeg',quality:60,maxDimension:768})); }
 `
 test.beforeAll(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-plugin-ui-'))
@@ -38,7 +39,7 @@ test.beforeAll(async () => {
   await fs.cp(path.resolve('examples/plugins/local.page-tools'), path.join(directory, 'plugins/local.page-tools'), { recursive: true })
   await fs.writeFile(path.join(folder, 'run.mjs'), script)
   let action = (id: string) => ({ id, title: id, command: ['node', './run.mjs', id], capabilities: ['browser.read', 'browser.write', 'ui'], timeout_seconds: 40 })
-  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title'].map(action).concat([{ ...action('password'), parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
+  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture'].map(action).concat([{ ...action('password'), parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
   await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
   server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Plugin fixture</title><h1>Plugin fixture</h1><input id="username" autocomplete="username"><input id="password" type="password"><input id="hidden" type="hidden"><p id="note">Native page content</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
@@ -88,6 +89,75 @@ test('typed URLs render native pages, hooks execute, and plugin pickers fill the
   expect(await page.evaluate(() => ({ node: typeof (window as any).require, bridge: typeof (window as any).bmux }))).toEqual({ node: 'undefined', bridge: 'undefined' })
   await page.evaluate(() => history.pushState({}, '', '/spa'))
   await expect(page.locator('html')).toHaveAttribute('data-plugin-changed', 'yes')
+})
+test('viewport screenshots preserve visible and hidden device pages without CDP resizing', async () => {
+  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
+  let windows = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().map(window => ({ id: window.id, visible: window.isVisible(), focused: window.isFocused(), bounds: window.getBounds() })))
+  try {
+    for (let mobile of [false, true]) {
+      if (mobile) await rpc('profile.device.set', { pane: pane.id, profile: pane.profileId, device: { preset: 'pixel-8', orientation: 'portrait', locale: 'en-US', timezone: 'UTC' } })
+      await rpc('navigate', { pane: pane.id, url })
+      await rpc('wait', { pane: pane.id, selector: '#username' })
+      let page = application.context().pages().find(page => page.url().startsWith(url))!
+      await page.evaluate(() => {
+        document.body.style.minHeight = '2600px'
+        document.documentElement.style.scrollBehavior = 'auto'
+        window.scrollTo(0, 180)
+      })
+      await expect.poll(() => page.evaluate(() => scrollY)).toBe(180)
+      await application.evaluate(({ webContents }, url) => {
+        let contents = webContents.getAllWebContents().find(contents => contents.getURL().startsWith(url))!
+        let state = globalThis as any
+        state.viewportScreenshot = { cdp: 0, native: [] }
+        let send = contents.debugger.sendCommand.bind(contents.debugger), capture = contents.capturePage.bind(contents)
+        contents.debugger.sendCommand = (method, ...args) => { if (method === 'Page.captureScreenshot') state.viewportScreenshot.cdp++; return send(method, ...args) }
+        contents.capturePage = (...args) => capture(...args).then(frame => {
+          state.viewportScreenshot.native.push({ hidden: args[1]?.stayHidden, size: frame.getSize() })
+          return frame
+        })
+      }, url)
+      for (let hidden of [false, true]) {
+        if (hidden) await application.evaluate(({ app }) => app.hide())
+        else await activate()
+        let beforeWindows = await windows(), beforeSelection = (await state()).model.clients
+        let beforePage = await page.evaluate(() => {
+          let state = window as any
+          state.screenshotChanges = []
+          window.addEventListener('resize', () => state.screenshotChanges.push('resize'))
+          document.addEventListener('visibilitychange', () => state.screenshotChanges.push('visibility'))
+          return { width: innerWidth, height: innerHeight, scrollY, visibility: document.visibilityState, dpr: devicePixelRatio, touch: navigator.maxTouchPoints }
+        })
+        let id = await run('capture', { pane: pane.id })
+        await completed(id, 'completed', 10000)
+        let result = (await rpc('plugin.runs')).find((item: any) => item.id === id).result
+        expect(result).toMatchObject({ pane: pane.id, fullPage: false, format: 'jpeg' })
+        expect(Buffer.from(result.data, 'base64').subarray(0, 2).toString('hex')).toBe('ffd8')
+        let jpeg = await application.evaluate(({ nativeImage }, data) => nativeImage.createFromBuffer(Buffer.from(data, 'base64')).getSize(), result.data)
+        expect(jpeg.width).toBeGreaterThan(0)
+        expect(jpeg.height).toBeGreaterThan(0)
+        expect(Math.max(jpeg.width, jpeg.height)).toBeLessThanOrEqual(768)
+        let output = path.join(directory, `viewport-${mobile}-${hidden}.png`)
+        expect(await rpc('screenshot', { pane: pane.id, fullPage: false, output })).toEqual({ pane: pane.id, path: output, fullPage: false })
+        let png = await fs.readFile(output)
+        expect(png.subarray(1, 4).toString()).toBe('PNG')
+        let captures = await application.evaluate(() => (globalThis as any).viewportScreenshot)
+        expect(captures.cdp).toBe(0)
+        expect(captures.native.length).toBeGreaterThan(0)
+        expect(captures.native.every((capture: { hidden: boolean }) => capture.hidden)).toBe(true)
+        let size = captures.native.at(-1).size
+        expect({ width: png.readUInt32BE(16), height: png.readUInt32BE(20) }).toEqual(size)
+        expect(Math.abs(jpeg.width / jpeg.height - size.width / size.height)).toBeLessThan(0.01)
+        expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scrollY, visibility: document.visibilityState, dpr: devicePixelRatio, touch: navigator.maxTouchPoints }))).toEqual(beforePage)
+        expect(await page.evaluate(() => (window as any).screenshotChanges)).toEqual([])
+        expect(await windows()).toEqual(beforeWindows)
+        expect((await state()).model.clients).toEqual(beforeSelection)
+      }
+      await activate()
+    }
+  } finally {
+    await activate()
+    await rpc('profile.device.clear', { pane: pane.id, profile: pane.profileId })
+  }
 })
 test('password parameters stay private and Escape cancels', async () => {
   await rpc('activate-client', { client: (await state()).clientId })

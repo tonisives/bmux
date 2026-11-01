@@ -170,7 +170,7 @@ bmux cdp -t <pane-id> Runtime.evaluate '{"expression":"document.title","returnBy
 
 Raw CDP uses Electron's debugger connection and returns the protocol result. This is a per-pane command interface, not an external Playwright connection endpoint. Automation calls are serialized per pane. Human controls, including Find, view attachment, and navigation shortcuts, remain independent of that queue. Independent panes can be controlled concurrently.
 
-The screenshot path is returned after the PNG is written. Full-page capture includes the current document below the viewport without changing the native client selection. It does not load every item on infinite-scroll pages automatically.
+The screenshot path is returned after the PNG is written. `--viewport` copies the current native surface while preserving page visibility, viewport size, and device emulation. Full-page capture includes the current document below the viewport without changing the native client selection. It does not load every item on infinite-scroll pages automatically.
 
 DOM extraction and JavaScript evaluation can return sensitive page data; do not print credentials or unrelated private data. Browser content never receives access to the CLI socket. Profiles separate browser storage, but the current-user CLI can operate all profiles.
 

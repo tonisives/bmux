@@ -74,6 +74,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
 import { createRemoteCapture } from './remote-capture'
 import { assertFrameCapture, capturePageFrame, frameCaptureError } from './frame-capture'
+import { captureViewportScreenshot } from './viewport-screenshot'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
 import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
@@ -3915,7 +3916,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       checkControl(method, args)
       let contents = live.contents
       let background = resolve(model.profiles, pane.profileId, 'Profile').background
-      contents.setBackgroundThrottling(false)
+      let wakePage = method !== 'screenshot' || args.fullPage !== false
+      if (wakePage) contents.setBackgroundThrottling(false)
       let syntheticInput = ['click', 'type', 'key'].includes(method) || (method === 'cdp' && String(args.method).startsWith('Input.'))
       if (syntheticInput) { automatedContents.add(contents.id); contents.setIgnoreMenuShortcuts(true) }
       try {
@@ -3950,17 +3952,23 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (method === 'cdp') return await cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined, false, true)
         if (method === 'screenshot') {
           assertFrameCapture(contents)
-          let target = path.resolve(required(args, 'output'))
-          let params: Record<string, unknown> = { format: 'png', fromSurface: true, captureBeyondViewport: args.fullPage !== false }
-          if (args.fullPage !== false) {
+          if (args.encoding !== undefined && args.encoding !== 'base64') throw new Error('Screenshot encoding must be base64')
+          let target = args.encoding === 'base64' ? undefined : path.resolve(required(args, 'output'))
+          let image: Buffer
+          if (args.fullPage === false) {
+            let result = await captureViewportScreenshot(contents, args)
+            if (!target) return { pane: tabId, data: result.data.toString('base64'), format: result.format, fullPage: false }
+            image = result.data
+          } else {
+            if (args.encoding !== undefined || args.format !== undefined || args.quality !== undefined || args.maxDimension !== undefined) throw new Error('Image encoding options require viewport capture')
             let metrics = await cdp(tabId, 'Page.getLayoutMetrics')
             let size = metrics.cssContentSize ?? metrics.contentSize
             if (size.width * size.height > 80_000_000) throw new Error('Page exceeds 80 megapixels; use --viewport or a CDP clip')
-            params.clip = { x: 0, y: 0, width: Math.max(1, size.width), height: Math.max(1, size.height), scale: 1 }
+            let result = await cdp(tabId, 'Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: true, clip: { x: 0, y: 0, width: Math.max(1, size.width), height: Math.max(1, size.height), scale: 1 } })
+            image = Buffer.from(result.data, 'base64')
           }
-          let result = await cdp(tabId, 'Page.captureScreenshot', params)
-          await fs.mkdir(path.dirname(target), { recursive: true })
-          await fs.writeFile(target, Buffer.from(result.data, 'base64'), { mode: 0o600 })
+          await fs.mkdir(path.dirname(target!), { recursive: true })
+          await fs.writeFile(target!, image, { mode: 0o600 })
           return { pane: tabId, path: target, fullPage: args.fullPage !== false }
         }
         if (method === 'wait') {
@@ -4011,7 +4019,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         if (syntheticInput) automatedContents.delete(contents.id)
         if (!contents.isDestroyed()) {
           if (syntheticInput) { contents.setIgnoreMenuShortcuts(false); await live.refreshSwipe?.() }
-          contents.setBackgroundThrottling(!background)
+          if (wakePage) contents.setBackgroundThrottling(!background)
         }
       }
       return null
