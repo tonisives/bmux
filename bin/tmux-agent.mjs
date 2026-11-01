@@ -11,7 +11,7 @@ let paneName = title => title.split(' | ').at(-2)?.replace(/^[\u2800-\u28ff]\s*/
 
 export let findAgentPane = (panes, processes, pid, thread) => {
   if (thread) {
-    let matches = panes.filter(pane => pane.command === 'codex' && paneName(pane.title) === thread.name && pane.title.split(' | ').at(-1)?.trim() === sessionDirectory(thread.cwd))
+    let matches = panes.filter(pane => !pane.dead && pane.command === 'codex' && paneName(pane.title) === thread.name && pane.title.split(' | ').at(-1)?.trim() === sessionDirectory(thread.cwd))
     if (matches.length !== 1) throw new Error('Cannot identify a unique tmux pane for this agent thread; keep its terminal session name visible')
     return matches[0]
   }
@@ -34,18 +34,16 @@ let readThread = async (id, env) => {
   try {
     let thread = database.prepare('SELECT id, name, cwd FROM threads WHERE id = ? AND archived = 0').get(id)
     if (!thread?.name) throw new Error('Cannot identify the named terminal session for this agent thread')
-    let named = database.prepare('SELECT id, cwd FROM threads WHERE name = ? AND archived = 0').all(thread.name).filter(candidate => sessionDirectory(candidate.cwd) === sessionDirectory(thread.cwd))
-    if (named.length !== 1) throw new Error('The agent terminal session name is ambiguous; give this thread a unique name')
     return thread
   } finally { database.close() }
 }
 
 let listPanes = async (socket, execute) => {
-  let fields = ['session_id', 'window_id', 'pane_id', 'pane_pid', 'pane_current_command', 'pane_title', 'pane_current_path', 'client_tty', 'session_name', 'window_index']
+  let fields = ['session_id', 'window_id', 'pane_id', 'pane_pid', 'pane_current_command', 'pane_title', 'pane_current_path', 'client_tty', 'session_name', 'window_index', 'pane_dead']
   let output = await execute('tmux', [...(socket ? ['-S', socket] : []), 'list-panes', '-a', '-F', fields.map(field => `#{${field}}`).join('\t')])
   return output.trimEnd().split('\n').filter(Boolean).map(line => {
-    let [sessionId, windowId, paneId, panePid, command, title, cwd, clientTty, sessionName, windowIndex] = line.split('\t')
-    return { sessionId, windowId, paneId, panePid, command, title, cwd, clientTty, sessionName, windowIndex }
+    let [sessionId, windowId, paneId, panePid, command, title, cwd, clientTty, sessionName, windowIndex, dead] = line.split('\t')
+    return { sessionId, windowId, paneId, panePid, command, title, cwd, clientTty, sessionName, windowIndex, dead: dead === '1' }
   })
 }
 

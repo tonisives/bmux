@@ -65,7 +65,7 @@ test('focus verifies the agent thread again and never falls back to an unrelated
   await expect(focusTmuxPane(context.agentData, context.agentOrigin, { execute: async () => '', threadForId })).rejects.toThrow('unique')
 })
 
-test('thread lookup uses only exact saved identity and refuses ambiguous names', async () => {
+test('thread lookup ignores offline saved names and rejects conflicting live panes', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-thread-origin-'))
   let database = new DatabaseSync(path.join(directory, 'state_5.sqlite'))
   try {
@@ -76,9 +76,22 @@ test('thread lookup uses only exact saved identity and refuses ambiguous names',
     database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run('other-project', thread.name, '/fixtures/other')
     expect(await resolveTmuxAgent({ env, execute: async () => list() })).toEqual(context)
     database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run('same-directory-label', thread.name, '/other/movies')
-    await expect(resolveTmuxAgent({ env, execute: async () => list() })).rejects.toThrow('ambiguous')
+    expect(await resolveTmuxAgent({ env, execute: async () => list() })).toEqual(context)
     database.prepare('DELETE FROM threads WHERE id = ?').run('same-directory-label')
     database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run('another-thread', thread.name, thread.cwd)
-    await expect(resolveTmuxAgent({ env, execute: async () => list() })).rejects.toThrow('ambiguous')
+    expect(await resolveTmuxAgent({ env, execute: async () => list() })).toEqual(context)
+    expect(await focusTmuxPane(context.agentData, context.agentOrigin, { env, execute: async () => list() })).toBe('%70')
+
+    let duplicate = { ...publishing, paneId: '%71', panePid: '64429' }
+    let liveList = (command: string, dead: string) => `${list()}\n${[duplicate.sessionId, duplicate.windowId, duplicate.paneId, duplicate.panePid, command, duplicate.title, duplicate.cwd, '', duplicate.sessionName, duplicate.windowIndex, dead].join('\t')}`
+    for (let [command, dead] of [['zsh', '0'], ['codex', '1']]) {
+      let execute = async () => liveList(command, dead)
+      expect(await resolveTmuxAgent({ env, execute })).toEqual(context)
+      expect(await focusTmuxPane(context.agentData, context.agentOrigin, { env, execute })).toBe('%70')
+    }
+    let execute = async () => liveList('codex', '0')
+    await expect(resolveTmuxAgent({ env, execute })).rejects.toThrow('unique tmux pane')
+    await expect(focusTmuxPane(context.agentData, context.agentOrigin, { env, execute })).rejects.toThrow('unique tmux pane')
+    await expect(resolveTmuxAgent({ env, execute: async () => list().replace(publishing.title, 'Other thread | movies') })).rejects.toThrow('unique tmux pane')
   } finally { database.close(); await fs.rm(directory, { recursive: true, force: true }) }
 })
