@@ -111,10 +111,11 @@ test('viewport screenshots preserve visible and hidden device pages without CDP 
         state.viewportScreenshot = { cdp: 0, native: [] }
         let send = contents.debugger.sendCommand.bind(contents.debugger), capture = contents.capturePage.bind(contents)
         contents.debugger.sendCommand = (method, ...args) => { if (method === 'Page.captureScreenshot') state.viewportScreenshot.cdp++; return send(method, ...args) }
-        contents.capturePage = (...args) => capture(...args).then(frame => {
-          state.viewportScreenshot.native.push({ hidden: args[1]?.stayHidden, size: frame.getSize() })
-          return frame
-        })
+        contents.capturePage = (...args) => {
+          let call: { hidden?: boolean; size?: { width: number; height: number } } = { hidden: args[1]?.stayHidden }
+          state.viewportScreenshot.native.push(call)
+          return capture(...args).then(frame => { call.size = frame.getSize(); return frame })
+        }
       }, url)
       for (let hidden of [false, true]) {
         if (hidden) await application.evaluate(({ app }) => app.hide())
@@ -127,6 +128,8 @@ test('viewport screenshots preserve visible and hidden device pages without CDP 
           document.addEventListener('visibilitychange', () => state.screenshotChanges.push('visibility'))
           return { width: innerWidth, height: innerHeight, scrollY, visibility: document.visibilityState, dpr: devicePixelRatio, touch: navigator.maxTouchPoints }
         })
+        // Activation can capture a swipe preview; observe only the screenshot requests.
+        await application.evaluate(() => { (globalThis as any).viewportScreenshot = { cdp: 0, native: [] } })
         let id = await run('capture', { pane: pane.id })
         await completed(id, 'completed', 10000)
         let result = (await rpc('plugin.runs')).find((item: any) => item.id === id).result
