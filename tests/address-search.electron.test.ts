@@ -72,6 +72,9 @@ test('address search selects search for phrases and domains for exact known name
     await expect(options.first()).toHaveAttribute('data-value', 'https://maps.google.com/')
     await address.press('Enter')
     await expect.poll(async () => (await state()).model.profiles[0].history.map((entry: { url: string }) => entry.url)).toEqual(expect.arrayContaining(['https://maps.google.com/', 'https://www.google.com/maps']))
+    let mapsUrl = 'https://www.google.com/maps'
+    await expect.poll(() => application.context().pages().some(page => page.url() === mapsUrl)).toBe(true)
+    await expect(application.context().pages().find(page => page.url() === mapsUrl)!.locator('h1')).toHaveText('Search fixture')
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await address.fill('maps')
     await expect(address).toHaveValue('maps.google.com')
