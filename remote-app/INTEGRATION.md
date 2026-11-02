@@ -13,7 +13,10 @@ shared session list is also used for connected hosts.
 
 Sessions, Settings and Search are the three bottom tabs. One bell at the top
 opens notifications. Phones show the list or a page, including in landscape;
-web windows and native tablets can show both. A page has a title bar above its
+web windows and native tablets can show both. On iPhone, pages push onto a native navigation controller; an edge swipe returns
+to the session list and closes the live view. The bottom controls use Liquid Glass
+on supported iOS versions. Brand and icon-font assets are embedded in the native
+app and loaded before showing the welcome screen. A page has a title bar above its
 browser content. Tapping the title opens details, controls and page switching.
 
 Connection setup, notification registration and the included browser are in
@@ -28,6 +31,13 @@ a fresh state and redirect_uri=bmux-remote://auth/callback. It accepts only
 the exact callback URI, matching state and a single opaque code. The code is
 exchanged at /api/auth/mobile/exchange with codeVerifier. No bearer is accepted
 from a URL.
+
+Email sign-in uses the account password added in Settings after Google or Apple
+sign-in. POST /api/auth/mobile/password returns the same native credentials as
+PKCE exchange; web uses POST /api/auth/email/login for its HttpOnly cookie.
+Passwords use salted scrypt hashes, and login attempts are limited per email.
+Changing an existing password requires the current password. Email login retains
+the original account owner and its machines and entitlement.
 
 RemoteNativeCredentials are stored in SecureStore. Concurrent requests share
 one /api/auth/mobile/refresh operation. Refresh must retain the owner and rotate

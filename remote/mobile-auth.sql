@@ -52,3 +52,15 @@ CREATE TABLE IF NOT EXISTS bmux_provider_flows (
 );
 CREATE INDEX IF NOT EXISTS bmux_mobile_access_session ON bmux_mobile_access(session_id);
 CREATE INDEX IF NOT EXISTS bmux_mobile_devices_session ON bmux_mobile_devices(session_id);
+
+CREATE TABLE IF NOT EXISTS bmux_passwords (
+  owner text PRIMARY KEY REFERENCES bmux_accounts(owner),
+  email text NOT NULL UNIQUE,
+  salt text NOT NULL,
+  password_hash text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bmux_password_attempts (
+  email text PRIMARY KEY,
+  attempts integer NOT NULL,
+  expires timestamptz NOT NULL
+);

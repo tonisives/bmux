@@ -39,6 +39,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
   }, [selection, split])
   let selectTab = (value: RemoteTab) => { setTab(value); if (value === 'search') setFocusSearch(count => count + 1) }
   let list = <View style={local.list}>
+    <RemoteHeader demo notifications={0} onNotifications={() => setNotifications(true)} />
     {tab === 'settings' ? <ScrollView contentContainerStyle={local.settings}>
       <Text style={styles.title}>Settings</Text>
       <Button title="Sign in with Google" onPress={connect} />
@@ -47,8 +48,7 @@ export let DemoWorkspace = ({ close, connect }: { close: () => void; connect: ()
     <RemoteTabs active={tab} select={selectTab} />
   </View>
   return <SafeAreaView style={styles.screen}>
-    {(split || !selection) && <RemoteHeader demo notifications={0} onNotifications={() => setNotifications(true)} />}
-    <Workspace sidebar={list} selected={!!selection} detail={selection ? <View style={local.detail}>
+    <Workspace sidebar={list} selected={!!selection} onBack={back} detail={selection ? <View style={local.detail}>
         <View style={local.titleBar}>
           <Pressable accessibilityRole="button" accessibilityLabel="Back to sessions" onPress={back} style={local.back}><Ionicons name="chevron-back" size={24} color={colors.text} /></Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Page details" onPress={() => setDetails(true)} style={local.pageTitle}>

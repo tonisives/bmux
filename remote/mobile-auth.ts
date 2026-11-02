@@ -1,4 +1,5 @@
 import type http from 'node:http'
+import { createEmailAuth, EmailAuthError } from './email-auth'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
 import { createRemoteJWKSet, importPKCS8, jwtVerify, SignJWT, type JWTPayload } from 'jose'
@@ -12,6 +13,7 @@ let cookie = (request: http.IncomingMessage, name: string) => new RegExp(`(?:^|;
 class AuthenticationError extends Error {}
 let invalid = () => new AuthenticationError('Authentication flow unavailable')
 export let createMobileAuth = ({ pool, origin, googleClientId, revoked, webRevoked, env = process.env }: Options) => {
+  let emailAuth = createEmailAuth(pool)
   let secure = origin.startsWith('https:'), callback = 'bmux-remote://auth/callback'
   let appleClientId = env.BMUX_APPLE_CLIENT_ID, appleTeam = env.BMUX_APPLE_TEAM_ID, appleKeyId = env.BMUX_APPLE_KEY_ID, applePrivateKey = env.BMUX_APPLE_PRIVATE_KEY
   let appleEnabled = !!(appleClientId && appleTeam && appleKeyId && applePrivateKey)
@@ -104,6 +106,45 @@ export let createMobileAuth = ({ pool, origin, googleClientId, revoked, webRevok
       return true
     }
     if (!path.startsWith('/api/auth/')) return false
+    if (method === 'GET' && path === '/api/auth/email/password') {
+      let auth = await authenticate(request)
+      json(response, await emailAuth.status(auth.owner)); return true
+    }
+    if (method === 'POST' && path === '/api/auth/email/password') {
+      let auth = await authenticate(request), { password, currentPassword } = await readBody()
+      try { await emailAuth.setPassword(auth.owner, password, currentPassword) }
+      catch (error) {
+        if (!(error instanceof EmailAuthError)) throw error
+        response.writeHead(400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+        response.end(JSON.stringify({ error: error.message })); return true
+      }
+      json(response, { ok: true }); return true
+    }
+    if (method === 'POST' && (path === '/api/auth/mobile/password' || path === '/api/auth/email/login')) {
+      if (request.headers.origin && request.headers.origin !== origin) throw invalid()
+      let { email, password } = await readBody()
+      let owner: string
+      try { owner = await emailAuth.verify(email, password) }
+      catch (error) {
+        if (!(error instanceof EmailAuthError)) throw error
+        response.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+        response.end(JSON.stringify({ error: (error as Error).message })); return true
+      }
+      if (path === '/api/auth/mobile/password') {
+        let session = randomUUID(), expires = new Date(Date.now() + 30 * 86400000)
+        let credentials = await transaction(async client => {
+          await client.query('INSERT INTO bmux_mobile_sessions(id,owner,expires) VALUES($1,$2,$3)', [session, owner, expires])
+          return issue(client, owner, session, expires)
+        })
+        json(response, credentials)
+      } else {
+        let token = opaque()
+        await pool.query("INSERT INTO bmux_logins(token_hash,owner,expires) VALUES($1,$2,now()+interval '30 days')", [authHash(token), owner])
+        response.setHeader('Set-Cookie', `bmux_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${secure ? '; Secure' : ''}`)
+        json(response, { ok: true })
+      }
+      return true
+    }
     if (method === 'GET' && path === '/api/auth/mobile/start') {
       let state = url.searchParams.get('state'), challenge = url.searchParams.get('code_challenge')
       if (!state || !/^[A-Za-z0-9._~-]{16,256}$/.test(state) || !challenge || !/^[A-Za-z0-9_-]{43}$/.test(challenge) || url.searchParams.get('code_challenge_method') !== 'S256' || url.searchParams.get('redirect_uri') !== callback) throw invalid()
