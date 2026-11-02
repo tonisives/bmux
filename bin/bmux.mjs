@@ -215,7 +215,7 @@ let observe = async id => {
       if(!record)throw new Error('Observation no longer exists')
       if(record.error)throw new Error(record.error)
       if(outputError)throw outputError
-      if(clip && fs.existsSync(clip.file)){
+      if(clip && (fd!==undefined || fs.existsSync(clip.file))){
         fd??=fs.openSync(clip.file,'r')
         let bytes=Buffer.alloc(65536),read
         while((read=fs.readSync(fd,bytes,0,bytes.length,offset))>0){

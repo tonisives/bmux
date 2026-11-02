@@ -11,7 +11,7 @@ per pane and use the account's existing stream limits.
 Video is saved under `/Volumes/sam/movies/bmux/observations/YYYY-MM-DD/EPISODE`
 on this Mac. Other computers use `~/Movies/BMUX`. `record start --output` chooses
 another absolute directory. Each pane has one continuous WebM video; FFmpeg, if
-installed, also produces an H.264 MP4. Source WebM files remain available if
+installed, produces an H.264 MP4 and removes the original WebM after successful conversion. Source WebM files remain available if
 conversion fails. Recordings stop after 35 minutes, on request, on renderer
 failure, or when their browsing episode ends. Interrupted recordings stay visible
 in history after BMUX restarts. Reconnects appear as gaps in the video and in the

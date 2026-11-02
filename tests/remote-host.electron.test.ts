@@ -34,12 +34,18 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   savedModel.sessions[0].lastActivityAt = previousUse
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(savedModel))
   await fs.writeFile(path.join(directory,'config.yaml'),'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
-  let server = spawn(process.execPath,['--import','tsx','remote/server.ts'],{env:{...process.env,DATABASE_URL:process.env.BMUX_TEST_DATABASE_URL,PORT:'18889',BMUX_PUBLIC_ORIGIN:origin,BMUX_GOOGLE_CLIENT_ID:'fixture',BMUX_TURN_SECRET:'fixture',BMUX_TURN_URLS:'turn:127.0.0.1:3478'},stdio:'ignore'})
+  let server = spawn(process.execPath,['--import','tsx','remote/server.ts'],{env:{...process.env,DATABASE_URL:process.env.BMUX_TEST_DATABASE_URL,PGAPPNAME:service,PORT:'18889',BMUX_PUBLIC_ORIGIN:origin,BMUX_GOOGLE_CLIENT_ID:'fixture',BMUX_TURN_SECRET:'fixture',BMUX_TURN_URLS:'turn:127.0.0.1:3478'},stdio:'ignore'})
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let applicationProcess: ChildProcess | undefined
   let failed = true
   try {
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
+    await test.step('Recover after an idle database connection is terminated', async () => {
+      await expect.poll(async () => Number((await pool.query('SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND state=$2', [service, 'idle'])).rows[0].count)).toBeGreaterThan(0)
+      await pool.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name=$1 AND state=$2', [service, 'idle'])
+      await expect.poll(async () => { try { return (await fetch(`${origin}/health`)).ok } catch { return false } }).toBe(true)
+      expect(server.exitCode).toBeNull()
+    })
     application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_DEFAULT_AGENT_ID:'fixture-adapter',BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
     applicationProcess = application.process()
     application.context().setDefaultTimeout(10000)
@@ -191,17 +197,29 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
         let clip = (await command('record','list')).find((item: {id:string})=>item.id===recording.id)?.clips[0]
         return clip ? (await fs.stat(clip.file)).size : 0
       },{timeout:15000}).toBeGreaterThan(1024)
+      await application!.evaluate(({ app }) => {
+        let gpu = app.getAppMetrics().find(process => process.type === 'GPU')
+        if (!gpu) throw new Error('No disposable GPU process exists')
+        process.kill(gpu.pid, 'SIGKILL')
+      })
+      await expect.poll(async () => {
+        let record = (await command('record','list')).find((item: {id:string}) => item.id === recording.id)
+        let gaps = record?.gaps ?? [], last = gaps[gaps.length - 1]
+        return gaps.some((gap: {open:boolean}) => gap.open) && last?.open === false && !record.finishedAt
+      }, {timeout:60000}).toBe(true)
       let after = await command('status')
       expect(after.model.clients).toEqual(before.model.clients)
       expect(after.remoteControl[status.model.sessions[0].id]).toBeUndefined()
       await command('record','stop',recording.id)
       await expect.poll(async () => (await command('record','list')).find((item: {id:string})=>item.id===recording.id)?.clips[0]?.state,{timeout:15000}).toMatch(/^saved/)
       let clip = (await command('record','list')).find((item: {id:string})=>item.id===recording.id).clips[0]
-      let bytes = await fs.readFile(clip.file)
-      expect([...bytes.subarray(0,4)]).toEqual([0x1a,0x45,0xdf,0xa3])
-      let artifact = test.info().outputPath('recorded-remote-pane.webm')
+      let converted = clip.state === 'saved'
+      let bytes = await fs.readFile(converted ? clip.file.replace(/\.webm$/, '.mp4') : clip.file)
+      if (converted) expect(await fs.stat(clip.file).then(() => true, () => false)).toBe(false)
+      else expect([...bytes.subarray(0,4)]).toEqual([0x1a,0x45,0xdf,0xa3])
+      let artifact = test.info().outputPath(`recorded-remote-pane.${converted ? 'mp4' : 'webm'}`)
       await fs.writeFile(artifact, bytes)
-      await test.info().attach('recorded-remote-pane',{path:artifact,contentType:'video/webm'})
+      await test.info().attach('recorded-remote-pane',{path:artifact,contentType:converted ? 'video/mp4' : 'video/webm'})
     })
     let resizeViewer = async (width: number, height = 800) => {
       // Device-metrics emulation can finish before the native input surface

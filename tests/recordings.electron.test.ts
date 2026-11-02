@@ -63,7 +63,8 @@ test('recordings built-in plugin opens its folder and preserves playable session
     await expect.poll(async()=>((await rpc('record.list')) as any[]).find(item=>item.id===first.id)?.clips[0]?.state,{timeout:15000}).toMatch(/^saved/)
     expect(await observedDone).toBe(0);observer=undefined
     let sourceClip=((await rpc('record.list')) as any[])[0].clips[0]
-    expect(Buffer.concat(observed)).toEqual(await fs.readFile(sourceClip.file))
+    if(sourceClip.state==='saved')expect(await fs.stat(sourceClip.file).then(()=>true,()=>false)).toBe(false)
+    else expect(Buffer.concat(observed)).toEqual(await fs.readFile(sourceClip.file))
     expect([...Buffer.concat(observed).subarray(0,4)]).toEqual([0x1a,0x45,0xdf,0xa3])
     let clip=((await rpc('record.list')) as any[])[0].clips[0],file=clip.state==='saved'?clip.file.replace(/\.webm$/,'.mp4'):clip.file
     let player=path.join(directory,'player.html');await fs.writeFile(player,`<!doctype html><title>Recorded video</title><video controls autoplay muted src="${pathToFileURL(file).href}"></video>`)

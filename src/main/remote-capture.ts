@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
-import { assertFrameCapture, capturePageFrame, createFrameCapture, stopFrameCapture } from './frame-capture'
+import { assertFrameCapture, recoverFrameCapture, capturePageFrame, createFrameCapture, stopFrameCapture } from './frame-capture'
 import { randomUUID } from 'node:crypto'
 import { remoteStreamQuality, type RemoteStreamQuality } from '../shared/remote-management'
 import { remoteWebPreferences } from '../shared/remote-web-preferences'
@@ -18,10 +18,19 @@ let encodeFrame = (frame: Electron.NativeImage) => {
 }
 let subscribe = createFrameCapture(encodeFrame)
 let activeCaptures = new Set<() => void>()
+let recovery: ReturnType<typeof setTimeout> | undefined
 app.on('child-process-gone', (_event, details) => {
   if (details.type !== 'GPU' || details.reason === 'clean-exit') return
   stopFrameCapture('Video capture unavailable after GPU failure')
   for (let close of activeCaptures) close()
+  clearTimeout(recovery)
+  // Chromium replaces its GPU process. Resume only after that replacement exists.
+  let attempts = 0
+  let check = () => {
+    if (app.getAppMetrics().some(process => process.type === 'GPU')) { recoverFrameCapture(); return }
+    if (++attempts < 15) recovery = setTimeout(check, 1000)
+  }
+  recovery = setTimeout(check, 3000)
 })
 
 export let createRemoteCapture = async (options: CaptureOptions) => {
