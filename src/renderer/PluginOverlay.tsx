@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
-import type { PublicState } from '../shared/types'
+import type { Bridge, PublicState } from '../shared/types'
 import type { PluginOverlayControl } from '../shared/plugin-overlay'
 import css from './PluginOverlay.module.css'
+
+let bridge = (window as unknown as { bmux: Bridge }).bmux
 
 export let PluginOverlay = () => {
   let [state, setState] = useState<PublicState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [confirming, setConfirming] = useState(false)
   let drag = useRef<{x:number;y:number;bounds:NonNullable<PublicState['pluginOverlay']>['bounds'];resize:boolean} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
-  useEffect(() => { void window.bmux.state().then(setState); return window.bmux.subscribe(setState) }, [])
+  useEffect(() => { void bridge.state().then(setState); return bridge.subscribe(setState) }, [])
   let overlay = state?.pluginOverlay
-  let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await window.bmux.command({ method, args: { ...args, id: overlay?.runId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
+  let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await bridge.command({ method, args: { ...args, id: overlay?.runId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
   let input = async (id: string, value?: string | boolean) => { setBusy(true); await command('plugin.overlay.input', { control: id, value }); setBusy(false) }
   let move = async () => { if (sending.current) return; sending.current = true; try { while (queued.current) { let bounds = queued.current; queued.current = undefined; await command('plugin.overlay.bounds', bounds) } } finally { sending.current = false } }
   let begin = (event: PointerEvent, resize = false) => { if (!overlay || (event.target as HTMLElement).closest('button,input,select,textarea')) return; event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.screenX, y: event.screenY, bounds: overlay.bounds, resize }; event.preventDefault() }
