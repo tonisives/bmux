@@ -4,15 +4,18 @@ type Capture = { listeners: Set<(data: string) => void>; throttled: boolean; tim
 
 let pendingFrames = new WeakMap<object, Promise<unknown>>()
 let failure: Error | undefined
+let generation = 0
 export let frameCaptureError = () => failure?.message
-export let stopFrameCapture = (reason: string) => { failure ??= new Error(reason) }
+export let stopFrameCapture = (reason: string) => { failure ??= new Error(reason); generation++ }
+export let recoverFrameCapture = () => { failure = undefined; pendingFrames = new WeakMap(); generation++ }
 export let assertFrameCapture = (contents: Page<unknown>) => {
   if (failure) throw failure
   if (contents.isDestroyed()) throw new Error('Page closed')
   if (contents.isCrashed()) throw new Error('Page process crashed. Reload to recover.')
 }
 export let capturePageFrame = <Frame>(contents: Page<Frame>): Promise<Frame> => {
-  let available = () => assertFrameCapture(contents)
+  let current = generation
+  let available = () => { assertFrameCapture(contents); if (current !== generation) throw new Error('Video capture replaced after GPU failure') }
   try { available() } catch (error) { return Promise.reject(error) }
   let pending = pendingFrames.get(contents)
   if (pending) return pending as Promise<Frame>

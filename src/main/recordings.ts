@@ -41,7 +41,7 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
       let output = clip.file.replace(/\.webm$/,'.mp4'), temp = output.replace(/\.mp4$/,'.partial.mp4')
       let ffmpeg = spawn(process.env.BMUX_FFMPEG ?? (fs.existsSync('/opt/homebrew/bin/ffmpeg') ? '/opt/homebrew/bin/ffmpeg' : 'ffmpeg'),['-y','-i',clip.file,'-an','-c:v','libx264','-threads','4','-pix_fmt','yuv420p','-movflags','+faststart',temp],{stdio:'ignore',windowsHide:true})
       ffmpeg.on('error',()=>{clip.state='saved-webm';save()})
-      ffmpeg.on('exit',code=>{if(code===0){fs.renameSync(temp,output);clip.state='saved'}else clip.state='saved-webm';save()})
+      ffmpeg.on('exit',code=>{if(code===0 && fs.existsSync(temp) && fs.statSync(temp).size>0){fs.renameSync(temp,output);clip.state='saved';fs.rmSync(clip.file,{force:true})}else{fs.rmSync(temp,{force:true});clip.state='saved-webm'}save()})
     }); clip.state='finalizing'; save()
   }
   let stop = (id: string) => {

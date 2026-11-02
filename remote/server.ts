@@ -20,6 +20,8 @@ let audience = required('BMUX_GOOGLE_CLIENT_ID')
 let turnSecret = required('BMUX_TURN_SECRET')
 let turnUrls = required('BMUX_TURN_URLS').split(',')
 let pool = new Pool({ connectionString: required('DATABASE_URL'), max: 4 })
+// pg removes failed idle clients; handling this event keeps the relay alive.
+pool.on('error', error => console.error('Idle database connection lost', { code: (error as Error & { code?: string }).code }))
 let activityHooks = createActivityHooks(pool)
 let managed = process.env.BMUX_MANAGED_BILLING === 'true'
 let leases = createStreamLeases(pool, managed)

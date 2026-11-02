@@ -145,7 +145,7 @@ test('background panes deliver static frames without a visible window', async ()
   }
 })
 
-test('a GPU failure stops captures while the headless host stays available', async () => {
+test('a GPU failure closes old captures and automatically recovers on the headless host', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-capture-gpu-'))
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>GPU fixture</title><body style="background:red">GPU capture fixture</body>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -182,21 +182,16 @@ test('a GPU failure stops captures while the headless host stays available', asy
       process.kill(gpu.pid, 'SIGKILL')
     })
     await expect.poll(() => application.evaluate(() => (globalThis as any).gpuCaptureClosed)).toBe(1)
-    let calls = await application.evaluate(() => (globalThis as any).gpuCaptureCalls)
-    let after = await application.evaluate(async () => { await new Promise(resolve => setTimeout(resolve, 500)); return (globalThis as any).gpuCaptureCalls })
-    expect(after).toBe(calls)
-    let error = await application.evaluate(async ({ webContents }, origin) => {
-      let state = globalThis as any
-      try { await state.createTestCapture({ contents: webContents.getAllWebContents().find(contents => contents.getURL() === origin + '/')!, iceServers: [], signal: () => {}, data: () => {}, closed: () => {} }) }
-      catch (error) { return (error as Error).message }
-      return null
-    }, origin)
-    expect(error).toBe('Video capture unavailable after GPU failure')
-    for (let method of ['Page.captureScreenshot', 'Page.startScreencast']) await expect(command('cdp', '-t', pane, method)).rejects.toThrow('Video capture unavailable after GPU failure')
-    await expect(command('screenshot', '-t', pane, '--output', path.join(directory, 'failed.png'))).rejects.toThrow('Video capture unavailable after GPU failure')
-    expect(await application.evaluate(() => (globalThis as any).gpuCDPCaptureCalls)).toBe(0)
     expect((await command('status')).model.sessions).toHaveLength(1)
-    expect((await command('rpc', 'diagnostics', '{}')).capture.error).toBe('Video capture unavailable after GPU failure')
+    await expect.poll(async () => (await command('rpc', 'diagnostics', '{}')).capture.error, {timeout: 25000}).toBeUndefined()
+    await command('screenshot', '-t', pane, '--output', path.join(directory, 'recovered.png'))
+    await application.evaluate(async ({ webContents }, origin) => {
+      let state = globalThis as any
+      state.recoveredCapture = await state.createTestCapture({ contents: webContents.getAllWebContents().find(contents => contents.getURL() === origin + '/')!, iceServers: [], signal: () => {}, data: () => {}, closed: () => {} })
+    }, origin)
+    let calls = await application.evaluate(() => (globalThis as any).gpuCaptureCalls)
+    await expect.poll(() => application.evaluate(() => (globalThis as any).gpuCaptureCalls)).toBeGreaterThan(calls + 2)
+    await application.evaluate(() => (globalThis as any).recoveredCapture.close())
     await application.evaluate(async () => {
       let state = globalThis as any
       state.managementOffer = undefined

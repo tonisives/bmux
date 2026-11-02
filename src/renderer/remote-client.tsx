@@ -77,12 +77,17 @@ let App = () => {
   useEffect(() => {
     if (!selection) return
     let closed = false, reconnect: ReturnType<typeof setTimeout> | undefined
+    let recover = (error: unknown) => {
+      if (closed || reconnect) return
+      captureConnectionGap(true); setError(remoteError(error)); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false
+      reconnect = setTimeout(() => setRetry(value => value + 1), 2000)
+    }
     void createViewer({
       hosts: setHosts,
       stream: stream => { void recordVideoStream(stream).catch(() => captureBridge?.event({type:'error',error:'Video recording unavailable'})); if (!closed && video.current) { if (video.current.srcObject !== stream) video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
       state: next => { captureBridge?.event({type:'state',activity:(next as unknown as {activity?: unknown}).activity}); setState(next); setError('') },
       error: setError,
-      disconnected: () => { if (closed) return; captureConnectionGap(true); setError('Connection lost. Reconnecting.'); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false; reconnect = setTimeout(() => setRetry(value => value + 1), 2000) },
+      disconnected: () => recover('Connection lost. Reconnecting.'),
     }, { origin: selection.origin, connect: bridge.connect, view: selection.view, seal: bridge.seal, socket: desktopSocket, identity: {
       publicKey: selection.publicKey, fingerprint,
       sign: async () => { throw new Error('Use the desktop connection to sign') },
@@ -93,7 +98,7 @@ let App = () => {
     } }).then(next => {
       if (closed) { next.close(); return }
       active.current = next; setViewer(next)
-    }).catch(error => setError(remoteError(error)))
+    }).catch(recover)
     return () => { closed = true; clearTimeout(reconnect); active.current?.close(); active.current = undefined }
   }, [selection, retry])
   useEffect(() => {
@@ -103,7 +108,9 @@ let App = () => {
     let session = host?.sessions.find(item => item.id === selection.session)
     if (!host || !session?.panes[0]) return
     watching.current = true
-    void (selection.metadata ? viewer.manage(host, session.id) : viewer.watch(host, session.id, session.panes.find(pane => pane.id === selection.pane)?.id ?? session.panes[0].id)).catch(error => setError(remoteError(error)))
+    let closed = false, reconnect: ReturnType<typeof setTimeout> | undefined
+    void (selection.metadata ? viewer.manage(host, session.id) : viewer.watch(host, session.id, session.panes.find(pane => pane.id === selection.pane)?.id ?? session.panes[0].id)).catch(error => { if (closed) return; setError(remoteError(error)); reconnect = setTimeout(() => { watching.current = false; setRetry(value => value + 1) }, 2000) })
+    return () => { closed = true; clearTimeout(reconnect) }
   }, [viewer, hosts, selection])
   let currentSession = state?.sessions.find(item => item.id === selection?.session)
   if (currentSession) lastSession.current = currentSession
