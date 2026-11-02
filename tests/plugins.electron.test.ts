@@ -5,7 +5,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
-import { stringify } from 'yaml'
+import { parse, stringify } from 'yaml'
 import { observeNativeFocus, recordNativeFocus } from './native-focus'
 
 let directory: string, application: ElectronApplication, chrome: Page, url: string, server: http.Server
@@ -20,7 +20,11 @@ let context = host('context'), action = process.argv[2];
 if (action === 'pick') {
  let selected = host('ui',{kind:'pick',title:'Fixture login',items:[{id:'first',label:'First user'},{id:'second',label:'Second user'}]});
  host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#username',value:selected},{selector:'#password',value:'disposable-test-password'}]}); host('result',{filled:true});
-} else if (action === 'launch') { host('result',{pane:context.paneId,profile:context.profileId,approved:context.launchApproved,url:context.launchUrl,parameters:context.parameters});
+} else if (action === 'launch') {
+ host('navigate',{url:context.launchUrl});
+ for(let attempt=0;attempt<100;attempt++){context=host('context',{refresh:true});if(context.url===context.launchUrl)break;await new Promise(resolve=>setTimeout(resolve,50))}
+ host('wait',{selector:'#username'});
+ host('result',{pane:context.paneId,profile:context.profileId,approved:context.launchApproved,url:context.url,parameters:context.parameters});
 } else if (action === 'password') { host('result',{received:context.parameters.password === 'disposable-test-value'});
 } else if (action === 'stale') {
  host('progress',{percent:10,message:'Captured document'}); await new Promise(resolve=>setTimeout(resolve,1000));
@@ -47,6 +51,9 @@ test.beforeAll(async () => {
   await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
   server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Plugin fixture</title><h1>Plugin fixture</h1><input id="username" autocomplete="username"><input id="password" type="password"><input id="hidden" type="hidden"><p id="note">Native page content</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
+  let manifest = parse(await fs.readFile(path.join(folder, 'plugin.yaml'), 'utf8'))
+  manifest.actions.find((action: any) => action.id === 'launch').launch_url = url + '/feed'
+  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify(manifest))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_DEBUG: '1' } })
   await observeNativeFocus(application)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
@@ -337,8 +344,8 @@ test('Social Media details launch one settings form and a muted window with the 
   expect(window.id).not.toBe(source.id)
   expect(window.panes[0].profileId).toBe(profile)
   expect(session.windows.find((window: any) => window.id === source.id).panes[0].url).toBe(url + '/')
-  expect((await rpc('plugin.runs')).find((run: any) => run.id === id).result).toEqual({ pane: window.panes[0].id, profile, approved: true, url: 'https://example.test/feed', parameters: { seconds: '5', ads: false } })
-  expect(await application.evaluate(({ webContents }) => webContents.getAllWebContents().some(contents => contents.getURL() === 'about:blank' && contents.isAudioMuted()))).toBe(true)
+  expect((await rpc('plugin.runs')).find((run: any) => run.id === id).result).toEqual({ pane: window.panes[0].id, profile, approved: true, url: url + '/feed', parameters: { seconds: '5', ads: false } })
+  expect(await application.evaluate(({ webContents }, url) => webContents.getAllWebContents().some(contents => contents.getURL() === url + '/feed' && contents.isAudioMuted()), url)).toBe(true)
   await expect(dialog).toHaveCount(0)
-  await expect(chrome.getByRole('combobox', { name: 'URL or search' })).toHaveCount(0)
+  await expect(chrome.getByRole('textbox', { name: 'URL or search' })).toHaveCount(0)
 })

@@ -1824,7 +1824,7 @@ let PluginActivity = ({ pluginId }: { pluginId?: string }) => {
     {item.progress && <span className={css.pluginDescription}>{item.progress.percent}% · {item.progress.message}</span>}{(item.error || error(item.result)) && <span role="alert" className={css.pluginDescription}>{error(item.result) || item.error}</span>}
     {['running', 'queued'].includes(item.status) && <button data-id={item.id} onClick={cancel}>Cancel</button>}</div>) : <p>No plugin runs.</p>}</>
 }
-export let PluginParameters = () => {
+let PluginParameters = () => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
   let [values, setValues] = useState<Record<string, unknown>>(request.values ?? {}), [busy, setBusy] = useState(false)

@@ -198,6 +198,7 @@ export let createPlugins = (options: Options) => {
       if (form) {
         for (let field of fields) if (run.parameters[field.name] === undefined && field.default !== undefined) run.parameters[field.name] = field.default
         let values = record(await requestUI(run, { kind: 'form', title: run.action.title }))
+        for (let field of fields) delete run.parameters[field.name]
         Object.assign(run.parameters, values)
       }
       for (let parameter of run.action.parameters) {
