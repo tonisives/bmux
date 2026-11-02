@@ -1,8 +1,11 @@
 import { ScreenStack, ScreenStackItem } from 'react-native-screens'
 import { colors } from '../theme'
-import type { WorkspaceNavigationProps } from './WorkspaceNavigation'
+import { WorkspacePanes, type WorkspaceNavigationProps } from './WorkspacePanes'
 
-export let WorkspaceNavigation = ({ sidebar, detail, selected, onBack }: WorkspaceNavigationProps) => <ScreenStack style={{ flex: 1 }}>
+export let WorkspaceNavigation = (props: WorkspaceNavigationProps) => {
+  let { sidebar, detail, selected, onBack, layout } = props
+  if (layout.split) return <WorkspacePanes {...props} />
+  return <ScreenStack style={{ flex: 1 }}>
   <ScreenStackItem screenId="sessions" accessibilityElementsHidden={selected} activityState={selected ? 1 : 2} headerConfig={{ hidden: true }} contentStyle={{ flex: 1, backgroundColor: colors.bg }}>
     {sidebar}
   </ScreenStackItem>
@@ -10,3 +13,4 @@ export let WorkspaceNavigation = ({ sidebar, detail, selected, onBack }: Workspa
     {detail}
   </ScreenStackItem>}
 </ScreenStack>
+}
