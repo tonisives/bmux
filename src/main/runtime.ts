@@ -104,7 +104,7 @@ import { createViewportPan } from './viewport-pan'
 import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
-type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; viewportPan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
@@ -1281,7 +1281,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let target = owner.floats.get(tabId)?.webContents ?? owner.chrome.webContents
       target.send('viewport-scroll', tabId, x, y)
     }
-    live.viewportPan = createViewportPan(contents, panEnabled, expression => pageTools?.frameContexts(tabId, expression) ?? Promise.resolve(), pan)
     live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), contents => {
       installKeys(contents)
       live.shieldPan = createViewportPan(contents, panEnabled, expression => contents.executeJavaScript(expression), pan)
@@ -1997,7 +1996,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         capturedViewport = true
       }
       let fixedSize = fixedViewport(tabId)
-      void live.viewportPan?.refresh()
       void live.shieldPan?.refresh()
       if (!fixedSize) removeRemoteFrame(live)
       // Remote viewer contents belong to the app session, outside profile extensions.
