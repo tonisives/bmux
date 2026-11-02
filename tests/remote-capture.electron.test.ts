@@ -183,7 +183,7 @@ test('a GPU failure closes old captures and automatically recovers on the headle
     })
     await expect.poll(() => application.evaluate(() => (globalThis as any).gpuCaptureClosed)).toBe(1)
     expect((await command('status')).model.sessions).toHaveLength(1)
-    await expect.poll(async () => (await command('rpc', 'diagnostics', '{}')).capture.error, {timeout: 25000}).toBeUndefined()
+    await expect.poll(async () => (await command('rpc', 'diagnostics', '{}')).capture.error, {timeout: 25000}).toBeNull()
     await command('screenshot', '-t', pane, '--output', path.join(directory, 'recovered.png'))
     await application.evaluate(async ({ webContents }, origin) => {
       let state = globalThis as any
