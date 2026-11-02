@@ -14,10 +14,10 @@ test('feed observations return during held input and releases retain the next ac
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let server = http.createServer((_request, response) => { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Observed post</title><main>Observed post</main>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  let url = `http://youtube.com:${(server.address() as { port: number }).port}/`
+  let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
   try {
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ vimEditing: false, browser: { adblock: false, autoUpdateFilters: false }, keyboard: {}, agentFeedback: { actionDelayMinMs: 2000, actionDelayMaxMs: 2000 }, automation: { safety: { enabled: true, socialDelayMs: 5000 } } }))
-    application = await electron.launch({ args: [process.cwd(), '--no-proxy-server', '--host-resolver-rules=MAP youtube.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    application = await electron.launch({ args: [process.cwd(), '--no-proxy-server'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let state = await chrome.evaluate(() => (window as any).bmux.state()), client = state.model.clients.find((value: any) => value.id === state.clientId), pane = client.paneId
@@ -35,7 +35,7 @@ test('feed observations return during held input and releases retain the next ac
     let key = { method: 'Input.dispatchKeyEvent', params: { type: 'keyDown', key: 'Shift', code: 'ShiftLeft' } }
     await cli('cdp', key)
     let queued = cli('eval', { expression: 'window.followingAction = true' }), completed = false
-    void queued.then(() => { completed = true })
+    void queued.then(() => { completed = true }, () => undefined)
     try {
       let timer: ReturnType<typeof setTimeout> | undefined
       try {
