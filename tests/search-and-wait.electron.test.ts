@@ -2128,7 +2128,12 @@ test('find reports counts, moves in both directions, and stays responsive during
 })
 
 test('find results stay scoped to each tab and refresh after navigation', async () => {
-  let other = notesWindow.panes[0].id
+  let other = notesWindow.panes[0].id, client = (await state()).clientId
+  // Visit both panes so the background page budget retains the search document.
+  await rpc('select-window', { client, window: notesWindow.id })
+  await rpc('navigate', { tab: other, url: `${url}/notes` })
+  await rpc('select-window', { client, window: session.windows[0].id })
+  await expect(chrome.locator(`[data-pane-id="${original}"]`)).toHaveAttribute('data-focused-pane', 'true')
   await rpc('find', { tab: other, text: 'lantern' })
   await expect.poll(async () => (await state()).findResults[other]?.matches).toBe(3)
   await openFind()
