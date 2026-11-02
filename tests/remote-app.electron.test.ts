@@ -26,8 +26,9 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       let route = new URL(request.url ?? '/', 'http://localhost').pathname
       let json = (body: unknown) => { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(body)) }
       requests.push(route)
-      if (route === '/api/config') { json({ googleClientId: 'fixture' }); return }
+      if (route === '/api/config') { json({ googleClientId: 'fixture', appleEnabled: true }); return }
       if (route === '/api/login' && request.method === 'POST') { signedIn = true; json({ ok: true }); return }
+      if (route === '/api/auth/email/password') { json({ passwordEnabled: false }); return }
       if (route === '/api/auth/providers') { json({ appleEnabled: true, appleLinked: false }); return }
       if (route === '/api/me') {
         if (!signedIn) { response.writeHead(401); response.end(); return }
@@ -90,6 +91,15 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
     await expect(page.getByRole('link', { name: 'Support', exact: true })).toHaveAttribute('href', 'https://tonis.dev/#contact')
+    let googleButton = await page.getByRole('button', { name: 'Sign in with Google', exact: true }).boundingBox()
+    let appleButton = await page.getByRole('button', { name: 'Sign in with Apple', exact: true }).boundingBox()
+    expect(appleButton?.width).toBe(googleButton?.width)
+    expect(appleButton?.height).toBe(googleButton?.height)
+    await page.getByRole('button', { name: 'Sign in with email', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Email', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled()
+    await page.getByRole('button', { name: 'Sign in with email', exact: true }).click()
+    await expect.poll(() => page!.evaluate(() => [...document.images].every(image => image.complete && image.naturalWidth > 0 && new URL(image.src).origin === location.origin))).toBe(true)
     await page.screenshot({ path: info.outputPath('companion-welcome.png') })
     await page.getByRole('button', { name: 'Demo', exact: true }).click()
     await expect(page.getByText('Demo', { exact: true })).toBeVisible()
@@ -100,6 +110,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toHaveCount(0)
     await expect.poll(() => page!.evaluate(() => [...document.fonts].filter(font => font.family === 'ionicons').map(font => font.status))).toEqual(['loaded'])
     await page.screenshot({ path: info.outputPath('companion-demo-desktop.png') })
+    await expect(page.getByRole('button', { name: 'Open Docs', exact: true })).toBeInViewport({ ratio: 1 })
     await page.getByRole('button', { name: 'Open Docs', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Open notes page', exact: true })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Take control', exact: true })).toHaveCount(0)
@@ -125,6 +136,16 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByText('notes.example', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Take control', exact: true }).click()
     await page.getByRole('textbox', { name: 'Demo note', exact: true }).fill('A local note')
+    // Folding and app Split View must retain the same editable page instance.
+    let note = page.getByRole('textbox', { name: 'Demo note', exact: true })
+    await note.evaluate(element => { element.setAttribute('data-fold-continuity', 'original') })
+    for (let [width, height] of [[900, 600], [800, 1000], [469, 800], [390, 800]]) {
+      await resize(width, height)
+      await expect(note).toHaveValue('A local note')
+      await expect(note).toBeEditable()
+      await expect(note).toHaveAttribute('data-fold-continuity', 'original')
+      await expect(note).toBeInViewport({ ratio: 1 })
+    }
     await page.getByRole('button', { name: 'Save note', exact: true }).click()
     await expect(page.getByText('Saved', { exact: true })).toBeVisible()
     await page.screenshot({ path: info.outputPath('companion-demo-note-mobile.png') })
@@ -271,6 +292,12 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       return !!bounds && bounds.y <= 54 && Math.abs(bounds.y + bounds.height - viewport.height) <= 1 && Math.abs(bounds.width - viewport.width) <= 1
     }).toBe(true)
     await page.screenshot({ path: info.outputPath('companion-mobile-watch.png') })
+    for (let [width, height] of [[900, 600], [800, 1000], [469, 800], [390, 800]]) {
+      await resize(width, height)
+      await expect(page.getByRole('button', { name: 'Page details', exact: true })).toBeVisible()
+      expect(signals.filter(message => message.type === 'open')).toHaveLength(2)
+      expect(signals.some(message => ['acquire', 'resume', 'resize'].includes(message.type))).toBe(false)
+    }
     await resize(1280)
     await expect(page.getByRole('button', { name: 'Open Research', exact: true })).toBeVisible()
     for (let socket of sockets.clients) socket.terminate()

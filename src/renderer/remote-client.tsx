@@ -63,12 +63,17 @@ let useRemotePreview = (video: RefObject<HTMLVideoElement | null>, pane?: string
   }, [pane])
 }
 
+let verifyHost = async (key: JsonWebKey, signature: string, text: string) => {
+  let imported = await crypto.subtle.importKey('jwk', key, 'Ed25519', false, ['verify'])
+  return crypto.subtle.verify('Ed25519', imported, Uint8Array.from(atob(signature), char => char.charCodeAt(0)), new TextEncoder().encode(text))
+}
+
 let App = () => {
   let [selection, setSelection] = useState<Selection>(), [hosts, setHosts] = useState<Host[]>([]), [viewer, setViewer] = useState<Viewer>(), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [retry, setRetry] = useState(0)
   let lastSession = useRef<State['sessions'][number] | undefined>(undefined), [requestedPane, setRequestedPane] = useState<string>()
   let lastViewport = useRef<State['viewports'][string] | undefined>(undefined)
-  let video = useRef<HTMLVideoElement>(null), active = useRef<Viewer | undefined>(undefined), watching = useRef(false)
+  let reconnectViewer = useRef<(error: unknown) => void>(() => undefined), video = useRef<HTMLVideoElement>(null), active = useRef<Viewer | undefined>(undefined), watching = useRef(false)
   useEffect(() => {
     let closed = false
     void bridge.selection().then(next => { if (!closed) setSelection(next) }).catch(error => setError(remoteError(error)))
@@ -77,23 +82,25 @@ let App = () => {
   useEffect(() => {
     if (!selection) return
     let closed = false, reconnect: ReturnType<typeof setTimeout> | undefined
-    void createViewer({
+    let recover = (error: unknown) => {
+      if (closed || reconnect) return
+      captureConnectionGap(true); setError(remoteError(error)); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false
+      reconnect = setTimeout(() => setRetry(value => value + 1), 2000)
+    }
+    reconnectViewer.current = recover; void createViewer({
       hosts: setHosts,
       stream: stream => { void recordVideoStream(stream).catch(() => captureBridge?.event({type:'error',error:'Video recording unavailable'})); if (!closed && video.current) { if (video.current.srcObject !== stream) video.current.srcObject = stream; void video.current.play().catch(() => undefined) } },
       state: next => { captureBridge?.event({type:'state',activity:(next as unknown as {activity?: unknown}).activity}); setState(next); setError('') },
       error: setError,
-      disconnected: () => { if (closed) return; captureConnectionGap(true); setError('Connection lost. Reconnecting.'); setState(undefined); setViewer(undefined); setHosts([]); watching.current = false; reconnect = setTimeout(() => setRetry(value => value + 1), 2000) },
+      disconnected: () => recover('Connection lost. Reconnecting.'),
     }, { origin: selection.origin, connect: bridge.connect, view: selection.view, seal: bridge.seal, socket: desktopSocket, identity: {
       publicKey: selection.publicKey, fingerprint,
       sign: async () => { throw new Error('Use the desktop connection to sign') },
-      verify: async (key, signature, text) => {
-        let imported = await crypto.subtle.importKey('jwk', key, 'Ed25519', false, ['verify'])
-        return crypto.subtle.verify('Ed25519', imported, Uint8Array.from(atob(signature), char => char.charCodeAt(0)), new TextEncoder().encode(text))
-      },
+      verify: verifyHost,
     } }).then(next => {
       if (closed) { next.close(); return }
       active.current = next; setViewer(next)
-    }).catch(error => setError(remoteError(error)))
+    }).catch(recover)
     return () => { closed = true; clearTimeout(reconnect); active.current?.close(); active.current = undefined }
   }, [selection, retry])
   useEffect(() => {
@@ -103,7 +110,7 @@ let App = () => {
     let session = host?.sessions.find(item => item.id === selection.session)
     if (!host || !session?.panes[0]) return
     watching.current = true
-    void (selection.metadata ? viewer.manage(host, session.id) : viewer.watch(host, session.id, session.panes.find(pane => pane.id === selection.pane)?.id ?? session.panes[0].id)).catch(error => setError(remoteError(error)))
+    void (selection.metadata ? viewer.manage(host, session.id) : viewer.watch(host, session.id, session.panes.find(pane => pane.id === selection.pane)?.id ?? session.panes[0].id)).catch(error => { if (active.current === viewer) reconnectViewer.current(error) })
   }, [viewer, hosts, selection])
   let currentSession = state?.sessions.find(item => item.id === selection?.session)
   if (currentSession) lastSession.current = currentSession

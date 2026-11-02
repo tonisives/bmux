@@ -69,7 +69,7 @@ print("Remote Metro migration, saved servers, deduplication, launch preference a
 `
   let file = path.join(directory, 'bootstrap.swift')
   await writeFile(file, source)
-  let { stdout } = await execute('swift', ['-module-cache-path', path.join(directory, 'cache'), file], { timeout: 60_000 })
+  let { stdout } = await execute('swift', ['-module-cache-path', path.join(directory, 'cache'), file], { timeout: 180_000 })
   console.log(stdout.trim())
 } finally {
   await rm(directory, { recursive: true, force: true })

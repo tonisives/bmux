@@ -165,7 +165,7 @@ input=json.dumps(arguments), capture_output=True, text=True, check=True)` and de
 | `context` | None | Returns invocation IDs, parameters, URL, document ID, and whether its original client is currently interactive. `{ "refresh": true }` explicitly reacquires the same page's document. |
 | `progress`, `result` | None | Explicit public output; never include secrets. Progress takes `percent` and `message`; result takes a JSON object. |
 | `dom` | `browser.read` | `{ "html": true }` for HTML; otherwise visible text. Returns the page target, URL, and content. |
-| `screenshot` | `browser.read` | Existing screenshot options, including absolute `output` path. |
+| `screenshot` | `browser.read` | Absolute `output` path for a PNG file. With `fullPage: false`, capture the current surface; `encoding: "base64"` returns `data` and `format` without a file. Viewport options: `format: "png"` or `"jpeg"`, JPEG `quality` (0–100), and `maxDimension` (1–16384 pixels, preserves aspect ratio). |
 | `wait` | `browser.read` | `selector` and optional `timeout` (maximum 60000 ms). `expression` waits additionally require `browser.write`. |
 | `eval` | `browser.write` | `expression` evaluated in the page's main JavaScript context, including DOM access; returns JSON-compatible value. |
 | `click`, `type`, `fill` | `browser.write` | Main-document selectors. Click calls the element's DOM click method; type inserts `text` into an input/textarea selection. Fill replaces values using `fields: [{selector, value}]` and requires the current `origin`. Visible editable fields only. Input/change events are dispatched. |
@@ -317,3 +317,21 @@ without page access to browser or Node APIs. Disabling prevents installation on
 subsequent pages; reload an existing page to remove its installed handler.
 
 The Plugins list has an enabled/disabled toggle beside each installed plugin. Toggle it directly from the list, or select the plugin name to open its settings.
+
+## Social Media tools and browsing launch
+
+Social plugins declare `category: Social Media` and use the platform name. Their
+details show every contributed action, including statistics, research,
+publication, scheduling and browsing when supported by the installed plugin.
+
+Actions with multiple settings present one form. Optional fields can use their
+saved settings. Parameters may declare `default` and `hidden`; hidden parameters
+remain accepted by CLI calls without appearing in the form. Password defaults
+are rejected and parameter values stay out of public run records.
+
+`launch_url` on a manual action requires `browser.manage`. Pressing Start browsing
+approves startup, creates a muted blank window using the selected pane's profile,
+and binds the invocation to that new pane. The runner acquires its automation
+lease before navigating to the platform. The form can select Auto continue or
+Ask before each action. Cancelling the form creates no window. CLI invocations
+keep their existing pane and explicit session behavior.

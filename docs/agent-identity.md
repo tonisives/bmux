@@ -81,6 +81,11 @@ commands in tmux identify their terminal using their thread ID, session name,
 and working directory; their thread ID is also the default agent ID. A regular
 shell must opt in with `BMUX_AGENT_TYPE=tmux` or `--agent-type tmux`.
 
+Saved conversations with the same name do not reserve a terminal name. Lookup
+uses live Codex panes, ignoring exited panes and shells with an old title. If
+multiple live Codex panes match the saved name and directory, give those active
+conversations distinct names.
+
 `bmux agent context` prints the resolved context without starting BMUX. It
 prints JSON for inspection; it does not export variables or register an agent.
 Automatic tmux context uses `sessionId`, `sessionName`, `windowId`, `windowIndex`, and `paneId`; custom field

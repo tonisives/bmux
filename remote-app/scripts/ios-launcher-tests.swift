@@ -16,7 +16,7 @@ final class BMUXLauncherTests: XCTestCase {
   override func setUpWithError() throws {
     continueAfterFailure = false
     XCUIDevice.shared.orientation = .portrait
-    app.launchArguments = ["-EXDevMenuIsOnboardingFinished", "1", "-EXDevMenuShowsAtLaunch", "0"]
+    app.launchArguments = ["-EXDevMenuIsOnboardingFinished", "1", "-EXDevMenuShowsAtLaunch", "0", "-EXDevMenuShowFloatingActionButton", "0"]
   }
 
   private func capture(_ name: String) {
@@ -92,7 +92,11 @@ final class BMUXLauncherTests: XCTestCase {
     XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 180), .completed)
     if app.staticTexts["Error loading app"].exists { capture("03-metro-load-failure") }
     XCTAssertFalse(app.staticTexts["Error loading app"].exists, "The native chooser could not reach the disposable Metro server; see the failure capture and Metro health log")
-    XCTAssertTrue(app.buttons["Sign in with Google"].isHittable)
+    let signInReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+      let button = self.app.buttons["Sign in with Google"]
+      return button.exists && button.isEnabled && button.isHittable
+    }, object: nil)
+    XCTAssertEqual(XCTWaiter.wait(for: [signInReady], timeout: 10), .completed)
     XCTAssertTrue(app.buttons["Demo"].exists)
     capture("03-metro-welcome")
     app.buttons["Demo"].tap()
@@ -104,6 +108,15 @@ final class BMUXLauncherTests: XCTestCase {
     assertPageOnly()
     waitForPageLayout(landscape: false)
     capture("05-demo-page")
+
+    let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+    let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+    start.press(forDuration: 0.05, thenDragTo: end)
+    XCTAssertTrue(app.buttons["Open Docs"].waitForExistence(timeout: 10))
+    XCTAssertFalse(app.buttons["Page details"].exists)
+    capture("05a-native-swipe-back")
+    app.buttons["Open Docs"].tap()
+    assertPageOnly()
     app.buttons["Page details"].tap()
     XCTAssertTrue(app.staticTexts["Watch"].waitForExistence(timeout: 10))
     capture("06-demo-page-details")

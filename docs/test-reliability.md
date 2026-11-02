@@ -1,4 +1,49 @@
+# Prompt feed observations
+
+GP captures took 64–98 ms and most API answers arrived within a second, but the
+second DOM inspection waited for the two-second social command interval. Declared
+observation evaluations now run outside input scheduling. Native input releases
+return after delivery while their cooldown continues to hold subsequent input.
+The fixture holds a raw key lease, requires a real page observation to return,
+and verifies that a queued ordinary evaluation waits until release and cooldown.
+Repeat it with viewport capture and agent scroll cases.
+
+# Prompt observation and viewport capture
+
+A feed trace showed roughly one second inside screenshot capture even after the
+runner moved it ahead of pointer input. The screenshot was waiting for social
+command pacing, and page evaluation returned its value only after the action
+cooldown. Screenshots now check policy without waiting for that pacing delay.
+Observation results return as soon as evaluation completes while their domain
+and pane remain locked for the full cooldown before subsequent input. Clicks,
+keys, navigation, session limits and warnings retain their existing checks.
+
+Unit regressions hold the cooldown clock, require a returned observation, and
+verify that the next input remains blocked, including after a failed read. The
+policy fixture checks immediate screenshots and an expired session. Repeat the
+native viewport capture case alongside agent input and feedback cases in CI.
+
 # Focused test verification
+
+## Viewport screenshot flicker
+
+CDP clips temporarily resize the native page view, including when the requested
+clip matches the visible viewport. Device emulation can also be reapplied by
+Chromium's screenshot handler. Viewport screenshots now share the native surface
+copy used by previews, swipe history, and remote streams, keeping hidden pages hidden. Plugins
+can request an in-memory JPEG and bound its final pixel dimensions after capture.
+The plugin regression checks visible and hidden desktop/device pages, preserved
+viewport and window state, PNG file capture, and a JPEG no larger than 768 pixels.
+Repeat this case with the native rendering check in focused CI.
+
+## Excluded website list rendering
+
+The full Check on `1480f86` scrolled the excluded website list before the final
+bulk additions reached the renderer. Configuration commands return before the
+batched state publication, so an overflowing list can still gain rows after
+scrolling. The fixture now waits for all fifteen rows before scrolling and
+retains the bottom-position, height, search, and removal assertions. Repeat the
+Bot protection case in focused CI verification.
 
 ## Pane movement setup
 
@@ -646,3 +691,49 @@ network attempts still fail; Developer ID, Gatekeeper, architecture, and update
 metadata checks remain required. Four subprocess tests exercise recovery, the
 retry limit, invalid tickets, and unrelated errors through the full DMG/ZIP
 verification script with disposable tool stubs.
+
+## October 31 fixture readiness
+
+The full Check on `fbddfe7` waited for an icon on a newly created inactive
+window that had never loaded its page. The cache restoration fixture now
+creates the window blank and explicitly navigates that pane before checking its
+icon and restarting, avoiding a second navigation racing its initial load. All
+three restored panes must still remain unloaded after restart.
+
+The same commit's native iOS launcher run tapped Demo while asynchronous sign-in
+setup could still add the Apple button and move the centered welcome controls.
+The fixture now observes the enabled, hittable Google button before capturing
+the welcome screen and tapping Demo. Demo navigation, page layout, rotation,
+and remembered-server assertions retain their existing deadlines.
+
+## Reply composer Vim teardown
+
+The inline editor previously moved itself into the document body when a page
+removed its field, leaving a detached reply visible over the timeline. It now
+ends the session when the field disappears or the composer is hidden, while
+still reattaching next to a connected field after a sibling redraw. Pending
+native writes restore their temporary styles once; teardown cannot be followed
+by a late callback hiding the native field again. Closing also stops new
+focus-driven synchronization before awaiting the final write.
+
+The page-Vim fixtures remove a reply dialog, hide a Draft.js composer during
+paste, reopen it for four Vim/native editing cycles, and check stacking against
+a page formatting toolbar. Repeat the whole website Vim group to retain the
+preceding focus and selection cases.
+
+## November 2 native interaction fixtures
+
+The full Check on `0046aa3` found address fixtures creating panes through the
+agent CLI. Blank panes with agent metadata skipped automatic address editing;
+`f48e386` narrowed that suppression to plugin-created browsing panes. The history
+case now resolves its client's renderer and waits for pane removal before reusing
+its ID. Agent navigation can also leave an input lock above a floating address
+field, so the human drag case creates its pane through the UI bridge and waits
+for its document before requesting focus. The restored floating-layout case
+requires a successful close after its document readiness wait.
+
+The capture stress case completed its stream assertions but stalled while
+closing the final viewer. Teardown now observes all seven data channels closed,
+closes the viewer's peers, and releases its video sources before destroying the
+native window. Repeat all four cases together; focus, selection, streaming,
+reconnect, and window-removal assertions retain their existing deadlines.

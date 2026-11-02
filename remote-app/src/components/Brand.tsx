@@ -1,9 +1,7 @@
 import { Image, Platform, StyleSheet, Text, View } from 'react-native'
 import { colors } from '../theme'
 
-let icon = Platform.OS === 'web'
-  ? { uri: 'https://cdn.digthree.tonis.dev/bmux/website-ca1a3c8712d7/icon-512.png' }
-  : require('../../../design/app-icon.png')
+let icon = Platform.OS === 'ios' ? { uri: 'app-icon' } : require('../../../design/app-icon.png')
 
 export let Brand = () => <View style={local.brand}>
   <Image source={icon} style={local.icon} resizeMode="contain" accessible={false} />

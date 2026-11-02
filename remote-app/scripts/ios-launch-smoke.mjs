@@ -37,18 +37,21 @@ let simctl = (...args) => run('xcrun', ['simctl', ...args])
 if (process.argv[2] === 'prepare') {
   await writeFile(path.join(output, 'runtimes.txt'), await simctl('runtime', 'list'))
   let { runtimes } = JSON.parse(await simctl('list', 'runtimes', '--json'))
-  let runtime = runtimes.find(value => value.isAvailable && value.identifier.includes('.iOS-') && value.version.startsWith('27.'))
+  let deviceType = process.env.BMUX_IOS_SMOKE_DEVICE ?? 'iPhone-17'
+  let runtime = runtimes.find(value => value.isAvailable && value.identifier.includes('.iOS-') && value.version.startsWith('27.') && (deviceType !== 'iPhone-Duo' || Number(value.version.split('.')[1]) >= 1))
   assert.ok(runtime, 'The startup regression must run on an iOS 27 simulator')
-  let device = await simctl('create', `bmux-launch-${process.pid}`, 'com.apple.CoreSimulator.SimDeviceType.iPhone-17', runtime.identifier)
-  await writeFile(stateFile, JSON.stringify({ device, runtime: runtime.version, bundle, startedAt: new Date().toISOString() }))
+  if (deviceType === 'iPhone-Duo') assert.ok(Number(runtime.version.split('.')[1]) >= 1, 'Duo requires iOS 27.1 or newer')
+  let device = await simctl('create', `bmux-launch-${process.pid}`, `com.apple.CoreSimulator.SimDeviceType.${deviceType}`, runtime.identifier)
+  await writeFile(stateFile, JSON.stringify({ device, deviceType, runtime: runtime.version, bundle, startedAt: new Date().toISOString() }))
   await simctl('boot', device)
 } else if (process.argv[2] === 'cleanup') {
   let state = await readFile(stateFile, 'utf8').then(JSON.parse).catch(error => {
     if (error.code !== 'ENOENT') throw error
   })
   if (state && !state.cleanedAt) {
-    await run('xcrun', ['simctl', 'shutdown', state.device], 30_000).catch(() => {})
-    await run('xcrun', ['simctl', 'delete', state.device], 30_000)
+    let cleanupTimeout = state.deviceType === 'iPhone-Duo' ? 180_000 : 30_000
+    await run('xcrun', ['simctl', 'shutdown', state.device], cleanupTimeout).catch(() => {})
+    await run('xcrun', ['simctl', 'delete', state.device], cleanupTimeout)
     state.cleanedAt = new Date().toISOString()
     await writeFile(stateFile, JSON.stringify(state, null, 2))
   }
@@ -57,6 +60,10 @@ if (process.argv[2] === 'prepare') {
   let { device } = state
   let result = { ...state, phase: 'boot' }
   let captured = false
+  let capture = async () => {
+    await run('xcrun', ['simctl', 'io', device, 'screenshot', '--display=1', screenshot], 120_000)
+    if (state.deviceType === 'iPhone-Duo') await run('xcrun', ['simctl', 'io', device, 'screenshot', '--display=3', path.join(output, 'ios-launch-inner.png')], 120_000)
+  }
   try {
     await simctl('bootstatus', device, '-b')
     result.phase = 'installation-service'
@@ -79,7 +86,7 @@ if (process.argv[2] === 'prepare') {
     }
     result.survivedMs = Date.now() - started
     result.phase = 'screenshot'
-    await run('xcrun', ['simctl', 'io', device, 'screenshot', screenshot], 30_000)
+    await capture()
     captured = true
     result.phase = 'complete'
     console.log(`iOS ${state.runtime}: ${bundle} remained running for ${result.survivedMs}ms`)
@@ -89,7 +96,7 @@ if (process.argv[2] === 'prepare') {
     await writeFile(path.join(output, 'simulator.log'), logs)
     throw error
   } finally {
-    if (!captured) await run('xcrun', ['simctl', 'io', device, 'screenshot', screenshot], 30_000).catch(() => {})
+    if (!captured) await capture().catch(() => {})
     result.completedAt = new Date().toISOString()
     await writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2))
   }

@@ -55,3 +55,11 @@ export let signOut = async () => {
   let response = await fetch(new URL('/api/logout', origin), { method: 'POST', credentials: 'same-origin' })
   if (!response.ok) throw new Error('Sign-out unavailable.')
 }
+
+export let signInWithEmail = async (email: string, password: string): Promise<void> => {
+  let response = await fetch(new URL('/api/auth/email/login', origin), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password }), signal: AbortSignal.timeout(15000) })
+  if (!response.ok) {
+    let result = await response.json().catch(() => ({})) as { error?: string }
+    throw new Error(result.error ?? 'Email sign-in is unavailable.')
+  }
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ActivityIndicator, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Link } from 'expo-router'
@@ -19,9 +19,11 @@ import { SessionList } from './components/SessionList'
 import { DemoWorkspace } from './components/DemoWorkspace'
 import { AttentionInbox } from './components/AttentionInbox'
 import { NotificationSetup } from './components/NotificationSetup'
+import { EmailPasswordSettings } from './components/EmailPasswordSettings'
 import { AccountProviders } from './components/AccountProviders'
 import { RemoteHeader, RemoteTabs, type RemoteTab } from './components/RemoteNavigation'
 import { useSplitView } from './useSplitView'
+import { Workspace } from './components/Workspace'
 import type { Host } from './types'
 import type { RemoteQualityMode } from '../../src/shared/remote-management'
 
@@ -29,6 +31,9 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   let remote = useRemote()
   let [section, setSection] = useState<RemoteTab | 'attention'>('sessions')
   let [focusSearch, setFocusSearch] = useState(0)
+  let [showEmail, setShowEmail] = useState(false)
+  let [email, setEmail] = useState('')
+  let [password, setPassword] = useState('')
   let [demo, setDemo] = useState(false)
   let [setup, setSetup] = useState(false)
   let [busy, setBusy] = useState(false)
@@ -65,34 +70,45 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
   }
   if (demo) return <DemoWorkspace close={() => setDemo(false)} connect={() => { setDemo(false); if (!remote.account) void action(remote.login); else setSetup(true) }} />
   if (remote.loading) return <View style={[styles.screen, local.center]}><ActivityIndicator color={colors.secondary} /><Button title="Demo" onPress={openDemo} /></View>
-  if (!remote.account) return <SafeAreaView style={[styles.screen, local.center]}>
-    <View style={local.welcome}>
+  if (!remote.account) return <SafeAreaView style={styles.screen}>
+    <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets contentContainerStyle={local.welcomeScroll}><View style={local.welcome}>
       <Brand />
-      <View style={local.welcomeActions}><Button title="Sign in with Google" primary busy={busy} disabled={!signInReady} onPress={() => void action(remote.login)} /><Button title="Demo" onPress={openDemo} /></View>
-      {appleEnabled && <Button title="Sign in with Apple" busy={busy} onPress={() => void action(() => remote.login('apple'))} />}
+      <View style={local.welcomeActions}>
+        <Button title="Sign in with Google" icon="logo-google" primary busy={busy} disabled={!signInReady} onPress={() => void action(remote.login)} />
+        {appleEnabled && <Button title="Sign in with Apple" icon="logo-apple" primary busy={busy} onPress={() => void action(() => remote.login('apple'))} />}
+      </View>
+      <Button title="Sign in with email" icon="mail-outline" disabled={busy} onPress={() => setShowEmail(value => !value)} />
+      {showEmail && <View style={local.welcomeActions}>
+        <TextInput accessibilityLabel="Email" value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor={colors.muted} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="username" textContentType="username" editable={!busy} style={styles.input} />
+        <TextInput accessibilityLabel="Password" value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor={colors.muted} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="current-password" textContentType="password" editable={!busy} returnKeyType="go" onSubmitEditing={() => { if (email.trim() && password) void action(async () => { try { await remote.loginWithEmail(email, password) } finally { setPassword('') } }) }} style={styles.input} />
+        <Button title="Sign in" primary busy={busy} disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || !password} onPress={() => void action(async () => { try { await remote.loginWithEmail(email, password) } finally { setPassword('') } })} />
+        <Text style={styles.secondary}>Add a password in Settings after signing in with Google or Apple.</Text>
+      </View>}
+      <Button title="Demo" onPress={openDemo} />
       {signInFailed && <Button title="Retry sign-in" onPress={() => setSignInAttempt(value => value + 1)} />}
       {!!remote.error && <Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text>}
       <HelpLinks />
-    </View>
+    </View></ScrollView>
   </SafeAreaView>
   let sessionSection = section === 'sessions' || section === 'search'
   let navigation = <RemoteTabs active={section === 'attention' ? 'sessions' : section} select={selectTab} />
-  let sessions = <View style={split ? local.sidebarWide : local.sidebar}>
+  let sessions = <View style={local.sidebar}>
+    <RemoteHeader notifications={pending.length} onNotifications={() => { remote.close(); setSection('attention'); void remote.refresh() }} />
     <SessionList hosts={remote.hosts} attention={remote.attention} selection={remote.selection} select={selection => void action(() => remote.watch(selection))} create={setNewHost} searchVisible={split || section === 'search'} focusSearch={focusSearch}
       empty={<View style={local.empty}><Text style={styles.secondary}>{remote.connecting ? 'Connecting…' : 'No sessions'}</Text><Button title="Connect a machine" onPress={() => setSetup(true)} /></View>}
     />
-    {split && navigation}
+    {navigation}
   </View>
-  let viewing = sessionSection && !!remote.selection && !split
   return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
-    {!viewing && <RemoteHeader notifications={pending.length} onNotifications={() => { remote.close(); setSection('attention'); void remote.refresh() }} />}
+    {!sessionSection && <RemoteHeader notifications={pending.length} onNotifications={() => { remote.close(); setSection('attention'); void remote.refresh() }} />}
     {!!remote.error && <View style={local.error}><Text accessibilityRole="alert" style={local.errorText}>{remote.error}</Text><Button title="Reconnect" disabled={remote.connecting} onPress={remote.retry} /><Button title="Dismiss" onPress={() => remote.setError('')} /></View>}
-    {sessionSection && <View style={local.body}>{(split || !remote.selection) && sessions}{remote.selection ? <View style={local.detail}><ViewerScreen /></View> : split && <View style={[local.detail, local.center]}><Text style={styles.secondary}>Select a session</Text></View>}</View>}
+    {sessionSection && <Workspace sidebar={sessions} selected={!!remote.selection} onBack={remote.close} detail={remote.selection ? <ViewerScreen /> : <View style={[local.detail, local.center]}><Text style={styles.secondary}>Select a session</Text></View>} />}
     {section === 'attention' && <AttentionInbox items={remote.attention} hosts={remote.hosts} open={openAttention} dismiss={id => void action(() => remote.markAttention(id, { dismissed: true }))} busy={busy} loading={remote.loadingAttention} loadMore={remote.attentionCursor ? () => void action(remote.loadMoreAttention) : undefined} />}
     {section === 'settings' && <ScrollView contentContainerStyle={local.content}>
       <Text style={styles.title}>Settings</Text>
       <View style={styles.card}><Text style={styles.label}>Account</Text><Text style={styles.text}>{remote.account.name || remote.account.email || 'Signed in'}</Text>{!!remote.account.email && <Text style={styles.secondary}>{remote.account.email}</Text>}<Text style={styles.secondary}>Relay {remote.billing?.relay.active ? 'active' : 'inactive'}</Text><Button title="Sign out" busy={busy} onPress={() => void action(remote.logout)} /></View>
       <AccountProviders />
+      <EmailPasswordSettings />
       <View style={styles.card}><Text style={styles.label}>Machines</Text><Pressable accessibilityRole="button" accessibilityLabel="Connect a machine" onPress={() => setSetup(true)} style={local.connectionRow}><Ionicons name="add" size={18} color={colors.secondary} /><Text style={styles.text}>Connect a machine</Text></Pressable></View>
       <IncludedBrowserCard compact />
       <NotificationSetup />
@@ -102,7 +118,7 @@ export let RemoteApp = ({ attentionId }: { attentionId?: string }) => {
       <Button title="Demo" onPress={openDemo} />
       <HelpLinks />
     </ScrollView>}
-    {!viewing && !(split && sessionSection) && navigation}
+    {!sessionSection && navigation}
     <Sheet title="Disconnect this view?" visible={!!disconnect} close={() => setDisconnect(undefined)}><Text style={styles.text}>The browser and its background work will keep running.</Text><Button title="Disconnect" primary busy={busy} onPress={() => disconnect && void action(async () => { await remote.disconnectView(disconnect); setDisconnect(undefined) })} /></Sheet>
     <NewSessionSheet host={newHost} close={() => { setNewHost(undefined); remote.close() }} created={() => setNewHost(undefined)} />
     <ProfilesSheet host={profileHost} close={() => { setProfileHost(undefined); remote.close() }} />
@@ -119,8 +135,9 @@ let HelpLinks = () => <View style={local.helpLinks}>
 </View>
 let local = StyleSheet.create({
   helpLinks: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 }, helpLink: { color: colors.secondary, fontSize: 13, minHeight: 44, paddingVertical: 12 },
-  center: { alignItems: 'center', justifyContent: 'center', gap: 20 }, welcome: { width: '100%', maxWidth: 440, padding: 28, gap: 24 }, welcomeActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  body: { flex: 1, flexDirection: 'row', minHeight: 0 }, sidebar: { flex: 1 }, sidebarWide: { width: 340, maxWidth: '45%', flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.border }, detail: { flex: 1, minWidth: 0 },
+  welcomeScroll: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
+  center: { alignItems: 'center', justifyContent: 'center', gap: 20 }, welcome: { width: '100%', maxWidth: 440, padding: 28, gap: 24 }, welcomeActions: { gap: 12 },
+  sidebar: { flex: 1, minHeight: 0 }, detail: { flex: 1, minWidth: 0 },
   connectionRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 8 }, setupText: { color: colors.secondary, fontSize: 14, lineHeight: 22, textAlign: 'left' },
   content: { padding: 24, gap: 20, maxWidth: 680, width: '100%', alignSelf: 'center' }, sectionHeading: { justifyContent: 'space-between' }, empty: { padding: 28, gap: 14, alignItems: 'center' }, error: { backgroundColor: 'rgba(255,69,58,0.1)', padding: 12, flexDirection: 'row', gap: 12, alignItems: 'center' }, errorText: { color: colors.danger, fontSize: 14, flexShrink: 1 },
 })

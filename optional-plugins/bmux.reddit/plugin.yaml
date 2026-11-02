@@ -1,6 +1,7 @@
 schema_version: 1
 id: bmux.reddit
-name: Reddit browsing
+name: Reddit
+category: Social Media
 version: 1.0.0
 actions:
   - id: browse

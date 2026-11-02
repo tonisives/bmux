@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import { observeViewportPan } from '../src/main/viewport-pan'
 import { viewportPanDelta } from '../src/shared/viewport-pan'
 
-test('viewport panning consumes only trusted Shift wheel input while enabled', () => {
+test('the input shield pans the viewport only for trusted Shift wheel input while enabled', () => {
   let listener: (event: any) => void = () => undefined, reports: string[] = []
   let context = vm.createContext({ innerWidth: 320, innerHeight: 200, window: { addEventListener: (_type: string, callback: typeof listener) => { listener = callback } }, console: { debug: (message: string) => reports.push(message) } })
   let configure = (enabled: boolean) => vm.runInContext(`(${observeViewportPan.toString()})('pan:', ${enabled}, ${viewportPanDelta.toString()})`, context)

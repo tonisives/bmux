@@ -6,7 +6,7 @@ import * as Crypto from 'expo-crypto'
 import { createApi } from './api'
 import { openViewer } from './viewer'
 import { clearSession } from './storage'
-import { accessToken, signIn, signOut } from './auth'
+import { accessToken, signIn, signInWithEmail, signOut } from './auth'
 import { observeNotifications, registerPush, removePush } from './notifications'
 import { attentionIdFromUrl } from './links'
 import { attentionSelection } from './types'
@@ -212,6 +212,7 @@ let useRemoteState = () => {
     catch { setAccount(undefined) }
     finally { setLoading(false) }
   }, [api])
+  let loginWithEmail = useCallback(async (email: string, password: string) => { setError(''); await signInWithEmail(email, password); await loadAccount() }, [loadAccount])
   let login = useCallback(async (provider: 'google' | 'apple' = 'google') => { setError(''); await signIn(provider); await loadAccount() }, [loadAccount])
   let logout = useCallback(async () => {
     close()
@@ -324,7 +325,7 @@ let useRemoteState = () => {
   }, [state?.controls, selection, viewer])
   return {
     account, loading, hosts, viewer, state, stream, selection, connecting, attention, target: activeTarget, billing, views, error, streamQuality, includedBrowser, notificationsEnabled,
-    api, refresh, login, logout, watch, openTarget, close, request, rpc, manage, profiles, setError, rememberAttention, resume, markAttention, loadMoreAttention, attentionCursor, loadingAttention,
+    api, refresh, login, loginWithEmail, logout, watch, openTarget, close, request, rpc, manage, profiles, setError, rememberAttention, resume, markAttention, loadMoreAttention, attentionCursor, loadingAttention,
     retry: () => { setError(''); setEpoch(value => value + 1) },
     enableNotifications: () => registerNotifications(true),
     disconnectView: async (connection: string) => { await api('/api/streams/disconnect', { connection }); await refresh() },

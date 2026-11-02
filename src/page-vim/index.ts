@@ -45,12 +45,12 @@ let install = (): PageVim => {
     let inline = mountInlineEditor(field, host)
     let cursor = field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement ? field.selectionStart ?? 0 : original.length
     let savedSelection = { anchor: cursor, head: cursor }
-    let relativeNumbers = new Compartment(), closing = false, syncQueued = false, nativeWrite = false, syncing = Promise.resolve(true)
+    let relativeNumbers = new Compartment(), closing = false, finishing = false, syncQueued = false, nativeWrite = false, syncing = Promise.resolve(true)
     let deferredInputs: (() => void)[] = []
     let scheduleSync = () => {
-      if (syncQueued || closing) return
+      if (syncQueued || closing || finishing) return
       syncQueued = true
-      queueMicrotask(() => { syncQueued = false; if (!closing) void sync() })
+      queueMicrotask(() => { syncQueued = false; if (!closing && !finishing) void sync() })
     }
     let view = new EditorView({
       parent: container, root,
@@ -69,7 +69,7 @@ let install = (): PageVim => {
       nativeWrite = nativeSelection && readField(field) !== value
       let result = !nativeSelection || readField(field) === value ? writeField(field, value, selection) : inline.write(() => writeField(field, value, selection))
       let restoreFocus = () => {
-        if (closing || nativeWrite || root.activeElement && root.activeElement !== focused) return
+        if (closing || finishing || nativeWrite || root.activeElement && root.activeElement !== focused) return
         if (focused === view.contentDOM) {
           // Native editing changes the document selection outside the shadow root.
           // Restore it explicitly; CodeMirror's cached range may still look current.
@@ -86,13 +86,13 @@ let install = (): PageVim => {
       let accepted = await result
       nativeWrite = false
       restoreFocus()
-      for (let input of deferredInputs.splice(0)) input()
+      for (let input of deferredInputs.splice(0)) { if (!closing) input() }
       requestAnimationFrame(restoreFocus)
       return accepted
     }
-    let sync = () => {
+    let sync = (final = false) => {
       syncing = syncing.then(async () => {
-        if (closing) return false
+        if (closing || finishing && !final) return false
         // A native focus swap would blur and dismiss Vim's command prompt.
         // Its command will synchronize the latest draft after the prompt closes.
         if (root.querySelector('.cm-vim-panel input')) return false
@@ -103,28 +103,43 @@ let install = (): PageVim => {
       })
       return syncing
     }
-    let save = async () => {
-      if (!await sync()) return false
+    let save = async (final = false) => {
+      if (!await sync(final)) return false
+      if (closing) return false
       original = synced; savedSelection = { anchor: view.state.selection.main.anchor, head: view.state.selection.main.head }
       return true
     }
     let discard = async () => {
       await syncing
+      if (closing) return true
       // Leave independent page changes intact; otherwise restore the last :w.
       if (readField(field) !== synced || synced === original || !field.isConnected) return true
       return write(original, savedSelection)
     }
-    let close = async (commit: boolean) => {
-      if (closing || !(commit ? await save() : await discard()) || closing) return
+    let dispose = (focus: boolean) => {
+      if (closing) return
       closing = true; active = undefined; scope.bmuxVimEditing = false
       window.removeEventListener('keydown', forwardKey, true)
       window.removeEventListener('beforeinput', forwardInput, true)
       window.removeEventListener('focusin', keepNativeFocus, true)
       observer.disconnect()
+      deferredInputs.length = 0
       view.destroy(); inline.restore(); hints.refresh()
-      if (field.isConnected) {
+      if (focus && field.isConnected) {
         field.focus({ preventScroll: true })
         selectField(field, savedSelection)
+      }
+    }
+    let close = async (commit: boolean) => {
+      if (closing || finishing) return
+      // Stop focus-driven syncs before waiting for the last write. Otherwise a
+      // queued rich-text write can hide the restored field after teardown.
+      finishing = true
+      try {
+        if (commit ? await save(true) : await discard()) dispose(true)
+      } finally {
+        finishing = false
+        if (!closing) view.focus()
       }
     }
     active = { host, close }; scope.bmuxVimEditing = true
@@ -134,11 +149,16 @@ let install = (): PageVim => {
       if (editorFocus === view.contentDOM) scheduleSync()
     })
     let observer = new MutationObserver(() => {
-      if (inline.retain() && !closing && !nativeWrite) editorFocus.focus({ preventScroll: true })
+      if (closing) return
+      if (!field.isConnected) { dispose(false); return }
+      let retained = inline.retain()
+      // A composer can remain mounted while its dialog or a parent is hidden.
+      if (!host.checkVisibility({ visibilityProperty: true })) { dispose(false); return }
+      if (retained && !finishing && !nativeWrite) editorFocus.focus({ preventScroll: true })
     })
-    observer.observe(document, { subtree: true, childList: true })
+    observer.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] })
     let fieldRoot = field.getRootNode()
-    if (fieldRoot !== document) observer.observe(fieldRoot, { subtree: true, childList: true })
+    if (fieldRoot !== document) observer.observe(fieldRoot, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] })
     let cm = getCM(view)!
     let forwardedKeys = new WeakSet<KeyboardEvent>()
     let dispatchKey = (forwarded: KeyboardEvent) => {
@@ -168,7 +188,7 @@ let install = (): PageVim => {
       deferredInputs.push(() => view.dispatch({ ...view.state.replaceSelection(input.data!), userEvent: 'input.type' }))
     }
     let keepNativeFocus = (event: FocusEvent) => {
-      if (nativeWrite && event.composedPath().includes(host)) queueMicrotask(() => { if (nativeWrite) field.focus({ preventScroll: true }) })
+      if (nativeWrite && event.composedPath().includes(host)) queueMicrotask(() => { if (!closing && nativeWrite) field.focus({ preventScroll: true }) })
     }
     window.addEventListener('keydown', forwardKey, true)
     window.addEventListener('beforeinput', forwardInput, true)
@@ -198,11 +218,11 @@ let install = (): PageVim => {
       // keyboard focus when that leaves the page body selected, while allowing
       // deliberate focus on another control and our native rich-text writes.
       queueMicrotask(() => {
-        if (!closing && !nativeWrite && !root.activeElement && (document.activeElement === document.body || document.activeElement === field)) view.contentDOM.focus({ preventScroll: true })
+        if (!closing && !finishing && !nativeWrite && !root.activeElement && (document.activeElement === document.body || document.activeElement === field)) view.contentDOM.focus({ preventScroll: true })
       })
     })
     view.focus()
-    requestAnimationFrame(() => { if (!closing && !nativeWrite && !root.activeElement) view.contentDOM.focus({ preventScroll: true }) })
+    requestAnimationFrame(() => { if (!closing && !finishing && !nativeWrite && !root.activeElement) view.contentDOM.focus({ preventScroll: true }) })
   }
   let hints = createFieldHints(open)
   window.addEventListener('keydown', event => {

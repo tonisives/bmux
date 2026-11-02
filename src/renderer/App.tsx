@@ -12,7 +12,7 @@ import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
 import { DEFAULT_AGENT_FEEDBACK } from '../shared/agent-feedback'
 import { RemoteAccount } from './RemoteAccount'
-import { RecordControl, RecordingPanel, HooksPanel } from './Observations'
+import { RecordingPanel, HooksPanel } from './Observations'
 import { RemoteMachineDetails, RemoteMachineHeading, remoteMachineName, useRemoteMachines } from './RemoteMachine'
 import { VimMode } from './VimMode'
 import { pickerRemovalFocus } from './picker-removal-focus'
@@ -101,7 +101,7 @@ export let App = () => {
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`, removedWindow = !!previous.current && !next.model.sessions.some(session => session.windows.some(window => window.id === previous.current.split(':')[0]))
     if (previous.current && previous.current !== target) { setPanelHistory([]); setControl(current => current === 'sessions' && removedWindow ? current : null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
-    if (!selection(next).session?.remote && client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId) {
+    if (!selection(next).session?.remote && client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId && !tab.skipInitialAddress) {
       setControl(current => current === 'sessions' && removedWindow ? current : 'address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }
@@ -218,7 +218,6 @@ let BrowserStatus = ({ collapsedAlerts, expandAlerts }: { collapsedAlerts: Notif
   return <footer className={css.status} aria-label="Browser status">
     {control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window' ? <ManagementPrompt key={`${control}:${client.windowId}:${client.paneId}`} mode={control} message={message} /> : control === 'find' ? <FindPrompt key={`${client.windowId}:${client.paneId}`} /> : <Status />}
     {collapsedAlerts.length > 0 && <button type="button" className={css.agentAlertsButton} aria-label="Show agent alerts" aria-expanded="false" title={collapsedAlerts.map(notice => notice.text).join('\n')} onClick={expandAlerts}><AgentStatusIcon /><span>{collapsedAlerts.length} {collapsedAlerts.length === 1 ? 'alert' : 'alerts'}</span><AlertChevron collapsed /></button>}
-    <RecordControl run={run} pane={pane?.id} open={()=>show('activity')} />
     <BuildId />
   </footer>
 }
@@ -410,6 +409,7 @@ let DownloadStatusIcon = ({ progressing, progress }: { progressing: boolean; pro
 let ExtensionsIcon = () => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true"><path d="M4 7h4V5a2 2 0 0 1 4 0v2h4v9h-4v-2a2 2 0 0 0-4 0v2H4Z" /></svg>
 
 let bridge = (window as unknown as { bmux: Bridge }).bmux
+let runRecording = (method: string, args: Record<string, unknown> = {}) => bridge.command({ method, args })
 let Context = createContext<UIContext | null>(null)
 let useUI = () => useContext(Context)!
 let selection = (state: PublicState) => {
@@ -849,6 +849,16 @@ let CommandPrompt = () => {
     </section>
 }
 
+let useAddressSuggestionScroll = (ref: RefObject<HTMLDivElement | null>, selected: number, count: number) => {
+  useEffect(() => {
+    let list = ref.current
+    if (!list || selected < 0) return
+    list.children[selected]?.scrollIntoView({ block: 'nearest' })
+    if (selected === 0) list.scrollTop = 0
+    else if (selected === count - 1) list.scrollTop = list.scrollHeight
+  }, [ref, selected, count])
+}
+
 let useAddressSuggestionPosition = (form: RefObject<HTMLFormElement | null>, list: RefObject<HTMLDivElement | null>, visible: boolean, statusBar?: string) => {
   useLayoutEffect(() => {
     if (!visible || !form.current || !list.current) return
@@ -979,7 +989,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
   useEffect(() => { setAddressSuggestionsVisible(results.length > 0); return () => setAddressSuggestionsVisible(false) }, [results.length, setAddressSuggestionsVisible])
   useAddressSuggestionPosition(form, suggestionList, results.length > 0, state.statusBar)
   useEffect(() => { setIndex(current => Math.min(current, results.length - 1)) }, [results.length])
-  useEffect(() => { if (index >= 0) suggestionList.current?.children[index]?.scrollIntoView({ block: 'nearest' }) }, [index])
+  useAddressSuggestionScroll(suggestionList, selectedIndex, results.length)
   useLayoutEffect(() => {
     if (!ref.current || !completing) return
     let start = previewText.toLowerCase().startsWith(query.toLowerCase()) ? query.length : 0
@@ -1017,7 +1027,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     if (inlineUrl?.url === url) { setInlineUrl(undefined); setText(query) }
     setIndex(-1); void run('history.remove', { profile: profile!.id, url }); ref.current?.focus()
   }
-  let vim = useAddressVim(direction => { if (results.length) setIndex((((selectedIndex < 0 ? direction > 0 ? -1 : 0 : selectedIndex) + direction) % results.length + results.length) % results.length) }, addressFocusVersion, previewText ? 'NORMAL' : 'INSERT', state.vimEditing !== false, ref, finish)
+  let vim = useAddressVim(direction => { if (results.length) setIndex(Math.max(0, Math.min(results.length - 1, Math.max(0, selectedIndex) + direction))) }, addressFocusVersion, previewText ? 'NORMAL' : 'INSERT', state.vimEditing !== false, ref, finish)
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (vim.keys(event) || event.nativeEvent.isComposing) return
     if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
@@ -1039,7 +1049,7 @@ let AddressPrompt = ({ takeSelection }: { takeSelection: () => AddressSelection 
     }
   }
   return <div className={css.addressEditor}><form ref={form} className={css.prompt} onSubmit={submit}>{vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={css.addressInput}><input id="prompt" ref={ref} data-vim-mode={vim.mode} aria-label="URL or search" aria-autocomplete="both" aria-expanded={!!results.length} aria-controls="address-suggestions" aria-activedescendant={selectedResult ? `address-suggestion-${selectedIndex}` : undefined} value={previewText} onChange={change} onKeyDown={keys} onPointerDown={selectionFocus.start} onMouseDown={selectAddress} onMouseUp={vim.select} onDragStart={selectionFocus.drag} autoComplete="off" spellCheck={false} readOnly={busy} /><VimCursor input={ref} mode={vim.mode} value={previewText} /></div>{message && <span className={css.error} role="status">{message}</span>}<CloseButton label="Close URL search" onClick={finish} /><button type="submit" className={css.submit} aria-label="Submit">Enter</button></form>
-    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === selectedIndex} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
+    {!!results.length && createPortal(<div ref={suggestionList} id="address-suggestions" role="listbox" aria-label="Address suggestions" className={css.urlHistory}>{results.map((entry, position) => <div key={`${entry.kind}:${entry.value}`} className={css.addressSuggestionRow}><button id={`address-suggestion-${position}`} type="button" role="option" aria-selected={position === selectedIndex} data-kind={entry.kind} data-value={entry.value} onClick={choose} disabled={busy}><span className={css.sessionNumber} data-address-number aria-hidden="true">{Math.abs(position - Math.max(0, selectedIndex))}</span><AddressSuggestionIcon kind={entry.kind} /><strong>{entry.title}</strong><span>{entry.detail}</span></button>{entry.kind === 'history' && <button type="button" className={css.addressSuggestionRemove} data-value={entry.value} aria-label={`Remove ${entry.title || entry.value} from history`} title="Remove from history" onClick={removeHistory} disabled={busy}>×</button>}</div>)}</div>, document.body)}
   </div>
 }
 
@@ -1499,7 +1509,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
   }
-  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
+  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
     <PanelHeader back={sessionPicker || closeToParent ? null : navigation} dismiss={closeToParent ? leave : dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Local</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote</button>
@@ -1521,12 +1531,11 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {type === 'history' && <HistoryPicker />}
       {type === 'downloads' && <DownloadManager />}
       {type === 'extensions' && <ExtensionsContent />}
-      {type === 'activity' && <><RecordingsContent /><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
+      {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
   return <PanelBackContext.Provider value={setDetailBack}>{content}</PanelBackContext.Provider>
 }
-let RecordingsContent = () => { let {run}=useUI();return <RecordingPanel run={run} /> }
 let AgentInformation = () => {
   let { agentDetails, state, run, show } = useUI()
   let panes = state.model.sessions.filter(session => !('sessionId' in agentDetails) || session.id === agentDetails.sessionId).flatMap(session => session.windows.filter(window => !('windowId' in agentDetails) || window.id === agentDetails.windowId).flatMap(window => window.panes))
@@ -1739,6 +1748,7 @@ let BUILTIN_TOOLS = [
   { id: 'dark-mode', name: 'Dark mode', description: 'Recolor websites with Dark Reader or follow the system.' },
   { id: 'adblock', name: 'Ad and tracker blocking', description: 'Block ads and trackers and update filter lists.' },
   { id: 'userscripts', name: 'Userscripts and styles', description: 'Configure local JavaScript and CSS for websites.' },
+  { id: 'recordings', name: 'Recordings', description: 'Watch remote agent browsing sessions and open saved videos.' },
 ] as const
 
 type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
@@ -1763,11 +1773,11 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
   </>
   let details = (builtin || plugin) && <section aria-label="Plugin details" className={css.extensionDetails}>
     <h2>{builtin?.name ?? plugin?.name}</h2>
-    {builtin ? <><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <><p>Version {plugin!.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin!.id} compact /></>}
+    {builtin ? <><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <><p>{plugin!.description}</p><p>Version {plugin!.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin!.id} compact /><PluginActivity pluginId={plugin!.id} /></>}
   </section>
   let includes = (text: string) => text.toLowerCase().includes(query.toLowerCase())
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
-  let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.name} ${plugin.actions.map(action => `${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
+  let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.category ?? ''} ${plugin.name} ${plugin.actions.map(action => `${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
   let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row className={css.extensionRow}>
     <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={stack.open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
@@ -1777,10 +1787,11 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
     <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />
     <h2>Built-in</h2>
     {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={stack.open}><strong>{tool.name}</strong></button></div>)}
-    {plugins.filter(plugin => plugin.bundled).map(row)}
+    {plugins.filter(plugin => plugin.bundled && plugin.category !== 'Social Media').map(row)}
+    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
     <h2>Custom</h2>
-    {plugins.filter(plugin => !plugin.bundled).map(row)}
-    {!plugins.some(plugin => !plugin.bundled) && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
+    {plugins.filter(plugin => !plugin.bundled && plugin.category !== 'Social Media').map(row)}
+    {!plugins.some(plugin => !plugin.bundled && plugin.category !== 'Social Media') && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
     <button onClick={reload}>Reload plugins</button>
     </section>
     {details || <p className={css.extensionPlaceholder}>Select a plugin to see its details.</p>}
@@ -1804,12 +1815,46 @@ let PluginConfiguration = ({ compact = false, matches, pluginId }: { compact?: b
       {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase()) && show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`)).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} data-setting-plugin-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
     {!compact && <p>Scripts run with your OS user privileges.</p>}{show('[data-setting-id="reload-plugins"]') && <button data-setting-id="reload-plugins" onClick={reload}>Reload plugins</button>}</>
 }
-let PluginActivity = () => {
+let PluginActivity = ({ pluginId }: { pluginId?: string }) => {
   let { state, run } = useUI()
   let cancel = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.cancel', { id: event.currentTarget.dataset.id }) }
-  return <><p>Plugin runs</p>{state.pluginRuns?.length ? state.pluginRuns.map(item => <div key={item.id} className={css.row}>{item.title} · {item.status}
-    {item.progress && <span className={css.pluginDescription}>{item.progress.percent}% · {item.progress.message}</span>}{item.error && <span className={css.pluginDescription}>{item.error}</span>}
+  let error = (result: unknown) => result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : ''
+  let runs = state.pluginRuns?.filter(item => !pluginId || item.pluginId === pluginId) ?? []
+  return <><p>Plugin runs</p>{runs.length ? runs.map(item => <div key={item.id} className={css.row}>{item.title} · {item.status}
+    {item.progress && <span className={css.pluginDescription}>{item.progress.percent}% · {item.progress.message}</span>}{(item.error || error(item.result)) && <span role="alert" className={css.pluginDescription}>{error(item.result) || item.error}</span>}
     {['running', 'queued'].includes(item.status) && <button data-id={item.id} onClick={cancel}>Cancel</button>}</div>) : <p>No plugin runs.</p>}</>
+}
+let PluginParameters = () => {
+  let { state, run } = useUI()
+  let request = state.pluginPrompt!
+  let [values, setValues] = useState<Record<string, unknown>>(request.values ?? {}), [busy, setBusy] = useState(false)
+  let profile = state.model.profiles.find(profile => profile.id === request.profileId)
+  let change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    let { name, value } = event.target
+    let field = request.fields?.find(field => field.name === name)
+    setValues(current => ({ ...current, [name]: value === '' ? undefined : field?.kind === 'boolean' ? value === 'true' : value }))
+  }
+  let submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (busy) return
+    setBusy(true)
+    try { await run('plugin.respond', { id: request.id, value: values }) } finally { setBusy(false) }
+  }
+  let cancel = () => { void run('plugin.respond', { id: request.id, cancel: true }) }
+  let labels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant' }
+  let choice = (value: string) => labels[value] ?? value
+  let field = (item: NonNullable<typeof request.fields>[number]) => <label key={item.name}>{item.title}
+    {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={values[item.name] === undefined ? '' : String(values[item.name])} onChange={change} required={item.required}>
+      {item.default === undefined && <option value="">Use saved setting</option>}
+      {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{item.kind === 'boolean' ? value === 'true' ? 'On' : 'Off' : choice(value)}</option>)}
+    </select> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : 'Use saved setting'} required={item.required} autoComplete="off" />}
+  </label>
+  return <form className={css.pluginParameters} onSubmit={submit}>
+    <h2>{request.pluginName} · {request.title}</h2>
+    <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
+    <div className={css.pluginParameterFields}>{request.fields?.map(field)}</div>
+    <div className={css.pluginParameterActions}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>
+  </form>
 }
 let PluginDialog = () => {
   let { state, run } = useUI()
@@ -1832,6 +1877,7 @@ let PluginDialog = () => {
     event.preventDefault()
     if (items.length) setIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length)
   }
+  if (request.kind === 'form') return <PluginParameters />
   return <><p>{request.pluginName}</p>{request.kind === 'confirm' ? <><p>{request.title}</p><button autoFocus onClick={yes}>Yes</button><button onClick={no}>No</button></> : <form onSubmit={submit}>
     {request.kind === 'pick' ? <SearchInput ref={ref} aria-label={request.title} value={value} onChange={change} onKeyDown={keys} /> : <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.required} /></label>}
     {request.kind === 'pick' ? items.map((item, position) => <button key={item.id} type="button" className={css.listRow} data-id={item.id} data-active={position === index} disabled={busy} onClick={pick}>{item.label}{item.description && <span className={css.pluginDescription}>{item.description}</span>}</button>) : <button type="submit" disabled={busy}>Continue</button>}
@@ -3633,6 +3679,7 @@ let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; match
   let toggleScript = (event: ChangeEvent<HTMLInputElement>) => { void run('browser.script', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let showInAddressBar = (event: ChangeEvent<HTMLInputElement>) => { void run('settings.set', { key: 'showDarkModeButton', value: event.target.checked }) }
   let filters = tools?.filters
+  if (feature === 'recordings') return matches ? null : <RecordingPanel run={runRecording} />
   if (matches && !Array.from(matches).some(included)) return null
   return <>
     {included('[name="showDarkModeButton"]') && <label className={css.settingsRow}><span>Show next to URL bar</span><input type="checkbox" name="showDarkModeButton" checked={state.showDarkModeButton === true} onChange={showInAddressBar} /></label>}

@@ -45,3 +45,21 @@ test('ordinary plugin CDP operations retain agent guards and reading feedback', 
   expect(action).toHaveBeenCalledOnce()
   expect(read).toHaveBeenCalledOnce()
 })
+
+
+test('plugin observations retain page guards and reading feedback without acquiring an action lock', async () => {
+  let { browser, context, controller, before, action, read, cdp } = fixture()
+  cdp.mockImplementation(async (_pane, method) => method === 'Runtime.evaluate' ? { result: { objectId: 'document-global' } } : { result: { value: 'observed post' } })
+  expect(await browser('eval', { expression: 'document.title', observation: true }, context, controller.signal)).toBe('observed post')
+  expect(before).toHaveBeenCalledWith(context, 'eval', expect.objectContaining({ observation: true }))
+  expect(action).not.toHaveBeenCalled()
+  expect(read).toHaveBeenCalledOnce()
+  expect(cdp).toHaveBeenCalledWith('pane', 'Runtime.callFunctionOn', expect.objectContaining({ objectId: 'document-global' }))
+})
+
+test('an observation cannot cross a document replacement during its guard', async () => {
+  let { browser, context, current, controller, before, cdp } = fixture()
+  before.mockImplementation(async () => { current.documentId = 'replacement' })
+  await expect(browser('eval', { expression: 'document.title', observation: true }, context, controller.signal)).rejects.toThrow('Document changed')
+  expect(cdp).not.toHaveBeenCalled()
+})

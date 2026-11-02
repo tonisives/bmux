@@ -26,3 +26,9 @@ export let pagePoint = (point: Point, frame: Frame, viewport: Viewport, transfor
   return { x: Math.floor((x - rect.x) / rect.scale), y: Math.floor((y - rect.y) / rect.scale) }
 }
 export let fitViewport = (frame: Frame) => ({ width: Math.max(320, Math.min(1920, Math.round(frame.width))), height: Math.max(200, Math.min(1080, Math.round(frame.height))) })
+
+export let resizeTransform = (previous: Frame, next: Frame, viewport: Frame, transform: Transform): Transform => {
+  if (previous.width <= 0 || previous.height <= 0 || next.width <= 0 || next.height <= 0 || viewport.width <= 0 || viewport.height <= 0) return transform
+  let ratio = contentRect(next, viewport).scale / contentRect(previous, viewport).scale
+  return { zoom: transform.zoom, x: transform.x * ratio, y: transform.y * ratio }
+}

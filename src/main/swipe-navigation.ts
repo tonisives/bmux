@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { createSwipeSurface, type SwipeSurface } from './swipe-surface'
 import { swipeSnapshots } from './swipe-snapshots'
+import { capturePageFrame } from './frame-capture'
 
 type Wheel = { x: number; y: number; blocked: boolean }
 type Direction = 'back' | 'forward'
@@ -156,7 +157,7 @@ export let createSwipeNavigation = (contents: WebContents, enabled: () => boolea
       let before = await readHistory()
       let entry = before.entries[before.currentIndex]?.id
       if (entry === undefined) return
-      let image = await contents.capturePage()
+      let image = await capturePageFrame(contents)
       if (contents.isDestroyed() || version !== epoch || image.isEmpty()) return
       let after = await readHistory()
       if (version !== epoch || after.entries[after.currentIndex]?.id !== entry) return

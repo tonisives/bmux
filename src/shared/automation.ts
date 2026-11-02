@@ -54,6 +54,7 @@ export let isSocialUrl = (value: string) => {
   try { let url = new URL(value); return /^https?:$/.test(url.protocol) && SOCIAL_HOSTS.some(host => url.hostname === host || url.hostname.endsWith(`.${host}`)) } catch { return false }
 }
 export let paceAutomationCommand = (method: string, args: Record<string, unknown>) => {
+  if (method === 'screenshot' || method === 'eval' && args.observation === true) return false
   if (method !== 'cdp') return true
   let params = args.params as Record<string, unknown> | undefined
   return !(args.method === 'Input.dispatchMouseEvent' && ['mouseReleased', 'mouseMoved'].includes(String(params?.type)) || args.method === 'Input.dispatchKeyEvent' && params?.type === 'keyUp')

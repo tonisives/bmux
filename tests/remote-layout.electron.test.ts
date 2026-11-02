@@ -25,7 +25,7 @@ test.afterAll(async () => { if (fixtureDirectory) await fs.rm(fixtureDirectory, 
 
 test('viewport lock keeps split pages fixed across resizing, client handoff and relaunch', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-viewport-lock-'))
-  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1>') })
+  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1><div id="horizontal" style="position:absolute;left:20px;top:160px;width:260px;height:80px;overflow:auto"><div style="width:1800px;height:40px">Horizontal content</div></div>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
@@ -38,7 +38,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let current = await state(), client = current.model.clients.find((client: { id: string }) => client.id === current.clientId)
     await rpc('activate-client', { client: client.id })
-    await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setSize(1000, 700))
+    await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setSize(1000, 500))
     await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(1000)
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
@@ -94,7 +94,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       runtime.setBounds = (id: number, bounds: unknown) => { (globalThis as any).viewportBounds = bounds; original(id, bounds) }
     })
     let nativeResize = (width: number, height: number) => application.evaluate(({ BaseWindow }, size) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setSize(size.width, size.height), { width, height })
-    await nativeResize(840, 560)
+    await nativeResize(840, 360)
     for (let [pane, page] of [[client.paneId, first], [added.id, second]] as const) {
       await expect.poll(() => size(page)).toEqual(locked[pane])
       await expect.poll(() => content(pane).evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
@@ -120,19 +120,61 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       expect(await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
       await first.evaluate(() => scrollTo(0, 0))
       await expect.poll(() => first.evaluate(() => scrollY)).toBe(0)
+      if (process.platform === 'darwin') {
+        await chrome.evaluate(() => {
+          ;(globalThis as any).viewportWheels = []
+          window.addEventListener('wheel', event => (globalThis as any).viewportWheels.push({ x: event.clientX, y: event.clientY, dx: event.deltaX, dy: event.deltaY, shift: event.shiftKey, target: (event.target as HTMLElement).outerHTML.slice(0, 300) }), { capture: true, passive: true })
+        })
+        let scroll = async (outside: boolean) => {
+          let rect = (await content(client.paneId).boundingBox())!
+          let scrolling = outside ? content(client.paneId) : first.locator('html')
+          await scrolling.evaluate(element => {
+            element.setAttribute('data-scroll-complete', 'false')
+            let target = element === document.documentElement ? document : element
+            target.addEventListener('scrollend', () => element.setAttribute('data-scroll-complete', 'true'), { once: true })
+          })
+          let target = await application.evaluate((_electron, point) => (globalThis as any).remoteLayoutScroll(point), { x: rect.x + 100, y: outside ? rect.y + rect.height - 20 : rect.y + 100 })
+          await fs.writeFile(info.outputPath(`native-wheel-${outside ? 'outside' : 'page'}.json`), JSON.stringify({ target, rect }))
+          await expect(scrolling).toHaveAttribute('data-scroll-complete', 'true')
+          if (outside) {
+            await expect.poll(() => content(client.paneId).evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
+            expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+          } else {
+            await expect.poll(() => first.evaluate(() => scrollX)).toBeGreaterThan(0)
+            expect(await first.evaluate(() => scrollY)).toBe(0)
+            expect(await content(client.paneId).evaluate(element => element.scrollLeft)).toBe(0)
+          }
+          expect(await content(client.paneId).evaluate(element => element.scrollTop)).toBe(0)
+          await first.evaluate(() => scrollTo(0, 0))
+          await expect.poll(() => first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+          await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
+          await expect.poll(async () => (await native()).page.x).toBe(0)
+        }
+        await scroll(false)
+        await nativeResize(840, 650)
+        await expect.poll(() => content(client.paneId).evaluate(element => element.clientHeight > Number.parseFloat(getComputedStyle(element).getPropertyValue('--remote-height')) + 40)).toBe(true)
+        await scroll(true)
+        await nativeResize(840, 360)
+        await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
+      }
+      await first.mouse.move(100, 100)
       await first.keyboard.down('Shift')
-      try { await first.mouse.wheel(0, 40) }
+      // CDP takes resolved axes; the native wheel above covers Shift conversion.
+      try { await first.mouse.wheel(40, 0) }
       finally { await first.keyboard.up('Shift') }
-      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 40, y: 0 })
-      expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
-      await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
-      await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
+      await expect.poll(() => first.evaluate(() => scrollX)).toBe(40)
+      expect(await first.evaluate(() => scrollY)).toBe(0)
+      expect(await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
+      await first.evaluate(() => scrollTo(0, 0))
+      await expect.poll(() => first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+      let scroller = first.locator('#horizontal')
+      await scroller.hover()
       await first.keyboard.down('Shift')
-      try { await first.mouse.wheel(60, 70) }
+      try { await first.mouse.wheel(40, 0) }
       finally { await first.keyboard.up('Shift') }
-      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 60, y: 70 })
+      await expect.poll(() => scroller.evaluate(element => element.scrollLeft)).toBe(40)
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
-      await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -60, y: -70 })
+      expect(await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
       await application.evaluate((_electron, pane) => (globalThis as any).remoteLayoutRuntime.execute({ method: 'eval', args: { pane, expression: '1', agentId: 'viewport-gesture-test' } }), client.paneId)
       await expect.poll(async () => (await state()).lockedAgentPanes).toContain(client.paneId)
       let shield: Page | undefined
@@ -145,11 +187,13 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await shield!.keyboard.down('Shift')
       try { await shield!.mouse.wheel(20, 30) }
       finally { await shield!.keyboard.up('Shift') }
-      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 80, y: 100 })
-      await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -80, y: -100 })
+      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 20, y: 30 })
+      await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -20, y: -30 })
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
       await rpc('agent.input-lock.override', { pane: client.paneId, enabled: true })
     } catch (error) {
+      await fs.writeFile(info.outputPath('chrome-wheels.json'), JSON.stringify(await chrome.evaluate(() => (globalThis as any).viewportWheels ?? [])))
+      if (process.platform === 'darwin') await fs.writeFile(info.outputPath('native-tree.txt'), await application.evaluate(() => (globalThis as any).remoteLayoutTree()))
       let reported = await application.evaluate(({ BaseWindow }) => ({ bounds: (globalThis as any).viewportBounds, windows: BaseWindow.getAllWindows().map(window => ({ visible: window.isVisible(), focused: window.isFocused(), minimized: window.isMinimized(), bounds: window.getBounds() })) }))
       let details = { native: await native(), reported, state: await state(), scroll: await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop, width: element.clientWidth, height: element.clientHeight })) }
       await fs.writeFile(info.outputPath('viewport-scroll.json'), JSON.stringify(details, null, 2))
@@ -211,7 +255,9 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await first.keyboard.down('Shift')
     try { await first.mouse.wheel(50, 60) }
     finally { await first.keyboard.up('Shift') }
-    await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -50, y: -60 })
+    await expect.poll(() => first.evaluate(() => scrollX)).toBeGreaterThan(0)
+    expect(await floatingViewport.evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
+    await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
     await otherChrome.screenshot({ path: info.outputPath('locked-split-viewport.png') })
     await closeTestApplication(application)
     application = await launch()

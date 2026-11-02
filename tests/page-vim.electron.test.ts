@@ -235,7 +235,7 @@ test('website Vim editor stays inline and restores the original field and layout
   let { overlay, editor } = await open(field)
   await expect(field).toBeHidden()
   expect(await overlay.evaluate(element => ({
-    inline: getComputedStyle(element).position === 'static',
+    inline: getComputedStyle(element).position === 'relative',
     popup: element.hasAttribute('popover'),
     original: element.previousElementSibling === (window as any).originalVimField,
     color: getComputedStyle(element.shadowRoot!.querySelector('.cm-editor')!).backgroundColor,
@@ -472,6 +472,58 @@ test('website Vim keeps Draft.js model, counter, native typing and Escape workin
   await field.press('Meta+ArrowRight'); await field.pressSequentially('!'); await expect(model).toHaveText('recovered!')
 })
 
+test('website Vim removes a closed composer during a pending Draft write and restores native editing', async () => {
+  let field = page.getByRole('textbox', { name: 'Draft composer' }), composer = page.locator('#draft')
+  await field.evaluate(element => {
+    element.addEventListener('paste', () => { document.querySelector<HTMLElement>('#draft')!.hidden = true }, { once: true })
+  })
+  let { overlay, editor } = await open(field)
+  await editor.pressSequentially('A!')
+  await expect(composer).toBeHidden()
+  await expect(overlay).toHaveCount(0)
+  // Wait beyond the paste render and write-finally callbacks before reopening.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await composer.evaluate(element => element.removeAttribute('hidden'))
+  await expect(field).toBeVisible()
+  expect(await field.evaluate(element => ['display', 'position', 'opacity', 'pointer-events'].map(property => element.style.getPropertyValue(property)))).toEqual(['', '', '', ''])
+  await field.click(); await field.press('Meta+ArrowRight'); await field.pressSequentially(' native')
+  await expect(page.locator('#draft-model')).toContainText(' native')
+  for (let cycle = 0; cycle < 4; cycle++) {
+    ;({ overlay, editor } = await open(field))
+    await editor.pressSequentially('A!'); await editor.press('Escape'); await editor.press('Escape')
+    await expect(overlay).toHaveCount(0); await expect(field).toBeVisible(); await expect(field).toBeFocused()
+    await field.press('Meta+ArrowRight'); await field.pressSequentially(String(cycle))
+    await expect(page.locator('#draft-model')).toContainText(`!${cycle}`)
+  }
+})
+
+test('website Vim stays above page formatting controls and dismisses with a removed reply dialog', async ({}, info) => {
+  await page.evaluate(() => {
+    let dialog = document.createElement('div'); dialog.id = 'reply-dialog'
+    dialog.innerHTML = '<textarea id="reply">reply draft</textarea>'
+    document.body.append(dialog)
+  })
+  let { overlay, editor } = await open(page.locator('#reply'))
+  await overlay.evaluate(element => {
+    let bounds = element.getBoundingClientRect(), toolbar = document.createElement('div')
+    toolbar.id = 'formatting-toolbar'; toolbar.textContent = 'B / I'
+    toolbar.style.cssText = `position:fixed;z-index:1000000;background:red;left:${bounds.x}px;top:${bounds.y}px;width:${bounds.width}px;height:40px`
+    document.body.append(toolbar)
+  })
+  expect(await overlay.evaluate(element => {
+    let bounds = element.getBoundingClientRect()
+    return document.elementFromPoint(bounds.x + 20, bounds.y + 20) === element
+  })).toBe(true)
+  await page.screenshot({ path: info.outputPath('vim-above-formatting.png') })
+  await editor.pressSequentially('A saved'); await editor.press('Escape')
+  await page.locator('#reply-dialog').evaluate(element => element.remove())
+  await expect(overlay).toHaveCount(0)
+  await page.locator('#formatting-toolbar').evaluate(element => element.remove())
+  // The removed editor must release active state so another field can open.
+  ;({ overlay, editor } = await open(page.locator('#notes')))
+  await editor.press('Escape'); await expect(overlay).toHaveCount(0)
+})
+
 test('website Vim keeps search input focus and submits the updated page query after Escape', async () => {
   let field = page.locator('#map-search'), { overlay, editor } = await open(field)
   await editor.pressSequentially('iwh')
@@ -528,11 +580,8 @@ test('website Vim editor preserves conflicting drafts and handles removed, disab
   ;({ overlay, editor } = await open(field))
   await editor.pressSequentially('A retained draft'); await editor.press('Escape')
   await field.evaluate(element => element.remove())
-  await expect(overlay).toBeVisible()
-  await expect(overlay.locator('.shell > :not(.editor)')).toHaveCount(0)
-  await expect(editor).toContainText('retained draft')
-  await ex(editor, 'q')
   await expect(overlay).toHaveCount(0)
+  await expect(page.locator('#outside')).toBeVisible()
 })
 
 test('website Vim editor works in same-origin and cross-origin frames and honors live settings', async () => {

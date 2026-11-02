@@ -2637,7 +2637,7 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
     let state = await cli('state')
     return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.find((entry: { url: string }) => entry.url === `${url}/history-suggestion`)?.title
   }).toBe('Long term metrics - Dashboards - Grafana')
-  let chrome = application.context().pages().find(page => page.url().endsWith('index.html'))!
+  let chrome = await rendererForClient(client.id)
   let created = await cli('split-window', { pane: pane.id, client: client.id })
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await expect(address).toBeFocused()
@@ -2690,6 +2690,7 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
     return saved.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === `${url}/history-suggestion`) ?? false
   }).toBe(true)
   await cli('kill-pane', { pane: created.id, confirm: true })
+  await expect(chrome.locator(`[data-pane-id="${created.id}"]`)).toHaveCount(0)
   let isolated = await cli('split-window', { pane: pane.id, profile: 'bot', client: client.id })
   await expect(address).toBeFocused()
   await address.fill('history-suggestion')
@@ -3167,9 +3168,15 @@ for (let mobile of [false, true]) test(`address suggestions dismiss when clickin
 test('dragging over a floating pane URL keeps its address input focused', async () => {
   let session = await cli('new-session', { name: 'Floating address selection' })
   let client = await cli('attach-session', { session: session.id })
-  let pane = await cli('new-pane', { pane: session.windows[0].panes[0].id, client: client.id, background: true, url: `${url}/select-the-right-side-of-this-floating-url` })
+  await cli('activate-client', { client: client.id })
+  let chrome = await rendererForClient(client.id)
+  let pane = await ui(chrome, 'new-pane', { pane: session.windows[0].panes[0].id, client: client.id, background: true, url: `${url}/select-the-right-side-of-this-floating-url` })
   await expect.poll(() => application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))?.url()).toContain(`#float=${pane.id}`)
   let floating = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!
+  await ui(chrome, 'wait', { pane: pane.id, selector: '#text' })
+  await cli('select-pane', { pane: pane.id, client: client.id, focus: false })
+  await floating.evaluate(args => (window as any).bmux.command({ method: 'focus-ui', args }), { client: client.id, pane: pane.id })
+  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(floating.url())
   let address = floating.getByRole('textbox', { name: 'Address', exact: true })
   let bounds = (await address.boundingBox())!
   await floating.mouse.move(bounds.x + 70, bounds.y + bounds.height / 2)
@@ -3662,8 +3669,9 @@ test('restores cached favicons for inactive windows and sessions without loading
   let session = await cli('new-session', { name: 'cached-favicons', profile: 'default' })
   let active = session.windows[0].panes[0]
   await cli('navigate', { pane: active.id, url: `${url}/cached-favicon/active` })
-  let inactiveWindow = await cli('new-window', { session: session.id, url: `${url}/cached-favicon/inactive` })
+  let inactiveWindow = await cli('new-window', { session: session.id })
   let inactive = inactiveWindow.panes[0]
+  await cli('navigate', { pane: inactive.id, url: `${url}/cached-favicon/inactive` })
   let dormantSession = await cli('new-session', { name: 'cached-favicons-dormant', profile: 'default' })
   let dormant = dormantSession.windows[0].panes[0]
   await cli('navigate', { pane: dormant.id, url: `${url}/cached-favicon/dormant` })

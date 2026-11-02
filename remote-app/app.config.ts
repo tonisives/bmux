@@ -24,11 +24,15 @@ let config: ExpoConfig = {
   web: { bundler: 'metro', output: 'single' },
   plugins: [
     'expo-router',
+    ['expo-asset', { assets: ['../design/app-icon.png'] }],
+    ['expo-font', { fonts: ['./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf'] }],
     'expo-secure-store',
     'expo-web-browser',
     ['expo-dev-client', { ios: { launchMode: 'launcher' } }],
     ['./plugins/with-ios-remote-metro.cjs', { url: process.env.BMUX_DEV_METRO_URL ?? 'https://metro-mobile.bmux.cc' }],
-    ['expo-build-properties', { ios: { enableSceneSupport: true } }],
+    'expo-status-bar',
+    // The M155 AAR includes an unused dav1d JNI proxy without the optional decoder interface.
+    ['expo-build-properties', { android: { extraProguardRules: '-dontwarn org.webrtc.Dav1dDecoder$Natives' } }],
     ['expo-notifications', { color: '#7986cb', defaultChannel: 'attention' }],
     ['@config-plugins/react-native-webrtc', { cameraPermission: false, microphonePermission: false }],
   ],

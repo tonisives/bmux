@@ -60,7 +60,7 @@ Other:    permission list | permission respond ID [--allow]
           completions zsh (print shell completion script)
 Observe:  observe -t PANE --format webm > session.webm (Ctrl-C stops capture)
 Record:   record start -t PANE [--host HOST --session SESSION --generation GENERATION]
-          record stop ID | record list | record reveal ID | record play ID
+          record stop ID | record list | record folder | record reveal ID | record play ID
 Hooks:    hooks list | hooks create --file JSON | hooks update ID --file JSON
           hooks enable|disable|delete|test|deliveries ID
           Hook JSON can be passed with --stdin to keep tokens out of command arguments.
@@ -215,7 +215,7 @@ let observe = async id => {
       if(!record)throw new Error('Observation no longer exists')
       if(record.error)throw new Error(record.error)
       if(outputError)throw outputError
-      if(clip && fs.existsSync(clip.file)){
+      if(clip && (fd!==undefined || fs.existsSync(clip.file))){
         fd??=fs.openSync(clip.file,'r')
         let bytes=Buffer.alloc(65536),read
         while((read=fs.readSync(fd,bytes,0,bytes.length,offset))>0){

@@ -396,6 +396,7 @@
 .urlHistory strong, .urlHistory span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .urlHistory strong { flex: 0 1 35%; font-weight: 400; }
 .urlHistory span { flex: 1; color: #8e98a4; }
+.urlHistory .sessionNumber { flex: 0 0 3ch; color: #8995a3; }
 
 .settingsPanel { width: min(1080px, 94vw); height: 94%; max-height: 94%; display: flex; flex-direction: column; overflow: hidden; }
 .settingsPanel .panelBody { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -674,3 +675,13 @@
 }
 
 .remoteProfile { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pluginParameters { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.pluginParameters h2, .pluginParameters p { margin: 0; }
+.pluginParameterFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-height: 55vh; overflow: auto; padding: 2px; }
+.pluginParameterFields label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pluginParameterFields input, .pluginParameterFields select { width: 100%; box-sizing: border-box; padding: 8px; background: #111318; border: 1px solid #505a66; color: #eceef2; font: inherit; }
+.pluginParameterActions { display: flex; justify-content: flex-end; gap: 12px; }
+.pluginParameterActions button { padding: 8px 16px; border: 1px solid #505a66; }
+.pluginParameterActions button[type="submit"] { background: #bdc9b4; color: #111318; }
+@media (max-width: 540px) { .pluginParameterFields { grid-template-columns: minmax(0, 1fr); } }

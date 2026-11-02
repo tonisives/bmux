@@ -2129,20 +2129,26 @@ test('find reports counts, moves in both directions, and stays responsive during
 
 test('find results stay scoped to each tab and refresh after navigation', async () => {
   let other = notesWindow.panes[0].id
-  await rpc('find', { tab: other, text: 'lantern' })
-  await expect.poll(async () => (await state()).findResults[other]?.matches).toBe(3)
-  await openFind()
-  let input = chrome.getByRole('textbox', { name: 'Find in page', exact: true }), counts = chrome.getByRole('status', { name: 'Find results', exact: true })
-  await input.fill('fixture'); await expect(counts).toHaveText('1 / 1')
-  expect((await state()).findResults[other].text).toBe('lantern')
-  await rpc('navigate', { tab: original, url: `${url}/docs`, waitUntil: 'none' })
-  await expect(page.locator('h1')).toHaveText('Documentation')
-  await expect(counts).toHaveText('No matches')
-  await input.press('Escape'); await expect(input).toHaveCount(0)
-  await expect.poll(async () => (await state()).findResults[original]).toBeUndefined()
-  expect((await state()).findResults[other].matches).toBe(3)
-  await rpc('find', { tab: other, text: '' })
-  await rpc('navigate', { tab: original, url: `${url}/fixture` })
+  await rpc('pane.keep-alive', { pane: other, enabled: true })
+  try {
+    await rpc('navigate', { tab: other, url: `${url}/notes` })
+    await rpc('find', { tab: other, text: 'lantern' })
+    await expect.poll(async () => (await state()).findResults[other]?.matches).toBe(3)
+    await openFind()
+    let input = chrome.getByRole('textbox', { name: 'Find in page', exact: true }), counts = chrome.getByRole('status', { name: 'Find results', exact: true })
+    await input.fill('fixture'); await expect(counts).toHaveText('1 / 1')
+    expect((await state()).findResults[other].text).toBe('lantern')
+    await rpc('navigate', { tab: original, url: `${url}/docs`, waitUntil: 'none' })
+    await expect(page.locator('h1')).toHaveText('Documentation')
+    await expect(counts).toHaveText('No matches')
+    await input.press('Escape'); await expect(input).toHaveCount(0)
+    await expect.poll(async () => (await state()).findResults[original]).toBeUndefined()
+    expect((await state()).findResults[other].matches).toBe(3)
+  } finally {
+    await rpc('find', { tab: other, text: '' })
+    await rpc('pane.keep-alive', { pane: other, enabled: false })
+    await rpc('navigate', { tab: original, url: `${url}/fixture` })
+  }
 })
 
 test('CLI waits target panes, distinguish visibility, and reject invalid requests without changing selection', async () => {

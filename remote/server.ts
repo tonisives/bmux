@@ -20,6 +20,8 @@ let audience = required('BMUX_GOOGLE_CLIENT_ID')
 let turnSecret = required('BMUX_TURN_SECRET')
 let turnUrls = required('BMUX_TURN_URLS').split(',')
 let pool = new Pool({ connectionString: required('DATABASE_URL'), max: 4 })
+// pg removes failed idle clients; handling this event keeps the relay alive.
+pool.on('error', error => console.error('Idle database connection lost', { code: (error as Error & { code?: string }).code }))
 let activityHooks = createActivityHooks(pool)
 let managed = process.env.BMUX_MANAGED_BILLING === 'true'
 let leases = createStreamLeases(pool, managed)
@@ -100,7 +102,7 @@ let server = http.createServer((request, response) => {
     if (request.method === 'GET' && url.pathname === '/health') { await pool.query('SELECT 1'); json(200, { ok: true }); return }
     if (request.method === 'GET' && url.pathname === '/api/config') { json(200, { googleClientId: audience, appleEnabled: mobileAuth.appleEnabled }); return }
     let authentication: LoginContext | undefined
-    let protectedFlow = request.method === 'POST' && ['/api/auth/mobile/exchange','/api/auth/mobile/refresh','/api/auth/apple/callback'].includes(url.pathname)
+    let protectedFlow = request.method === 'POST' && ['/api/auth/mobile/exchange','/api/auth/mobile/refresh','/api/auth/mobile/password','/api/auth/apple/callback'].includes(url.pathname)
     if (!['GET','HEAD'].includes(request.method ?? '') && request.headers.origin !== publicOrigin && !protectedFlow) {
       authentication = await mobileAuth.authenticate(request)
       if (!authentication.nativeSession) throw new Error('Invalid origin')
@@ -352,7 +354,7 @@ let timer = setInterval(() => {
   for (let [hash, expires] of revokedWebLogins) if (expires <= Date.now()) revokedWebLogins.delete(hash)
   for (let peer of peers.values()) { if (!peer.alive) peer.socket.terminate(); else { refreshIce(peer); peer.alive = false; peer.socket.ping() } }
   void leases.expire().then(rows => { for (let lease of rows) { let host = peers.get(lease.host); if (host?.generation === lease.generation) send(host, { type: 'stream-revoked', connection: lease.connection }) } }).catch(() => { for (let peer of peers.values()) if (peer.role === 'host') peer.socket.close(1011, 'Stream permits unavailable') })
-  void pool.query("DELETE FROM bmux_usage WHERE recorded<now()-interval '30 days'; DELETE FROM bmux_logins WHERE expires<now()").catch(() => undefined)
+  void pool.query("DELETE FROM bmux_usage WHERE recorded<now()-interval '30 days'; DELETE FROM bmux_logins WHERE expires<now(); DELETE FROM bmux_password_attempts WHERE expires<now()").catch(() => undefined)
   void pool.query('SELECT id FROM bmux_services WHERE revoked').then(result => { for (let row of result.rows) for (let peer of peers.values()) if (peer.service === row.id) peer.socket.close(1008, 'Revoked') }).catch(() => { for (let peer of peers.values()) peer.socket.close(1011, 'Authorization unavailable') })
   let nativePeers=[...peers.values()].filter(peer=>peer.nativeSession)
   if(nativePeers.length)void pool.query('SELECT m.session_id,m.device_id FROM bmux_mobile_devices m JOIN bmux_mobile_sessions s ON s.id=m.session_id JOIN bmux_devices d ON d.id=m.device_id WHERE NOT s.revoked AND s.expires>now() AND NOT d.revoked').then(result=>{for(let peer of nativePeers)if(!result.rows.some(row=>row.session_id===peer.nativeSession&&row.device_id===peer.id))peer.socket.close(1008,'Session revoked')}).catch(()=>{for(let peer of nativePeers)peer.socket.close(1011,'Authorization unavailable')})
