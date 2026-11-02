@@ -63,6 +63,11 @@ let useRemotePreview = (video: RefObject<HTMLVideoElement | null>, pane?: string
   }, [pane])
 }
 
+let verifyHost = async (key: JsonWebKey, signature: string, text: string) => {
+  let imported = await crypto.subtle.importKey('jwk', key, 'Ed25519', false, ['verify'])
+  return crypto.subtle.verify('Ed25519', imported, Uint8Array.from(atob(signature), char => char.charCodeAt(0)), new TextEncoder().encode(text))
+}
+
 let App = () => {
   let [selection, setSelection] = useState<Selection>(), [hosts, setHosts] = useState<Host[]>([]), [viewer, setViewer] = useState<Viewer>(), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [retry, setRetry] = useState(0)
@@ -92,10 +97,7 @@ let App = () => {
     }, { origin: selection.origin, connect: bridge.connect, view: selection.view, seal: bridge.seal, socket: desktopSocket, identity: {
       publicKey: selection.publicKey, fingerprint,
       sign: async () => { throw new Error('Use the desktop connection to sign') },
-      verify: async (key, signature, text) => {
-        let imported = await crypto.subtle.importKey('jwk', key, 'Ed25519', false, ['verify'])
-        return crypto.subtle.verify('Ed25519', imported, Uint8Array.from(atob(signature), char => char.charCodeAt(0)), new TextEncoder().encode(text))
-      },
+      verify: verifyHost,
     } }).then(next => {
       if (closed) { next.close(); return }
       active.current = next; setViewer(next)
