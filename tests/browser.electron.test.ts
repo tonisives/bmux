@@ -3170,6 +3170,9 @@ test('dragging over a floating pane URL keeps its address input focused', async 
   let pane = await cli('new-pane', { pane: session.windows[0].panes[0].id, client: client.id, background: true, url: `${url}/select-the-right-side-of-this-floating-url` })
   await expect.poll(() => application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))?.url()).toContain(`#float=${pane.id}`)
   let floating = application.context().pages().find(page => page.url().endsWith(`#float=${pane.id}`))!
+  await cli('activate-client', { client: client.id })
+  await cli('wait', { pane: pane.id, selector: '#text' })
+  await expect.poll(() => application.evaluate(({ BaseWindow }, url) => BaseWindow.getFocusedWindow()?.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url && view.getBounds().height > 100), `${url}/select-the-right-side-of-this-floating-url`)).toBe(true)
   let address = floating.getByRole('textbox', { name: 'Address', exact: true })
   let bounds = (await address.boundingBox())!
   await floating.mouse.move(bounds.x + 70, bounds.y + bounds.height / 2)

@@ -191,6 +191,8 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     let hoverMoves = await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)
     expect(hoverMoves).toBeGreaterThanOrEqual(20)
     for (let type of ['mousePressed', 'mouseReleased']) await cli('cdp', { pane, method: 'Input.dispatchMouseEvent', params: { type, ...point, button: 'left', clickCount: 1 } })
+    // Raw releases return immediately; the next action still waits for the cooldown.
+    await cli('eval', { pane, expression: '0' })
     await expectClickPause()
     expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)).toBe(hoverMoves)
     // The default pointer setting is independent of every Anti-bot exclusion.
