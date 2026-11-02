@@ -31,6 +31,9 @@ if (action === 'pick') {
 } else if (action === 'hidden') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
 } else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
+} else if (action === 'overlay') {
+ host('overlay.update',{title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'1 Post',lines:['A software demo'],tone:'cyan'},{title:'2 Input',lines:['Caption and post metadata'],tone:'cyan'},{title:'3 Decision',lines:['Match: software'],tone:'neutral'},{title:'4 Action',lines:['Watch for 10 seconds'],tone:'green'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'Profile',text:'Interested in computers'}]});
+ while(true){let inputs=host('overlay.events');if(inputs.some(input=>input.id==='start')){host('result',{started:true});break}await new Promise(resolve=>setTimeout(resolve,100))}
 } else if (action === 'capture') { host('result',host('screenshot',{fullPage:false,encoding:'base64',format:'jpeg',quality:60,maxDimension:768})); }
 `
 test.beforeAll(async () => {
@@ -39,7 +42,7 @@ test.beforeAll(async () => {
   await fs.cp(path.resolve('examples/plugins/local.page-tools'), path.join(directory, 'plugins/local.page-tools'), { recursive: true })
   await fs.writeFile(path.join(folder, 'run.mjs'), script)
   let action = (id: string) => ({ id, title: id, command: ['node', './run.mjs', id], capabilities: ['browser.read', 'browser.write', 'ui'], timeout_seconds: 40 })
-  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture'].map(action).concat([{ ...action('password'), parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
+  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture', 'overlay'].map(action).concat([{ ...action('password'), parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
   await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
   server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Plugin fixture</title><h1>Plugin fixture</h1><input id="username" autocomplete="username"><input id="password" type="password"><input id="hidden" type="hidden"><p id="note">Native page content</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
@@ -253,4 +256,47 @@ test('navigation rejects stale fills and hidden fields; plugin waits do not bloc
   await activate()
   let pick = await run('pick'); await expect(chrome.getByRole('textbox', { name: 'Fixture login' })).toBeVisible()
   await rpc('select-window', { client: current.clientId, window: next.id }); await completed(pick, 'cancelled')
+})
+
+test('plugin overlay sits above the page, resizes, collapses and receives controls', async () => {
+  let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
+  let capture = async () => { let id = await run('capture', { pane: pane.id }); await completed(id); return (await rpc('plugin.runs')).find((run: any) => run.id === id).result.data }
+  let id = await run('overlay', { pane: pane.id })
+  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
+  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  await expect(observer.getByRole('status')).toHaveText('Waiting for Start')
+  await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
+  await observer.getByText('Optimise this session', { exact: true }).click()
+  await expect(observer.getByRole('checkbox', { name: 'Skip ads' })).not.toBeChecked()
+  let before = (await state()).pluginOverlay.bounds
+  await observer.getByRole('slider', { name: 'Resize observer' }).focus()
+  await observer.keyboard.press('ArrowLeft')
+  await expect.poll(async () => (await state()).pluginOverlay.bounds.width).toBe(before.width - 24)
+  await observer.getByRole('button', { name: 'Collapse observer' }).click()
+  await expect(observer.getByRole('button', { name: 'Expand observer' })).toBeVisible()
+  await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(48)
+  await observer.getByRole('button', { name: 'Expand observer' }).click()
+  await expect(observer.getByRole('button', { name: 'Collapse observer' })).toBeVisible()
+  await expect(observer.getByRole('status')).toBeVisible()
+  await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(before.height)
+  let captured = await capture()
+  let pixel = await application.evaluate(({ BaseWindow, nativeImage }, { data, url }) => {
+    let views = BaseWindow.getAllWindows().flatMap(window => window.contentView.children) as any[]
+    let observer = views.find(view => view.webContents?.getURL().endsWith('#plugin-overlay')).getBounds()
+    let page = views.find(view => view.webContents?.getURL().startsWith(url)).getBounds()
+    let image = nativeImage.createFromBuffer(Buffer.from(data, 'base64')), size = image.getSize()
+    let x = Math.floor((observer.x + observer.width / 2 - page.x) / page.width * size.width)
+    let y = Math.floor((observer.y + observer.height / 2 - page.y) / page.height * size.height)
+    let offset = (y * size.width + x) * 4
+    return [...image.toBitmap().subarray(offset, offset + 3)]
+  }, { data: captured, url })
+  // This point is dark in the observer and white in the fixture page beneath it.
+  expect(pixel).toHaveLength(3)
+  expect(pixel.every(channel => channel > 240)).toBe(true)
+  await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay.png') })
+  await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await completed(id)
+  await expect(observer.getByRole('button', { name: 'Restart session', exact: true })).toBeVisible()
+  let page = application.context().pages().find(page => page.url().startsWith(url))!
+  expect(await page.evaluate(() => typeof (window as any).bmux)).toBe('undefined')
 })
