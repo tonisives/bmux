@@ -166,16 +166,6 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
         expect(cached[pane]).toEqual(next[pane])
         return Date.now() - next[pane].capturedAt
       }, { timeout: 20000, intervals: [1000, 2000] }).toBeGreaterThan(15500)
-      await application!.evaluate(({ app }) => {
-        let gpu = app.getAppMetrics().find(process => process.type === 'GPU')
-        if (!gpu) throw new Error('No disposable GPU process exists')
-        process.kill(gpu.pid, 'SIGKILL')
-      })
-      await expect.poll(async () => {
-        let record = (await command('record','list')).find((item: {id:string}) => item.id === recording.id)
-        let gaps = record?.gaps ?? [], last = gaps[gaps.length - 1]
-        return gaps.some((gap: {open:boolean}) => gap.open) && last?.open === false && !record.finishedAt
-      }, {timeout:60000}).toBe(true)
       let after = await command('status')
       expect(after.model.clients).toEqual(before.model.clients)
       expect(after.model.sessions[0].lastActivityAt).toBe(lastUse)
@@ -207,6 +197,16 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
         let clip = (await command('record','list')).find((item: {id:string})=>item.id===recording.id)?.clips[0]
         return clip ? (await fs.stat(clip.file)).size : 0
       },{timeout:15000}).toBeGreaterThan(1024)
+      await application!.evaluate(({ app }) => {
+        let gpu = app.getAppMetrics().find(process => process.type === 'GPU')
+        if (!gpu) throw new Error('No disposable GPU process exists')
+        process.kill(gpu.pid, 'SIGKILL')
+      })
+      await expect.poll(async () => {
+        let record = (await command('record','list')).find((item: {id:string}) => item.id === recording.id)
+        let gaps = record?.gaps ?? [], last = gaps[gaps.length - 1]
+        return gaps.some((gap: {open:boolean}) => gap.open) && last?.open === false && !record.finishedAt
+      }, {timeout:60000}).toBe(true)
       let after = await command('status')
       expect(after.model.clients).toEqual(before.model.clients)
       expect(after.remoteControl[status.model.sessions[0].id]).toBeUndefined()
