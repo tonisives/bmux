@@ -6,7 +6,7 @@ to focus their terminal or application.
 
 After an agent interacts with a page, its address-bar button remains available
 after inactivity, manual browsing, and app restarts. The button shows the last
-agent's identifier and a compact interaction age using the same colors as other
+agent's terminal pane ID (or configured identifier) and a compact interaction age using the same colors as other
 activity timestamps. Open it for the agent's details and exact interaction time.
 
 ## Identity payload
@@ -87,10 +87,9 @@ Automatic tmux context uses `sessionId`, `sessionName`, `windowId`, `windowIndex
 names must be supplied explicitly. Supplied standard terminal IDs must agree
 with the resolved caller. The popup shows `sessionName` in place of the session
 ID; focus commands still receive the ID. Each CLI browser call refreshes the name
-and window number. Agent buttons show `session:window · %pane` for tmux callers,
-using stable IDs when older context lacks a name or window number. Other agent
-types use their configured identifier, pane ID, or agent ID. Bmux alert links use
-the same `session:window · %pane` format for the browser pane.
+and window number. Address-bar agent buttons show the terminal pane ID for tmux callers. Other
+agent types use their configured identifier or agent ID when no pane ID is
+available. Bmux alert links use `session:window · %pane` for the browser pane.
 
 ## Config and errors
 
@@ -153,8 +152,8 @@ Fields typed `session`, `window`, or `pane` also become
 `BMUX_AGENT_SESSION_ID`, `BMUX_AGENT_WINDOW_ID`, or `BMUX_AGENT_PANE_ID`.
 Text fields become `BMUX_AGENT_FIELD_<UPPER_SNAKE_CASE_NAME>`.
 
-Click **Agent controlling · input locked** on a page to open that pane's
-**Agent information**, then click **Focus agent** to go to its terminal.
+Click the address-bar **Active agent** or **Last agent** button to open that
+pane's **Agent information**, then click **Focus agent** to go to its terminal.
 Page input stays locked during automation; browser controls remain available.
 
 The tmux helper uses the recorded origin to verify the terminal before focusing
