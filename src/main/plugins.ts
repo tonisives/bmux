@@ -18,6 +18,7 @@ type Options = {
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
   decisions?: (method: 'usage' | 'create', args: Record<string, unknown>) => Promise<unknown>
   settings: () => PluginSettings
+  overlayChanged?: () => void
   changed: () => void
   context: (target: PluginContext) => PluginContext
   interactive: (context: PluginContext) => boolean
@@ -117,7 +118,7 @@ export let createPlugins = (options: Options) => {
     }
     if (method === 'overlay.update' || method === 'overlay.events') {
       if (!run.action.capabilities.includes('ui') || run.public.hook || !run.context.paneId) throw new Error('Manual ui capability required for overlay')
-      if (method === 'overlay.update') { run.overlay = parsePluginOverlay(args); options.changed(); return { updated: true } }
+      if (method === 'overlay.update') { run.overlay = parsePluginOverlay(args); (options.overlayChanged ?? options.changed)(); return { updated: true } }
       return run.overlayInputs?.splice(0) ?? []
     }
     if (method === 'decisions.usage' || method === 'decisions.create') {

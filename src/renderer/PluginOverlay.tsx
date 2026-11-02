@@ -21,6 +21,7 @@ export let PluginOverlay = () => {
   return <ObserverContext.Provider value={{ overlay, command, input, busy }}><aside className={css.panel} aria-label="Plugin observer">
     <ObserverHeader begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && <ObserverBody error={error} />}
+    {!overlay.bounds.collapsed && <ObserverButtons />}
     {!overlay.bounds.collapsed && <div className={css.resize} role="slider" tabIndex={0} aria-label="Resize observer" aria-valuenow={overlay.bounds.width} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey}>◢</div>}
   </aside></ObserverContext.Provider>
 }
@@ -38,9 +39,8 @@ let ObserverBody = ({ error }: { error:string }) => {
   let { overlay } = useObserver()
   return <div className={css.body}>
     <p className={css.status} role="status">{overlay.ended ? overlay.error || overlay.content.status || 'Session ended' : overlay.content.status}</p>
-    <div className={css.nodes}>{overlay.content.nodes.map((node, index) => <ObserverNode key={index} node={node} />)}</div>
     <p className={css.metrics}>{overlay.content.metrics}</p>
-    <ObserverButtons />
+    <div className={css.nodes}>{overlay.content.nodes.map((node, index) => <ObserverNode key={index} node={node} />)}</div>
     {!overlay.ended && <ObserverSettings />}
     {overlay.content.details.map((detail, index) => <details key={index}><summary>{detail.title}</summary><pre>{detail.text}</pre></details>)}
     {error && <p className={css.error} role="alert">{error}</p>}
