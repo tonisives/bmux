@@ -720,3 +720,19 @@ The page-Vim fixtures remove a reply dialog, hide a Draft.js composer during
 paste, reopen it for four Vim/native editing cycles, and check stacking against
 a page formatting toolbar. Repeat the whole website Vim group to retain the
 preceding focus and selection cases.
+
+## November 2 native interaction fixtures
+
+The full Check on `0046aa3` found address fixtures creating panes through the
+agent CLI. Agent-owned blank panes intentionally skip automatic address editing,
+and agent navigation can leave an input lock above a floating address field.
+These human-input cases now create panes through their client's UI bridge and
+resolve that client's renderer. The floating drag case waits for its document
+before requesting focus. The restored floating-layout case also waits for its
+document and requires a successful close before checking window removal.
+
+The capture stress case completed its stream assertions but stalled while
+closing the final viewer. Teardown now observes all seven data channels closed,
+closes the viewer's peers, and releases its video sources before destroying the
+native window. Repeat all four cases together; focus, selection, streaming,
+reconnect, and window-removal assertions retain their existing deadlines.

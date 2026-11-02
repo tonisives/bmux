@@ -336,6 +336,12 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       expect(await application.evaluate(() => (globalThis as any).stressClosed)).toBe(0)
       await step(`Close all transports and the viewer for round ${round}`, async () => {
         await application.evaluate(() => (globalThis as any).stressCaptures.forEach((capture: { close: () => void }) => capture.close()))
+        await expect.poll(() => viewer.evaluate(() => (window as any).stressChannels.filter((channel: RTCDataChannel) => channel.readyState === 'closed').length)).toBe(7)
+        // Finish WebRTC shutdown before destroying its native viewer window.
+        await viewer.evaluate(() => {
+          for (let peer of (window as any).stressPeers as RTCPeerConnection[]) peer.close()
+          for (let video of document.querySelectorAll('video')) video.srcObject = null
+        })
         await application.evaluate(({ BrowserWindow }, id) => { setImmediate(() => BrowserWindow.fromId(id)?.destroy()) }, viewerId)
         await expect.poll(() => application.evaluate(({ BrowserWindow }, id) => !!BrowserWindow.fromId(id), viewerId)).toBe(false)
       })
