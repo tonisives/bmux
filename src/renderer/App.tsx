@@ -101,7 +101,7 @@ export let App = () => {
     let target = `${client?.windowId}:${client?.paneId}:${tab?.id}`, removedWindow = !!previous.current && !next.model.sessions.some(session => session.windows.some(window => window.id === previous.current.split(':')[0]))
     if (previous.current && previous.current !== target) { setPanelHistory([]); setControl(current => current === 'sessions' && removedWindow ? current : null); setHistoryPopup(null); setMessage('') }
     let paneIds = next.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes.map(pane => pane.id)))
-    if (!selection(next).session?.remote && client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId && !tab.agentId) {
+    if (!selection(next).session?.remote && client?.paneId && !window?.floating?.some(item => item.paneId === client.paneId) && client.id === next.focusedClientId && knownPanes.current && !knownPanes.current.has(client.paneId) && tab?.url === 'about:blank' && !tab.openerPaneId && !tab.skipInitialAddress) {
       setControl(current => current === 'sessions' && removedWindow ? current : 'address')
       void bridge.command({ method: 'focus-ui', args: { client: client.id } }).catch(error => setMessage(String(error)))
     }

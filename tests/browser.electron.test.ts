@@ -2638,7 +2638,7 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
     return state.model.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.find((entry: { url: string }) => entry.url === `${url}/history-suggestion`)?.title
   }).toBe('Long term metrics - Dashboards - Grafana')
   let chrome = await rendererForClient(client.id)
-  let created = await ui(chrome, 'split-window', { pane: pane.id, client: client.id })
+  let created = await cli('split-window', { pane: pane.id, client: client.id })
   let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
   await expect(address).toBeFocused()
   await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toHaveCount(0)
@@ -2691,7 +2691,7 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
   }).toBe(true)
   await cli('kill-pane', { pane: created.id, confirm: true })
   await expect(chrome.locator(`[data-pane-id="${created.id}"]`)).toHaveCount(0)
-  let isolated = await ui(chrome, 'split-window', { pane: pane.id, profile: 'bot', client: client.id })
+  let isolated = await cli('split-window', { pane: pane.id, profile: 'bot', client: client.id })
   await expect(address).toBeFocused()
   await address.fill('history-suggestion')
   await expect(chrome.getByRole('option').filter({ hasText: `${url}/history-suggestion` })).toHaveCount(0)

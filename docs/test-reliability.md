@@ -724,13 +724,13 @@ preceding focus and selection cases.
 ## November 2 native interaction fixtures
 
 The full Check on `0046aa3` found address fixtures creating panes through the
-agent CLI. Agent-owned blank panes intentionally skip automatic address editing,
-and agent navigation can leave an input lock above a floating address field.
-These human-input cases now create panes through their client's UI bridge and
-resolve that client's renderer. Before reusing the blank pane ID, the history
-case waits for its removal in that renderer. The floating drag case waits for its document
-before requesting focus. The restored floating-layout case also waits for its
-document and requires a successful close before checking window removal.
+agent CLI. Blank panes with agent metadata skipped automatic address editing;
+`f48e386` narrowed that suppression to plugin-created browsing panes. The history
+case now resolves its client's renderer and waits for pane removal before reusing
+its ID. Agent navigation can also leave an input lock above a floating address
+field, so the human drag case creates its pane through the UI bridge and waits
+for its document before requesting focus. The restored floating-layout case
+requires a successful close after its document readiness wait.
 
 The capture stress case completed its stream assertions but stalled while
 closing the final viewer. Teardown now observes all seven data channels closed,

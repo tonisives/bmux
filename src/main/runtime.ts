@@ -3400,6 +3400,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let session = resolve(model.sessions, args.session, 'Session')
       let automaticName = args.name === undefined
       let window = newWindow(String(args.name ?? `window-${session.windows.length + 1}`), resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, automaticName, model)
+      if (args._skipInitialAddress === true) window.panes[0].skipInitialAddress = true
       if (args._bookmarkSource) window.panes[0].bookmarkSource = args._bookmarkSource as { profileId: string; bookmarkId: string }
       updateAgentInfo(window.panes[0], args)
       if (!sourceClientId && args.url) automatedNavigations.set(window.panes[0].id, { paneId: window.panes[0].id, ...agentInfo(window.panes[0]) })
@@ -4103,7 +4104,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     plugins = createPlugins({ overlayChanged: publish, decisions: account ? (method, args) => method === 'usage' ? account('/api/ai/usage') : account('/api/ai/decisions', args) : undefined, activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run') : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, prepare: async (context, title, signal) => {
       signal.throwIfAborted()
       if (!pluginSelected(context) || !context.profileId || !context.sessionId || !context.clientId) throw new Error('Selected profile unavailable')
-      let window = await execute({ method: 'new-window', args: { session: context.sessionId, client: context.clientId, profile: context.profileId, name: title, agentId: context.agentId } }, context.clientId) as InternalWindow
+      let window = await execute({ method: 'new-window', args: { session: context.sessionId, client: context.clientId, profile: context.profileId, name: title, agentId: context.agentId, _skipInitialAddress: true } }, context.clientId) as InternalWindow
       let pane = window.panes[0], live = await ensureLiveTab(pane.id)
       live.contents.setAudioMuted(true)
       audio[pane.id] = { playing: false, muted: true }

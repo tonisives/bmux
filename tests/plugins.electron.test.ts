@@ -312,7 +312,7 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
 test('Social Media details launch one settings form and a muted window with the active profile', async () => {
   let before = await state(), client = before.model.clients.find((client: any) => client.id === before.clientId)
   let profile = (await rpc('profile.create', { name: 'Feed launch fixture' })).id
-  let source = await rpc('new-window', { session: client.sessionId, client: client.id, profile, url })
+  let source = await rpc('new-window', { session: client.sessionId, client: client.id, profile, url, agentId: 'source-cli-agent' })
   await rpc('wait', { pane: source.panes[0].id, selector: '#username' }); await activate()
   let windows = (await state()).model.sessions.find((session: any) => session.id === client.sessionId).windows.length
   await chrome.getByRole('button', { name: 'Command prompt' }).click()
