@@ -32,7 +32,7 @@ if (action === 'pick') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
 } else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
 } else if (action === 'overlay') {
- host('overlay.update',{title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'1 Post',lines:['A software demo'],tone:'cyan'},{title:'2 Decision',lines:['Watch for 10 seconds'],tone:'green'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'Profile',text:'Interested in computers'}]});
+ host('overlay.update',{title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'1 Post',lines:['A software demo'],tone:'cyan'},{title:'2 Input',lines:['Caption and post metadata'],tone:'cyan'},{title:'3 Decision',lines:['Match: software'],tone:'neutral'},{title:'4 Action',lines:['Watch for 10 seconds'],tone:'green'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'Profile',text:'Interested in computers'}]});
  while(true){let inputs=host('overlay.events');if(inputs.some(input=>input.id==='start')){host('result',{started:true});break}await new Promise(resolve=>setTimeout(resolve,100))}
 } else if (action === 'capture') { host('result',host('screenshot',{fullPage:false,encoding:'base64',format:'jpeg',quality:60,maxDimension:768})); }
 `
@@ -275,6 +275,9 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await expect(observer.getByRole('button', { name: 'Expand observer' })).toBeVisible()
   await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(48)
   await observer.getByRole('button', { name: 'Expand observer' }).click()
+  await expect(observer.getByRole('button', { name: 'Collapse observer' })).toBeVisible()
+  await expect(observer.getByRole('status')).toBeVisible()
+  await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(before.height)
   await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay.png') })
   await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
   await completed(id)
