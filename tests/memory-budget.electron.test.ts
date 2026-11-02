@@ -94,6 +94,7 @@ test('background page limit unloads older applications and restores them without
     await rpc('eval', { pane: old.pane.id, expression: 'window.quickSwitchMarker = "retained"' })
     let originalContents = await live(old.pane.id)
     await rpc('select-window', { client: client.id, window: client.windowId })
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 0 })
     let sentinel = await create('quick-budget-check')
     await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 1 })
     // Another eligible page unloading proves that the budget check has completed.
