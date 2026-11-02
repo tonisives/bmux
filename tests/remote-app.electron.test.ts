@@ -26,7 +26,7 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
       let route = new URL(request.url ?? '/', 'http://localhost').pathname
       let json = (body: unknown) => { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(body)) }
       requests.push(route)
-      if (route === '/api/config') { json({ googleClientId: 'fixture' }); return }
+      if (route === '/api/config') { json({ googleClientId: 'fixture', appleEnabled: true }); return }
       if (route === '/api/login' && request.method === 'POST') { signedIn = true; json({ ok: true }); return }
       if (route === '/api/auth/email/password') { json({ passwordEnabled: false }); return }
       if (route === '/api/auth/providers') { json({ appleEnabled: true, appleLinked: false }); return }
@@ -91,6 +91,10 @@ test('remote companion lists sessions, opens watch-only, and rejects stale atten
     await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Privacy policy', exact: true })).toHaveAttribute('href', 'https://bmux.cc/privacy/')
     await expect(page.getByRole('link', { name: 'Support', exact: true })).toHaveAttribute('href', 'https://tonis.dev/#contact')
+    let googleButton = await page.getByRole('button', { name: 'Sign in with Google', exact: true }).boundingBox()
+    let appleButton = await page.getByRole('button', { name: 'Sign in with Apple', exact: true }).boundingBox()
+    expect(appleButton?.width).toBe(googleButton?.width)
+    expect(appleButton?.height).toBe(googleButton?.height)
     await page.getByRole('button', { name: 'Sign in with email', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Email', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled()
