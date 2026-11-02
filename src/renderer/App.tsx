@@ -1894,6 +1894,8 @@ let PluginParameters = () => {
       {item.kind === 'text' && fallback !== undefined && <small>{inherited}</small>}
     </label>
   }
+  let toggleConfiguration = () => setExpanded(value => !value)
+  let summary = <dl className={css.pluginPresetSummary}>{fields.filter(item => item.advanced && effective(item) !== undefined).map(item => <div key={item.name}><dt>{item.title}</dt><dd>{display(item, effective(item))}</dd></div>)}</dl>
   let sections = (items: typeof fields) => [...new Set(items.map(item => item.section ?? 'Settings'))].map(section => <fieldset key={section} className={css.pluginParameterSection}><legend>{section}</legend><div className={css.pluginParameterFields}>{items.filter(item => (item.section ?? 'Settings') === section).map(field)}</div></fieldset>)
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{request.pluginName} · {request.title}</h2>
@@ -1903,11 +1905,11 @@ let PluginParameters = () => {
         <h3>Browsing preset</h3>
         <div className={css.pluginPresetButtons}><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{request.presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
         <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? 'Custom settings for this session.' : request.presets.find(item => item.id === preset)?.description}</p>
-        <dl className={css.pluginPresetSummary}>{fields.filter(item => item.advanced && effective(item) !== undefined).map(item => <div key={item.name}><dt>{item.title}</dt><dd>{display(item, effective(item))}</dd></div>)}</dl>
+        {summary}
       </section>}
       {sections(fields.filter(item => !item.advanced))}
       {fields.some(item => item.advanced) && <section className={css.pluginAdvancedSettings}>
-        <button type="button" aria-expanded={expanded} aria-controls="plugin-complete-settings" onClick={() => setExpanded(value => !value)}>{expanded ? 'Hide full configuration' : 'Extend and configure all settings'}</button>
+        <button type="button" aria-expanded={expanded} aria-controls="plugin-complete-settings" onClick={toggleConfiguration}>{expanded ? 'Hide full configuration' : 'Extend and configure all settings'}</button>
         {expanded && <div id="plugin-complete-settings">{sections(fields.filter(item => item.advanced))}</div>}
       </section>}
     </div>
