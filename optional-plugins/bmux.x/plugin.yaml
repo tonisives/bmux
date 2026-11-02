@@ -1,6 +1,7 @@
 schema_version: 1
 id: bmux.x
-name: X browsing
+name: X
+category: Social Media
 version: 1.0.0
 actions:
   - id: browse

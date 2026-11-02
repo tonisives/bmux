@@ -10,7 +10,7 @@ import type { PluginSettings, PluginContext } from '../src/shared/plugins'
 
 let cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (let dispose of cleanup.splice(0)) await dispose() })
-let fixture = (script: string, overrides: Record<string, unknown> = {}, decisions?: (method: 'usage' | 'create', args: Record<string, unknown>) => Promise<unknown>) => {
+let fixture = (script: string, overrides: Record<string, unknown> = {}, decisions?: (method: 'usage' | 'create', args: Record<string, unknown>) => Promise<unknown>, prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>) => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-plugin-test-'))
   let folder = path.join(directory, 'plugins', 'test')
   fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, 'run.mjs'), script)
@@ -19,7 +19,7 @@ let fixture = (script: string, overrides: Record<string, unknown> = {}, decision
   fs.writeFileSync(path.join(folder, 'plugin.yaml'), stringify(manifest))
   let settings: PluginSettings = { test: { enabled: true, hooks: false } }
   let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { paneId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
-  let plugins = createPlugins({ bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, decisions, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
+  let plugins = createPlugins({ bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, decisions, prepare, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
   cleanup.push(async () => { plugins.close(); await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
   let writeManifest = (value: unknown) => fs.writeFileSync(path.join(folder, 'plugin.yaml'), typeof value === 'string' ? value : stringify(value))
   return { directory, plugins, browser, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
@@ -199,4 +199,45 @@ test('subscription AI host calls require their own capability and keep authentic
   let allowed = fixture(hostScript + `host('result',host('decisions.usage'));`, { capabilities: ['ai.decisions'] }, decisions)
   expect((await done(allowed.plugins, allowed.plugins.run('test/run', allowed.context).id)).result).toEqual({ remaining: 10 })
   expect(decisions).toHaveBeenCalledWith('usage', {})
+})
+
+test('one settings form validates atomically, hides CLI session IDs, and pins launch to the active profile', async () => {
+  let prepare = vi.fn(async (context: PluginContext) => ({ ...context, paneId: 'new-pane', documentId: 'new-document', url: 'about:blank' }))
+  let { plugins, context } = fixture(hostScript + `let c=host('context',{refresh:true});host('result',{pane:c.paneId,profile:c.profileId,approved:c.launchApproved,url:c.launchUrl,parameters:c.parameters});`, {
+    capabilities: ['browser.manage', 'ui'], launch_url: 'https://example.test/feed', parameters: [
+      { name: 'seconds', title: 'Duration', kind: 'text', default: '300' },
+      { name: 'ads', title: 'Skip ads', kind: 'boolean', default: false },
+      { name: 'session', title: 'Session ID', kind: 'text', hidden: true },
+    ],
+  }, undefined, prepare)
+  let { id } = plugins.run('test/run', { ...context, profileId: 'active-profile' }, {}, true)
+  await vi.waitFor(() => expect(plugins.prompt('client')?.kind).toBe('form'))
+  let prompt = plugins.prompt('client')!
+  expect(prompt.fields?.map(field => field.name)).toEqual(['seconds', 'ads'])
+  expect(prompt.values).toEqual({ seconds: '300', ads: false })
+  expect(prepare).not.toHaveBeenCalled()
+  expect(() => plugins.respond('client', { id: prompt.id, value: { ads: 'yes' } })).toThrow()
+  expect(() => plugins.respond('client', { id: prompt.id, value: { session: 'forged' } })).toThrow()
+  expect(plugins.prompt('client')?.id).toBe(prompt.id)
+  plugins.respond('client', { id: prompt.id, value: { seconds: '5', ads: false } })
+  expect((await done(plugins, id)).result).toEqual({ pane: 'new-pane', profile: 'active-profile', approved: true, url: 'https://example.test/feed', parameters: { seconds: '5', ads: false } })
+  expect(prepare).toHaveBeenCalledOnce()
+})
+test('cancelled settings never create a window and explicit CLI parameters never trigger UI launch', async () => {
+  let prepare = vi.fn(async (context: PluginContext) => context)
+  let { plugins, context } = fixture(hostScript + `host('result',{approved:host('context').launchApproved === true});`, { capabilities: ['browser.manage'], launch_url: 'https://example.test/', parameters: [{ name: 'session', title: 'Session ID', kind: 'text', hidden: true }] }, undefined, prepare)
+  let { id } = plugins.run('test/run', context, {}, true)
+  await vi.waitFor(() => expect(plugins.prompt('client')).toBeTruthy())
+  plugins.respond('client', { id: plugins.prompt('client')!.id, cancel: true })
+  expect((await done(plugins, id)).status).toBe('cancelled')
+  expect((await done(plugins, plugins.run('test/run', context, { session: 'shared-cli-session' }).id)).result).toEqual({ approved: false })
+  expect(prepare).not.toHaveBeenCalled()
+})
+test('launch URLs and parameter defaults are validated before scripts can run', () => {
+  let { manifest } = fixture('')
+  let parse = (extra: Record<string, unknown>) => parsePluginManifest(stringify({ ...manifest, actions: [{ ...manifest.actions[0], ...extra }] }))
+  expect(() => parse({ launch_url: 'file:///private/tmp/test', capabilities: ['browser.manage'] })).toThrow()
+  expect(() => parse({ launch_url: 'https://example.test/' })).toThrow()
+  expect(() => parse({ parameters: [{ name: 'ads', title: 'Ads', kind: 'boolean', default: 'false' }] })).toThrow()
+  expect(() => parse({ parameters: [{ name: 'secret', title: 'Secret', kind: 'password', default: 'private' }] })).toThrow()
 })

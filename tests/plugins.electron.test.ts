@@ -20,6 +20,7 @@ let context = host('context'), action = process.argv[2];
 if (action === 'pick') {
  let selected = host('ui',{kind:'pick',title:'Fixture login',items:[{id:'first',label:'First user'},{id:'second',label:'Second user'}]});
  host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#username',value:selected},{selector:'#password',value:'disposable-test-password'}]}); host('result',{filled:true});
+} else if (action === 'launch') { host('result',{pane:context.paneId,profile:context.profileId,approved:context.launchApproved,url:context.launchUrl,parameters:context.parameters});
 } else if (action === 'password') { host('result',{received:context.parameters.password === 'disposable-test-value'});
 } else if (action === 'stale') {
  host('progress',{percent:10,message:'Captured document'}); await new Promise(resolve=>setTimeout(resolve,1000));
@@ -42,7 +43,7 @@ test.beforeAll(async () => {
   await fs.cp(path.resolve('examples/plugins/local.page-tools'), path.join(directory, 'plugins/local.page-tools'), { recursive: true })
   await fs.writeFile(path.join(folder, 'run.mjs'), script)
   let action = (id: string) => ({ id, title: id, command: ['node', './run.mjs', id], capabilities: ['browser.read', 'browser.write', 'ui'], timeout_seconds: 40 })
-  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture', 'overlay'].map(action).concat([{ ...action('password'), parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
+  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', category: 'Social Media', description: 'Feed browsing and all platform tools.', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture', 'overlay'].map(action).concat([{ ...action('launch'), title: 'Simulate feed browsing', capabilities: ['browser.manage', 'ui'], launch_url: 'https://example.test/feed', parameters: [{ name: 'seconds', title: 'Duration in seconds', kind: 'text', default: '300' }, { name: 'ads', title: 'Skip ads', kind: 'boolean', default: false }, { name: 'session', title: 'Session ID', kind: 'text', hidden: true }] } as any, { ...action('password'), parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
   await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
   server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Plugin fixture</title><h1>Plugin fixture</h1><input id="username" autocomplete="username"><input id="password" type="password"><input id="hidden" type="hidden"><p id="note">Native page content</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
@@ -299,4 +300,45 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await expect(observer.getByRole('button', { name: 'Restart session', exact: true })).toBeVisible()
   let page = application.context().pages().find(page => page.url().startsWith(url))!
   expect(await page.evaluate(() => typeof (window as any).bmux)).toBe('undefined')
+})
+
+test('Social Media details launch one settings form and a muted window with the active profile', async () => {
+  let before = await state(), client = before.model.clients.find((client: any) => client.id === before.clientId)
+  let profile = (await rpc('profile.create', { name: 'Feed launch fixture' })).id
+  let source = await rpc('new-window', { session: client.sessionId, client: client.id, profile, url })
+  await rpc('wait', { pane: source.panes[0].id, selector: '#username' }); await activate()
+  let windows = (await state()).model.sessions.find((session: any) => session.id === client.sessionId).windows.length
+  await chrome.getByRole('button', { name: 'Command prompt' }).click()
+  let command = chrome.getByRole('combobox', { name: 'Command', exact: true }); await command.fill('plugins'); await command.press('Enter')
+  let panel = chrome.getByRole('dialog', { name: 'Plugins', exact: true })
+  await expect(panel.getByRole('heading', { name: 'Social Media', exact: true })).toBeVisible()
+  await panel.getByRole('button', { name: 'Fixture plugin', exact: true }).click()
+  let details = panel.getByRole('region', { name: 'Plugin details' })
+  await expect(details.getByText('Feed browsing and all platform tools.')).toBeVisible()
+  await expect(details.getByRole('button', { name: 'password', exact: true })).toBeVisible()
+  await details.getByRole('button', { name: 'Simulate feed browsing', exact: true }).click()
+  let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await expect(dialog.getByRole('heading', { name: 'Fixture plugin · Simulate feed browsing' })).toBeVisible()
+  await expect(dialog.getByText('Opens a new muted window using Feed launch fixture.')).toBeVisible()
+  await expect(dialog.getByLabel('Duration in seconds')).toHaveValue('300')
+  await expect(dialog.getByLabel('Skip ads')).toHaveValue('false')
+  await expect(dialog.getByLabel('Session ID')).toHaveCount(0)
+  await fs.mkdir(path.resolve('artifacts'), { recursive: true }); await chrome.screenshot({ path: path.resolve('artifacts/social-plugin-settings.png') })
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect((await state()).model.sessions.find((session: any) => session.id === client.sessionId).windows.length).toBe(windows)
+  let id = await run('launch')
+  await dialog.getByLabel('Duration in seconds').fill('5')
+  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await completed(id)
+  let current = await state(), selected = current.model.clients.find((client: any) => client.id === current.clientId)
+  let session = current.model.sessions.find((session: any) => session.id === selected.sessionId), window = session.windows.find((window: any) => window.id === selected.windowId)
+  expect(session.windows.length).toBe(windows + 1)
+  expect(window.id).not.toBe(source.id)
+  expect(window.panes[0].profileId).toBe(profile)
+  expect(session.windows.find((window: any) => window.id === source.id).panes[0].url).toBe(url + '/')
+  expect((await rpc('plugin.runs')).find((run: any) => run.id === id).result).toEqual({ pane: window.panes[0].id, profile, approved: true, url: 'https://example.test/feed', parameters: { seconds: '5', ads: false } })
+  expect(await application.evaluate(({ webContents }) => webContents.getAllWebContents().some(contents => contents.getURL() === 'about:blank' && contents.isAudioMuted()))).toBe(true)
+  await expect(dialog).toHaveCount(0)
+  await expect(chrome.getByRole('combobox', { name: 'URL or search' })).toHaveCount(0)
 })

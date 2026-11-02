@@ -317,3 +317,21 @@ without page access to browser or Node APIs. Disabling prevents installation on
 subsequent pages; reload an existing page to remove its installed handler.
 
 The Plugins list has an enabled/disabled toggle beside each installed plugin. Toggle it directly from the list, or select the plugin name to open its settings.
+
+## Social Media tools and browsing launch
+
+Social plugins declare `category: Social Media` and use the platform name. Their
+details show every contributed action, including statistics, research,
+publication, scheduling and browsing when supported by the installed plugin.
+
+Actions with multiple settings present one form. Optional fields can use their
+saved settings. Parameters may declare `default` and `hidden`; hidden parameters
+remain accepted by CLI calls without appearing in the form. Password defaults
+are rejected and parameter values stay out of public run records.
+
+`launch_url` on a manual action requires `browser.manage`. Pressing Start browsing
+approves startup, creates a muted blank window using the selected pane's profile,
+and binds the invocation to that new pane. The runner acquires its automation
+lease before navigating to the platform. The form can select Auto continue or
+Ask before each action. Cancelling the form creates no window. CLI invocations
+keep their existing pane and explicit session behavior.

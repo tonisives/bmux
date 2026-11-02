@@ -9,7 +9,7 @@ import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
 import { isAutomationSafetyError } from './automation-safety'
 import { createPluginSocket, listenSocket } from '../../bin/ipc.mjs'
-import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
+import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginParameter, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
 type Run = { overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
@@ -23,6 +23,7 @@ type Options = {
   context: (target: PluginContext) => PluginContext
   interactive: (context: PluginContext) => boolean
   selected?: (context: PluginContext) => boolean
+  prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>
   show: (clientId: string) => void
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
   automation?: { acquire: (args: { profileId: string; tabId: string; url: string; pluginId?: string }) => { token: string; group: string }; release: (token: string) => unknown; like: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; authorize: (args: { profileId: string; tabId: string; url: string; token?: string; kind?: 'activity' | 'navigation'; record?: boolean }) => unknown; status: () => unknown }
@@ -33,6 +34,10 @@ let record = (value: unknown): Record<string, unknown> => {
   return value as Record<string, unknown>
 }
 let shortText = (value: unknown, limit = 4096) => { if (typeof value !== 'string' || value.length > limit) throw new Error('Invalid text'); return value }
+let validateParameter = (parameter: PluginParameter, value: unknown) => {
+  if (value === undefined) { if (parameter.required) throw new Error('Missing required parameter'); return }
+  if (parameter.kind === 'boolean' ? typeof value !== 'boolean' : typeof value !== 'string' || value.length > 65536 || (parameter.required && !value.length) || (parameter.kind === 'choice' && !parameter.choices?.includes(value))) throw new Error('Invalid parameter')
+}
 let methods: Record<string, PluginAction['capabilities'][number]> = {
   'forms.list': 'browser.forms', 'forms.save': 'browser.forms', 'forms.fill': 'browser.forms', 'forms.delete': 'browser.forms',
   dom: 'browser.read', screenshot: 'browser.read', wait: 'browser.read', eval: 'browser.write', fill: 'browser.write', click: 'browser.write', scroll: 'browser.write', type: 'browser.write', key: 'browser.write', navigate: 'browser.write', back: 'browser.write', forward: 'browser.write', reload: 'browser.write', cdp: 'browser.cdp', 'script.install': 'browser.cdp',
@@ -43,7 +48,7 @@ export let createPlugins = (options: Options) => {
   let discoveryErrors: PluginInfo[] = [], active = 0, closed = false, scanning = false
   let { socketPath, directory: socketDirectory } = createPluginSocket()
   let connections = new Set<net.Socket>()
-  let list = (): PluginInfo[] => [...definitions.values()].map(({ manifest, error, bundled }): PluginInfo => ({ bundled: !!bundled, id: manifest.id, name: manifest.name, version: manifest.version, enabled: settings[manifest.id]?.enabled === true, hooks: settings[manifest.id]?.hooks === true, hasHooks: manifest.hooks.length > 0, error, actions: manifest.actions.map(({ id, title, description }) => ({ id, title, description })), proxyProviders: manifest.proxyProviders, bookmark: manifest.bookmark })).concat(discoveryErrors)
+  let list = (): PluginInfo[] => [...definitions.values()].map(({ manifest, error, bundled }): PluginInfo => ({ bundled: !!bundled, id: manifest.id, name: manifest.name, category: manifest.category, description: manifest.description, version: manifest.version, enabled: settings[manifest.id]?.enabled === true, hooks: settings[manifest.id]?.hooks === true, hasHooks: manifest.hooks.length > 0, error, actions: manifest.actions.map(({ id, title, description }) => ({ id, title, description })), proxyProviders: manifest.proxyProviders, bookmark: manifest.bookmark })).concat(discoveryErrors)
   let publicRuns = () => [...runs.values()].reverse().map(run => ({ ...run.public }))
   let prompt = (clientId: string) => [...runs.values()].find(run => run.context.clientId === clientId && run.pending)?.pending?.prompt
   let kill = (run: Run) => {
@@ -75,13 +80,13 @@ export let createPlugins = (options: Options) => {
     if (!live(run) || !run.interactive || !run.context.clientId || !options.interactive(run.context)) throw new Error('Interactive client required')
     if (run.pending || prompt(run.context.clientId)) throw new Error('Another plugin prompt is open')
     let kind = raw.kind as PluginPrompt['kind']
-    if (!['pick', 'text', 'password', 'confirm'].includes(kind)) throw new Error('Unknown prompt kind')
+    if (!['pick', 'text', 'password', 'confirm', 'form'].includes(kind)) throw new Error('Unknown prompt kind')
     let items = kind === 'pick' ? (Array.isArray(raw.items) && raw.items.length <= 1000 ? raw.items.map(rawItem => {
       let item = record(rawItem)
       return { id: shortText(item.id, 256), label: shortText(item.label), description: item.description === undefined ? undefined : shortText(item.description) }
     }) : undefined) : undefined
     if (kind === 'pick' && (!items?.length || new Set(items.map(item => item.id)).size !== items.length)) throw new Error('Picker requires unique items')
-    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items }
+    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { fields: run.action.parameters.filter(field => !field.hidden), values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launch: !!run.action.launch_url } : {}) }
     return new Promise((resolve, reject) => {
       run.pending = { prompt: request, resolve, reject }
       options.changed(); options.show(run.context.clientId!)
@@ -92,7 +97,11 @@ export let createPlugins = (options: Options) => {
     if (!run?.pending || run.context.clientId !== clientId || !options.interactive(run.context)) throw new Error('Plugin prompt is unavailable')
     if (args.cancel === true) { finish(run, 'cancelled'); return null }
     let { prompt: request, resolve } = run.pending, value = args.value
-    if (request.kind === 'confirm') { if (typeof value !== 'boolean') throw new Error('Expected a boolean') }
+    if (request.kind === 'form') {
+      let values = record(value)
+      if (Object.keys(values).some(key => !request.fields?.some(field => field.name === key))) throw new Error('Unknown form field')
+      for (let field of request.fields ?? []) validateParameter(field, values[field.name])
+    } else if (request.kind === 'confirm') { if (typeof value !== 'boolean') throw new Error('Expected a boolean') }
     else {
       shortText(value, 65536)
       if (request.required && !(value as string).length) throw new Error('A value is required')
@@ -113,7 +122,7 @@ export let createPlugins = (options: Options) => {
     let method = String(request.method), args = record(request.args ?? {})
     let policyCall = <T>(operation: () => T): T => { try { return operation() } catch (error) { run.policyError = error instanceof Error ? error.message : 'Automation policy failed'; throw error } }
       if (method === 'context') {
-      if (args.refresh === true) run.context = options.context(run.context)
+      if (args.refresh === true) run.context = { ...options.context(run.context), ...(run.context.launchApproved ? { launchApproved: true, launchUrl: run.context.launchUrl } : {}) }
       return { ...run.context, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
     }
     if (method === 'overlay.update' || method === 'overlay.events') {
@@ -184,14 +193,25 @@ export let createPlugins = (options: Options) => {
     try {
       finishActivity = options.activity?.(run.context, `plugin:${run.public.pluginId}/${run.public.actionId}`)
       await ready
+      let fields = run.action.parameters.filter(field => !field.hidden)
+      let form = run.interactive && (fields.length > 1 || !!run.action.launch_url)
+      if (form) {
+        for (let field of fields) if (run.parameters[field.name] === undefined && field.default !== undefined) run.parameters[field.name] = field.default
+        let values = record(await requestUI(run, { kind: 'form', title: run.action.title }))
+        Object.assign(run.parameters, values)
+      }
       for (let parameter of run.action.parameters) {
         let value = run.parameters[parameter.name]
-        if (value === undefined && (run.interactive || parameter.required)) {
+        if (!form && value === undefined && !parameter.hidden && (run.interactive || parameter.required)) {
           value = await requestUI(run, { kind: parameter.kind === 'choice' ? 'pick' : parameter.kind === 'boolean' ? 'confirm' : parameter.kind, title: parameter.title, required: parameter.required, items: parameter.choices?.map(value => ({ id: value, label: value })) })
         }
-        if (value !== undefined && (parameter.kind === 'boolean' ? typeof value !== 'boolean' : typeof value !== 'string' || value.length > 65536 || (parameter.required && !value.length) || (parameter.kind === 'choice' && !parameter.choices?.includes(value)))) throw new Error('Invalid parameter')
-        if (parameter.required && value === undefined) throw new Error('Missing required parameter')
+        validateParameter(parameter, value)
         run.parameters[parameter.name] = value
+      }
+      if (!live(run)) return
+      if (form && run.action.launch_url) {
+        if (!options.prepare) throw new Error('Window launch unavailable')
+        run.context = { ...await options.prepare(run.context, run.definition.manifest.name, run.controller.signal), launchUrl: run.action.launch_url, launchApproved: true }
       }
       if (!live(run)) return
       let env: NodeJS.ProcessEnv = { ...process.env, BMUX_DATA_DIR: options.dataDirectory, BMUX_PLUGIN_SOCKET: socketPath, BMUX_PLUGIN_RUN_ID: run.public.id, BMUX_PLUGIN_TOKEN: run.token, BMUX_CLI: options.cli }
