@@ -1496,7 +1496,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
     let target = event.target as HTMLElement
     if (target.closest('form[aria-label="Cursor and timing"]') && !target.closest('[role="tablist"]')) return
-    let group = target.closest('[role="tablist"]') ?? ref.current?.querySelector('[role="tablist"][aria-label="Bot sections"]') ?? ref.current
+    let group = target.closest('[role="tablist"]') ?? target.closest(`.${css.pluginDetails}`)?.querySelector('[role="tablist"]') ?? ref.current?.querySelector('[role="tablist"][aria-label="Bot sections"]') ?? ref.current
     let tabs = [...(group?.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)') ?? [])].filter(tab => tab.getClientRects().length)
     if (tabs.length < 2) return
     let selected = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true')
