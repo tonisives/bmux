@@ -209,6 +209,7 @@ export let createPlugins = (options: Options) => {
         validateParameter(parameter, value)
         run.parameters[parameter.name] = value
       }
+      run.restartParameters = Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.find(parameter => parameter.name === key)?.kind !== 'password'))
       if (!live(run)) return
       if (form && run.action.launch_url) {
         if (!options.prepare) throw new Error('Window launch unavailable')

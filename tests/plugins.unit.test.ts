@@ -241,3 +241,16 @@ test('launch URLs and parameter defaults are validated before scripts can run', 
   expect(() => parse({ parameters: [{ name: 'ads', title: 'Ads', kind: 'boolean', default: 'false' }] })).toThrow()
   expect(() => parse({ parameters: [{ name: 'secret', title: 'Secret', kind: 'password', default: 'private' }] })).toThrow()
 })
+
+test('Restart retains the settings approved in the combined form', async () => {
+  let { plugins, context } = fixture(hostScript + `host('overlay.update',{title:'Fixture',nodes:[],controls:[]});host('result',{parameters:host('context').parameters});`, { capabilities: ['ui'], parameters: [
+    { name: 'seconds', title: 'Duration', kind: 'text' }, { name: 'ads', title: 'Skip ads', kind: 'boolean' },
+  ] })
+  let { id } = plugins.run('test/run', context, {}, true)
+  await vi.waitFor(() => expect(plugins.prompt('client')?.kind).toBe('form'))
+  plugins.respond('client', { id: plugins.prompt('client')!.id, value: { seconds: '120', ads: true } })
+  expect((await done(plugins, id)).result).toEqual({ parameters: { seconds: '120', ads: true } })
+  let restart = plugins.restartOverlay(id)
+  expect((await done(plugins, restart.id)).result).toEqual({ parameters: { seconds: '120', ads: true } })
+  expect(plugins.prompt('client')).toBeUndefined()
+})
