@@ -71,10 +71,9 @@ let verifyHost = async (key: JsonWebKey, signature: string, text: string) => {
 let App = () => {
   let [selection, setSelection] = useState<Selection>(), [hosts, setHosts] = useState<Host[]>([]), [viewer, setViewer] = useState<Viewer>(), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [retry, setRetry] = useState(0)
-  let reconnectViewer = useRef<(error: unknown) => void>(() => undefined)
   let lastSession = useRef<State['sessions'][number] | undefined>(undefined), [requestedPane, setRequestedPane] = useState<string>()
   let lastViewport = useRef<State['viewports'][string] | undefined>(undefined)
-  let video = useRef<HTMLVideoElement>(null), active = useRef<Viewer | undefined>(undefined), watching = useRef(false)
+  let reconnectViewer = useRef<(error: unknown) => void>(() => undefined), video = useRef<HTMLVideoElement>(null), active = useRef<Viewer | undefined>(undefined), watching = useRef(false)
   useEffect(() => {
     let closed = false
     void bridge.selection().then(next => { if (!closed) setSelection(next) }).catch(error => setError(remoteError(error)))
