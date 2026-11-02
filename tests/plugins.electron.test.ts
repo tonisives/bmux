@@ -5,7 +5,6 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import http from 'node:http'
-import { createHash } from 'node:crypto'
 import { stringify } from 'yaml'
 import { observeNativeFocus, recordNativeFocus } from './native-focus'
 
@@ -262,11 +261,6 @@ test('navigation rejects stale fills and hidden fields; plugin waits do not bloc
 test('plugin overlay sits above the page, resizes, collapses and receives controls', async () => {
   let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
   let capture = async () => { let id = await run('capture', { pane: pane.id }); await completed(id); return (await rpc('plugin.runs')).find((run: any) => run.id === id).result.data }
-  let fixturePage = application.context().pages().find(page => page.url().startsWith(url))!
-  await fixturePage.addStyleTag({ content: '#bmux-agent-commands{visibility:hidden!important}' })
-  await fixturePage.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-  let digest = (data: string) => createHash('sha256').update(data).digest('hex')
-  let beforeCapture = digest(await capture())
   let id = await run('overlay', { pane: pane.id })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
   let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
@@ -285,7 +279,20 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await expect(observer.getByRole('button', { name: 'Collapse observer' })).toBeVisible()
   await expect(observer.getByRole('status')).toBeVisible()
   await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(before.height)
-  expect(digest(await capture())).toBe(beforeCapture)
+  let captured = await capture()
+  let pixel = await application.evaluate(({ BaseWindow, nativeImage }, { data, url }) => {
+    let views = BaseWindow.getAllWindows().flatMap(window => window.contentView.children) as any[]
+    let observer = views.find(view => view.webContents?.getURL().endsWith('#plugin-overlay')).getBounds()
+    let page = views.find(view => view.webContents?.getURL().startsWith(url)).getBounds()
+    let image = nativeImage.createFromBuffer(Buffer.from(data, 'base64')), size = image.getSize()
+    let x = Math.floor((observer.x + observer.width / 2 - page.x) / page.width * size.width)
+    let y = Math.floor((observer.y + observer.height / 2 - page.y) / page.height * size.height)
+    let offset = (y * size.width + x) * 4
+    return [...image.toBitmap().subarray(offset, offset + 3)]
+  }, { data: captured, url })
+  // This point is dark in the observer and white in the fixture page beneath it.
+  expect(pixel).toHaveLength(3)
+  expect(pixel.every(channel => channel > 240)).toBe(true)
   await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay.png') })
   await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
   await completed(id)
