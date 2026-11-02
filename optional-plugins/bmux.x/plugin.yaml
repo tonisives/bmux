@@ -5,6 +5,7 @@ category: Social Media
 version: 1.0.0
 actions:
   - id: browse
+    group: Research
     title: Browse X URLs
     description: Pace a bounded list of X pages, with optional capped likes.
     command: [node, ./browse.mjs, x]

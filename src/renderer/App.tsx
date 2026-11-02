@@ -37,6 +37,7 @@ import { Fragment, createContext, useCallback, useContext, useEffect, useId, use
 import { createPortal } from 'react-dom'
 import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
+import type { PluginInfo } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
 import type { RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
@@ -1771,13 +1772,12 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
     {BUILTIN_TOOLS.map(tool => <BuiltinPluginSettings key={tool.id} feature={tool.id} matches={matches} />)}
     <PluginConfiguration compact={compact} matches={matches} />
   </>
-  let details = (builtin || plugin) && <section aria-label="Plugin details" className={css.extensionDetails}>
-    <h2>{builtin?.name ?? plugin?.name}</h2>
-    {builtin ? <><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <><p>{plugin!.description}</p><p>Version {plugin!.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin!.id} compact /><PluginActivity pluginId={plugin!.id} /></>}
+  let details = (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
+    {builtin ? <><h2>{builtin.name}</h2><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <PluginDetails key={plugin!.id} plugin={plugin!} />}
   </section>
   let includes = (text: string) => text.toLowerCase().includes(query.toLowerCase())
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
-  let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.category ?? ''} ${plugin.name} ${plugin.actions.map(action => `${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
+  let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.category ?? ''} ${plugin.name} ${plugin.actions.map(action => `${action.group ?? ''} ${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
   let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row className={css.extensionRow}>
     <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={stack.open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
@@ -1798,10 +1798,39 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
   </div>
 }
 
-let PluginConfiguration = ({ compact = false, matches, pluginId }: { compact?: boolean; matches?: Set<string>; pluginId?: string }) => {
+let PluginActions = ({ plugin, actions }: { plugin: PluginInfo; actions: PluginInfo['actions'] }) => {
+  let { run } = useUI()
+  let choose = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.run', { action: event.currentTarget.dataset.action }) }
+  let id = useId()
+  return <div className={css.pluginActionGrid}>{actions.map((action, index) => <button type="button" key={action.id} className={css.pluginActionButton} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} data-setting-plugin-action={`${plugin.id}/${action.id}`} aria-labelledby={`${id}-${index}-title`} aria-describedby={action.description ? `${id}-${index}-description` : undefined} onClick={choose}>
+    <strong id={`${id}-${index}-title`}>{action.title}</strong>{action.description && <span id={`${id}-${index}-description`}>{action.description}</span>}
+  </button>)}</div>
+}
+let PluginDetails = ({ plugin }: { plugin: PluginInfo }) => {
+  let groups = [...new Set(plugin.actions.map(action => action.group ?? 'Actions'))]
+  let tabs = [...groups.map(group => ({ id: `feature:${group}`, title: group })), { id: 'settings', title: 'Settings' }, { id: 'activity', title: 'Activity' }]
+  let [tab, setTab] = useState(tabs[0].id)
+  let selected = tabs.find(item => item.id === tab) ?? tabs[0], id = useId()
+  let choose = (event: MouseEvent<HTMLButtonElement>) => setTab(event.currentTarget.dataset.feature!)
+  let move = (event: KeyboardEvent<HTMLDivElement>) => {
+    let index = tabs.findIndex(item => item.id === (event.target as HTMLElement).dataset.feature)
+    if (index < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault(); event.stopPropagation()
+    let next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+    setTab(tabs[next].id)
+    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+  }
+  return <>
+    <h2>{plugin.name}</h2>
+    <div className={css.panelTabs} role="tablist" aria-label="Plugin features" onKeyDown={move}>{tabs.map((item, index) => <button type="button" key={item.id} id={`${id}-tab-${index}`} role="tab" aria-selected={selected.id === item.id} aria-controls={`${id}-content`} tabIndex={selected.id === item.id ? 0 : -1} data-feature={item.id} onClick={choose}>{item.title}</button>)}</div>
+    <div className={css.pluginFeaturePanel} role="tabpanel" id={`${id}-content`} aria-labelledby={`${id}-tab-${tabs.indexOf(selected)}`}>
+      {selected.id === 'settings' ? <><p>Version {plugin.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin.id} compact settingsOnly /></> : selected.id === 'activity' ? <PluginActivity pluginId={plugin.id} /> : <>{plugin.description && <p>{plugin.description}</p>}{!plugin.enabled && <p>Enable {plugin.name} in Settings to use these actions.</p>}<PluginActions plugin={plugin} actions={plugin.actions.filter(action => `feature:${action.group ?? 'Actions'}` === selected.id)} /></>}
+    </div>
+  </>
+}
+let PluginConfiguration = ({ compact = false, matches, pluginId, settingsOnly = false }: { compact?: boolean; matches?: Set<string>; pluginId?: string; settingsOnly?: boolean }) => {
   let { state, run } = useUI()
   let [query, setQuery] = useState('')
-  let choose = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.run', { action: event.currentTarget.dataset.action }) }
   let toggle = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.enable', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let toggleHooks = (event: ChangeEvent<HTMLInputElement>) => { void run('plugin.hooks', { id: event.target.dataset.id, enabled: event.target.checked }) }
   let reload = () => { void run('plugin.reload') }
@@ -1812,7 +1841,7 @@ let PluginConfiguration = ({ compact = false, matches, pluginId }: { compact?: b
     {state.plugins?.filter(plugin => (!pluginId || plugin.id === pluginId)).filter(plugin => show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) || plugin.actions.some(action => show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`))).map(plugin => <div key={plugin.id}>
       {show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} data-setting-plugin={plugin.id} checked={plugin.enabled} onChange={toggle} />{plugin.name} · {plugin.enabled ? 'enabled' : 'disabled'}{plugin.error ? ` · ${plugin.error}` : ''}</label>}
       {plugin.hasHooks && show(`[data-setting-plugin="${CSS.escape(plugin.id)}"]`) && <label><input type="checkbox" data-id={plugin.id} checked={plugin.hooks} disabled={!plugin.enabled} onChange={toggleHooks} aria-label={`Automatic hooks for ${plugin.name}`} />Automatic hooks · {plugin.hooks ? 'on' : 'off'} (reload open pages after changing)</label>}
-      {plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase()) && show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`)).map(action => <button key={action.id} className={css.listRow} disabled={!plugin.enabled} data-action={`${plugin.id}/${action.id}`} data-setting-plugin-action={`${plugin.id}/${action.id}`} onClick={choose}>{action.title}{action.description && <span className={css.pluginDescription}>{action.description}</span>}</button>)}</div>)}
+      {!settingsOnly && <PluginActions plugin={plugin} actions={plugin.actions.filter(action => `${plugin.name} ${action.title}`.toLowerCase().includes(query.toLowerCase()) && show(`[data-setting-plugin-action="${CSS.escape(`${plugin.id}/${action.id}`)}"]`))} />}</div>)}
     {!compact && <p>Scripts run with your OS user privileges.</p>}{show('[data-setting-id="reload-plugins"]') && <button data-setting-id="reload-plugins" onClick={reload}>Reload plugins</button>}</>
 }
 let PluginActivity = ({ pluginId }: { pluginId?: string }) => {

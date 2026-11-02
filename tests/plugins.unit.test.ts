@@ -52,6 +52,16 @@ describe('plugin definitions', () => {
     expect(matchesPluginUrl('https://example.test/*', 'https://example.test.evil/path')).toBe(false)
     expect(matchesPluginUrl('http://127.0.0.1:*/plugin-fixture*', 'http://127.0.0.1:8123/plugin-fixture')).toBe(true)
   })
+  test('validates action feature groups and publishes them to the plugin view', () => {
+    let { manifest, plugins, writeManifest } = fixture('', { group: '  Browsing  ' })
+    expect(parsePluginManifest(stringify(manifest)).actions[0].group).toBe('Browsing')
+    expect(plugins.list()[0].actions[0].group).toBe('Browsing')
+    for (let group of ['', '   ', false, ['Browsing']]) {
+      expect(() => parsePluginManifest(stringify({ ...manifest, actions: [{ ...manifest.actions[0], group }] }))).toThrow()
+    }
+    writeManifest({ ...manifest, actions: [{ ...manifest.actions[0], group: undefined }] }); plugins.reload()
+    expect(plugins.list()[0].actions[0]).not.toHaveProperty('group')
+  })
   test('publishes plugin origin for built-in and custom groups, including invalid manifests', () => {
     let { directory, manifest, plugins } = fixture('')
     let bundled = path.join(directory, 'bundled', 'builtin')

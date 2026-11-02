@@ -62,6 +62,10 @@ Open **Extensions > Plugins** beside a pane’s profile icon to toggle plugins,
 configure built-in tools, and run actions. The `plugins` command also opens the plugin list. `activity` shows
 progress, failures, and cancellation controls. Manifests and config reload live;
 scripts are read on the next invocation. `plugin reload` rescans immediately.
+Plugin details use feature tabs and action buttons. Set an action’s optional `group`
+to its feature name, such as `Browsing`, `Publishing`, or `Insights`. Ungrouped
+actions appear under `Actions`; `Settings` and `Activity` remain separate tabs.
+
 Invalid manifest edits preserve the last valid definition until corrected or the
 app restarts. Invalid new plugins appear disabled with an error. Enabled scripts
 are trusted across updates; bmux does not verify their signatures or contents.
@@ -80,6 +84,7 @@ actions:
   - id: run
     title: Run example
     description: Optional explanation
+    group: Browsing
     command: [python3, ./run.py]
     capabilities: [browser.read, browser.write, ui]
     timeout_seconds: 120

@@ -30,7 +30,7 @@ let action = (raw: unknown): PluginAction => {
   if (new Set(parameters.map(item => item.name)).size !== parameters.length) throw new Error('Duplicate parameter')
   let launch = value.launch_url === undefined ? undefined : new URL(text(value.launch_url))
   if (launch && (!['http:', 'https:'].includes(launch.protocol) || launch.username || launch.password || !allowed.includes('browser.manage'))) throw new Error('Window launch requires an HTTP URL and browser.manage')
-  return { ...(launch ? { launch_url: launch.href } : {}), id: identifier(value.id), title: text(value.title), description: value.description === undefined ? undefined : text(value.description), command, capabilities: allowed, timeout_seconds: Number(timeout), parameters }
+  return { ...(value.group === undefined ? {} : { group: text(value.group).trim() }), ...(launch ? { launch_url: launch.href } : {}), id: identifier(value.id), title: text(value.title), description: value.description === undefined ? undefined : text(value.description), command, capabilities: allowed, timeout_seconds: Number(timeout), parameters }
 }
 let proxyRegion = (raw: unknown): PluginProxyRegion => {
   let value = object(raw), protocol = value.protocol as PluginProxyRegion['protocol'], host = text(value.host).trim()

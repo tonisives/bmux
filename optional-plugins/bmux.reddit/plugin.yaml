@@ -5,6 +5,7 @@ category: Social Media
 version: 1.0.0
 actions:
   - id: browse
+    group: Browsing
     title: Browse Reddit URLs
     description: Visit a bounded list of Reddit pages and scroll through results.
     command: [node, ./browse.mjs]

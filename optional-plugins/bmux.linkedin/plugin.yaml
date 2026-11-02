@@ -5,6 +5,7 @@ category: Social Media
 version: 1.0.0
 actions:
   - id: browse
+    group: Research
     title: Browse LinkedIn URLs
     description: Pace a bounded list of LinkedIn pages, with optional capped likes.
     command: [node, ./browse.mjs, linkedin]
