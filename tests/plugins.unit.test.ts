@@ -264,3 +264,52 @@ test('Restart retains the settings approved in the combined form', async () => {
   expect((await done(plugins, restart.id)).result).toEqual({ parameters: { seconds: '120', ads: true } })
   expect(plugins.prompt('client')).toBeUndefined()
 })
+
+test('saved form values are profile scoped, validated, and only read before interactive configuration', async () => {
+  let prepare = vi.fn(async (context: PluginContext) => ({ ...context, paneId: 'new-pane' }))
+  let { plugins, context } = fixture(hostScript + `host('result',{parameters:host('context').parameters});`, {
+    capabilities: ['ui', 'browser.manage'], launch_url: 'https://example.test/',
+    configuration_command: [process.execPath, '-e', 'console.log(JSON.stringify({seconds:process.env.BMUX_PLUGIN_PROFILE_ID,ads:false}))'],
+    parameters: [{ name: 'seconds', title: 'Duration', kind: 'text', section: 'Session', default: '300' }, { name: 'ads', title: 'Skip ads', kind: 'boolean', advanced: true, section: 'Interactions' }],
+    presets: [{ id: 'quick', title: 'Quick browsing', values: { seconds: '300', ads: false } }],
+  }, undefined, prepare)
+  let { id } = plugins.run('test/run', { ...context, profileId: 'profile-one' }, {}, true)
+  await vi.waitFor(() => expect(plugins.prompt('client')?.kind).toBe('form'))
+  let prompt = plugins.prompt('client')!
+  expect(prompt.savedValues).toEqual({ seconds: 'profile-one', ads: false })
+  expect(prompt.values).toEqual({})
+  expect(prompt.fields?.[1]).toMatchObject({ advanced: true, section: 'Interactions' })
+  expect(prompt.presets?.[0].values).toEqual({ seconds: '300', ads: false })
+  expect(prepare).not.toHaveBeenCalled()
+  plugins.respond('client', { id: prompt.id, cancel: true })
+  expect((await done(plugins, id)).status).toBe('cancelled')
+  expect(prepare).not.toHaveBeenCalled()
+  let cli = plugins.run('test/run', context, { seconds: '5', ads: true })
+  expect((await done(plugins, cli.id)).result).toEqual({ parameters: { seconds: '5', ads: true } })
+})
+test('invalid saved settings fail before creating a window', async () => {
+  let prepare = vi.fn(async (context: PluginContext) => context)
+  let { plugins, context } = fixture('', { capabilities: ['browser.manage'], launch_url: 'https://example.test/', configuration_command: [process.execPath, '-e', 'console.log(JSON.stringify({secret:"private-disposable-value"}))'], parameters: [{ name: 'seconds', title: 'Duration', kind: 'text' }] }, undefined, prepare)
+  let result = await done(plugins, plugins.run('test/run', context, {}, true).id)
+  expect(result.status).toBe('failed')
+  expect(JSON.stringify(result)).not.toContain('private-disposable-value')
+  expect(prepare).not.toHaveBeenCalled()
+})
+test('preset metadata cannot set hidden fields, credentials, unknown fields or invalid choices', () => {
+  let { manifest } = fixture('')
+  let parse = (presets: unknown) => parsePluginManifest(stringify({ ...manifest, actions: [{ ...manifest.actions[0], parameters: [{ name: 'mode', title: 'Mode', kind: 'choice', choices: ['fast'] }, { name: 'session', title: 'Session', kind: 'text', hidden: true }, { name: 'password', title: 'Password', kind: 'password' }], presets }] }))
+  expect(parse([{ id: 'fast', title: 'Fast', values: { mode: 'fast' } }]).actions[0].presets?.[0].values).toEqual({ mode: 'fast' })
+  for (let values of [{ mode: 'invalid' }, { session: 'hidden' }, { password: 'private' }, { unknown: true }]) expect(() => parse([{ id: 'invalid', title: 'Invalid', values }])).toThrow()
+  expect(() => parse([{ id: 'duplicate', title: 'One', values: {} }, { id: 'duplicate', title: 'Two', values: {} }])).toThrow()
+})
+test('choosing session settings returns to the form and waits for a new start', async () => {
+  let { plugins, context } = fixture(hostScript + `host('overlay.update',{title:'Fixture',nodes:[],controls:[]});`, { capabilities: ['ui'], parameters: [{ name: 'seconds', title: 'Duration', kind: 'text' }, { name: 'ads', title: 'Skip ads', kind: 'boolean' }] })
+  let id = plugins.run('test/run', { ...context, profileId: 'profile-one' }, { seconds: '5', ads: true }).id
+  expect((await done(plugins, id)).status).toBe('completed')
+  let next = plugins.configureOverlay(id)
+  await vi.waitFor(() => expect(plugins.prompt('client')?.kind).toBe('form'))
+  expect(plugins.prompt('client')?.values).toEqual({})
+  expect(plugins.runs().find(run => run.id === next.id)?.status).toBe('running')
+  plugins.respond('client', { id: plugins.prompt('client')!.id, cancel: true })
+  expect((await done(plugins, next.id)).status).toBe('cancelled')
+})

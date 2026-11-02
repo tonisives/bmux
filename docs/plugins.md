@@ -65,6 +65,30 @@ scripts are read on the next invocation. `plugin reload` rescans immediately.
 Plugin details use feature tabs and action buttons. Set an action’s optional `group`
 to its feature name, such as `Browsing`, `Publishing`, or `Insights`. Ungrouped
 actions appear under `Actions`; `Settings` and `Activity` remain separate tabs.
+Descriptions wrap beside compact action buttons.
+
+Action parameters support `section`, `description`, and `advanced: true` to group
+the form and keep additional controls behind full configuration. Optional
+`presets` contain an `id`, `title`, optional `description`, and a mapping of
+parameter `values`. Choosing a preset fills the form; individual values remain
+editable. Presets cannot contain hidden parameters or passwords.
+
+For profile-specific saved values, `configuration_command` is an argument array
+that prints one JSON object mapping parameter names to their effective values.
+BMUX passes the active profile in `BMUX_PLUGIN_PROFILE_ID`. This command runs
+before an interactive form, with a five second limit, and receives no plugin
+host token. Only declared visible non-password fields are accepted. It must
+only read configuration and must never print credentials. The form labels each
+inherited value as `Use saved setting: VALUE`; omitted values still use the
+plugin's saved configuration at launch. CLI invocations skip this reader.
+
+Authenticated plugin browser operations carry the plugin's own identity. The
+external CLI identity requirements apply to external agents; plugin capability,
+document and automation checks still apply to each browser operation.
+
+The observer has one Details and settings expander with a view selector. Stop
+returns browsing actions to their configuration form. Starting from that form
+is the only start step; completed runs offer Choose session settings.
 
 Invalid manifest edits preserve the last valid definition until corrected or the
 app restarts. Invalid new plugins appear disabled with an error. Enabled scripts

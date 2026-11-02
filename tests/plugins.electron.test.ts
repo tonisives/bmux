@@ -24,6 +24,11 @@ if (action === 'pick') {
  host('navigate',{url:context.launchUrl});
  for(let attempt=0;attempt<100;attempt++){context=host('context',{refresh:true});if(context.url===context.launchUrl)break;await new Promise(resolve=>setTimeout(resolve,50))}
  host('wait',{selector:'#username'});
+ let image=host('screenshot',{fullPage:false,encoding:'base64',format:'jpeg',quality:60,maxDimension:768});if(!image.data)throw new Error('No screenshot');
+ if(context.parameters.session==='observe'){
+  host('overlay.update',{title:'Feed decisions',status:'Browsing',nodes:[{title:'1 Post',lines:['A software demo'],tone:'cyan'}],controls:[{id:'stop',label:'Stop session',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'What we sent',text:'Caption and screenshot'},{title:'Full answer',text:'Watch'},{title:'Profile',text:'AI and computers'},{title:'Activity',text:'Observed one post'}]});
+  while(!host('overlay.events').some(input=>input.id==='stop'))await new Promise(resolve=>setTimeout(resolve,20));
+ }
  host('result',{pane:context.paneId,profile:context.profileId,approved:context.launchApproved,url:context.url,parameters:context.parameters});
 } else if (action === 'password') { host('result',{received:context.parameters.password === 'disposable-test-value'});
 } else if (action === 'stale') {
@@ -47,8 +52,8 @@ test.beforeAll(async () => {
   await fs.cp(path.resolve('examples/plugins/local.page-tools'), path.join(directory, 'plugins/local.page-tools'), { recursive: true })
   await fs.writeFile(path.join(folder, 'run.mjs'), script)
   let action = (id: string) => ({ id, title: id, command: ['node', './run.mjs', id], capabilities: ['browser.read', 'browser.write', 'ui'], timeout_seconds: 40 })
-  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', category: 'Social Media', description: 'Feed browsing and all platform tools.', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture', 'overlay'].map(action).concat([{ ...action('launch'), group: 'Browsing', title: 'Simulate feed browsing', capabilities: ['browser.manage', 'browser.read', 'browser.write', 'ui'], launch_url: 'https://example.test/feed', parameters: [{ name: 'seconds', title: 'Duration in seconds', kind: 'text', default: '300' }, { name: 'ads', title: 'Skip ads', kind: 'boolean', default: false }, { name: 'session', title: 'Session ID', kind: 'text', hidden: true }] } as any, { ...action('password'), group: 'Publishing', parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
-  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
+  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', category: 'Social Media', description: 'Feed browsing and all platform tools.', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture', 'overlay'].map(action).concat([{ ...action('launch'), group: 'Browsing', title: 'Simulate feed browsing', description: 'Browse in a new muted window using the active profile. Choose a preset, then adjust settings before starting. This longer description must wrap within its column at every window size.', configuration_command: ['node', '-e', 'console.log(JSON.stringify({seconds:process.env.BMUX_PLUGIN_PROFILE_ID ? \"300\" : \"0\",ads:false}))'], presets: [{ id: 'quick', title: 'Quick browsing', description: 'Five minutes with no interactions.', values: { seconds: '300', ads: false } }, { id: 'training', title: 'Caption training', values: { seconds: '60', ads: true } }], capabilities: ['browser.manage', 'browser.read', 'browser.write', 'ui'], launch_url: 'https://example.test/feed', parameters: [{ name: 'seconds', title: 'Duration in seconds', kind: 'text', section: 'Session' }, { name: 'ads', title: 'Skip ads', kind: 'boolean', section: 'Interactions', advanced: true }, { name: 'session', title: 'Session ID', kind: 'text', hidden: true }] } as any, { ...action('password'), group: 'Publishing', parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ automation: { agents: { requireId: true, requireType: true, definitions: { tmux: { fields: { paneId: { label: 'Terminal pane', required: true } } } } } }, browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
   server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Plugin fixture</title><h1>Plugin fixture</h1><input id="username" autocomplete="username"><input id="password" type="password"><input id="hidden" type="hidden"><p id="note">Native page content</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
   let manifest = parse(await fs.readFile(path.join(folder, 'plugin.yaml'), 'utf8'))
@@ -274,7 +279,7 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
   await expect(observer.getByRole('status')).toHaveText('Waiting for Start')
   await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
-  await observer.getByText('Optimise this session', { exact: true }).click()
+  await observer.getByText('Details and settings', { exact: true }).click()
   await expect(observer.getByRole('checkbox', { name: 'Skip ads' })).not.toBeChecked()
   let before = (await state()).pluginOverlay.bounds
   await observer.getByRole('slider', { name: 'Resize observer' }).focus()
@@ -304,7 +309,7 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay.png') })
   await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
   await completed(id)
-  await expect(observer.getByRole('button', { name: 'Restart session', exact: true })).toBeVisible()
+  await expect(observer.getByRole('button', { name: 'Choose session settings', exact: true })).toBeVisible()
   let page = application.context().pages().find(page => page.url().startsWith(url))!
   expect(await page.evaluate(() => typeof (window as any).bmux)).toBe('undefined')
 })
@@ -349,6 +354,10 @@ test('Social Media details launch one settings form and a muted window with the 
   let actionBounds = await details.getByRole('button', { name: 'Simulate feed browsing', exact: true }).boundingBox(), detailBounds = await details.boundingBox()
   expect(actionBounds!.x).toBeGreaterThanOrEqual(detailBounds!.x)
   expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(detailBounds!.x + detailBounds!.width)
+  let description = details.locator('[id$="-description"]')
+  await expect(description).toHaveCount(1)
+  expect(await description.evaluate(element => element.scrollWidth <= element.clientWidth && getComputedStyle(element).whiteSpace === 'normal')).toBe(true)
+  expect(await details.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   await chrome.screenshot({ path: path.resolve('artifacts/plugin-feature-tabs-narrow.png') })
   await application.evaluate(({ BaseWindow }, bounds) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setBounds(bounds), nativeBounds)
   await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(viewport.width)
@@ -361,14 +370,25 @@ test('Social Media details launch one settings form and a muted window with the 
   let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
   await expect(dialog.getByRole('heading', { name: 'Fixture plugin · Simulate feed browsing' })).toBeVisible()
   await expect(dialog.getByText('Opens a new muted window using Feed launch fixture.')).toBeVisible()
-  await expect(dialog.getByLabel('Duration in seconds')).toHaveValue('300')
-  await expect(dialog.getByLabel('Skip ads')).toHaveValue('false')
+  await expect(dialog.getByRole('button', { name: 'Saved settings', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(dialog.getByLabel('Duration in seconds')).toHaveAttribute('placeholder', '300')
+  await expect(dialog.getByLabel('Skip ads')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Caption training', exact: true }).click()
+  await expect(dialog.getByLabel('Duration in seconds')).toHaveValue('60')
+  await dialog.getByRole('button', { name: 'Extend and configure all settings', exact: true }).click()
+  await expect(dialog.getByRole('group', { name: 'Interactions', exact: true })).toBeVisible()
+  await expect(dialog.getByLabel('Skip ads')).toHaveValue('true')
+  await expect(dialog.getByLabel('Skip ads').getByRole('option', { name: 'Use saved setting: Off', exact: true })).toHaveCount(1)
+  await dialog.getByRole('button', { name: 'Saved settings', exact: true }).click()
+  await expect(dialog.getByLabel('Skip ads')).toHaveValue('')
+  await expect(dialog.getByLabel('Duration in seconds')).toHaveValue('')
   await expect(dialog.getByLabel('Session ID')).toHaveCount(0)
   await fs.mkdir(path.resolve('artifacts'), { recursive: true }); await chrome.screenshot({ path: path.resolve('artifacts/social-plugin-settings.png') })
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   expect((await state()).model.sessions.find((session: any) => session.id === client.sessionId).windows.length).toBe(windows)
   let id = await run('launch')
+  await dialog.getByRole('button', { name: 'Quick browsing', exact: true }).click()
   await dialog.getByLabel('Duration in seconds').fill('5')
   await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
   await completed(id)
@@ -382,4 +402,26 @@ test('Social Media details launch one settings form and a muted window with the 
   expect(await application.evaluate(({ webContents }, url) => webContents.getAllWebContents().some(contents => contents.getURL() === url + '/feed' && contents.isAudioMuted()), url)).toBe(true)
   await expect(dialog).toHaveCount(0)
   await expect(chrome.getByRole('textbox', { name: 'URL or search' })).toHaveCount(0)
+})
+
+test('Social Media Stop returns to configuration without Prepare or a new window', async () => {
+  let id = await run('launch', { parameters: { session: 'observe' } })
+  let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
+  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  await expect(observer.getByRole('status')).toHaveText('Browsing')
+  let windows = (await state()).model.sessions.flatMap((session: any) => session.windows).length
+  await expect(observer.locator('details')).toHaveCount(1)
+  await observer.getByText('Details and settings', { exact: true }).click()
+  await observer.getByLabel('Observer detail').selectOption({ label: 'Full answer' })
+  await expect(observer.locator('pre')).toHaveText('Watch')
+  await observer.getByRole('button', { name: 'Stop session', exact: true }).click()
+  await completed(id)
+  await expect(dialog.getByRole('heading', { name: 'Fixture plugin · Simulate feed browsing' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Saved settings', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
+  expect((await state()).model.sessions.flatMap((session: any) => session.windows).length).toBe(windows)
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
 })

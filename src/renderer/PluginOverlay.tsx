@@ -41,25 +41,32 @@ let ObserverBody = ({ error }: { error:string }) => {
     <p className={css.status} role="status">{overlay.ended ? overlay.error || overlay.content.status || 'Session ended' : overlay.content.status}</p>
     <p className={css.metrics}>{overlay.content.metrics}</p>
     <div className={css.nodes}>{overlay.content.nodes.map((node, index) => <ObserverNode key={index} node={node} />)}</div>
-    {!overlay.ended && <ObserverSettings />}
-    {overlay.content.details.map((detail, index) => <details key={index}><summary>{detail.title}</summary><pre>{detail.text}</pre></details>)}
+    <ObserverDetails />
     {error && <p className={css.error} role="alert">{error}</p>}
   </div>
 }
 let ObserverNode = ({ node }: { node:PluginOverlayState['content']['nodes'][number] }) => <section data-tone={node.tone}><h2>{node.title}</h2>{node.lines.map((line, index) => <p key={index}>{line}</p>)}</section>
 let ObserverButtons = () => {
-  let { overlay, command, busy } = useObserver(), [confirming, setConfirming] = useState(false)
-  useEffect(() => setConfirming(false), [overlay.runId])
-  let confirm = () => setConfirming(true), back = () => setConfirming(false), restart = () => void command('plugin.overlay.restart')
-  return <div className={css.controls}>{overlay.ended ? confirming ? <><p>Prepare a new session? Browsing waits for Start.</p><button disabled={busy} onClick={restart}>Prepare session</button><button onClick={back}>Back</button></> : <button onClick={confirm}>Restart session</button> : overlay.content.controls.filter(control => control.kind === 'button').map(control => <ObserverButton key={control.id} control={control} />)}</div>
+  let { overlay, command, busy, input } = useObserver(), [returnToSetup, setReturnToSetup] = useState(false)
+  useEffect(() => { setReturnToSetup(false) }, [overlay.runId])
+  useEffect(() => {
+    if (overlay.ended && returnToSetup) { setReturnToSetup(false); void command('plugin.overlay.configure') }
+  }, [overlay.ended, returnToSetup, command])
+  let configure = () => void command('plugin.overlay.configure')
+  let stop = () => { setReturnToSetup(true); void input('stop') }
+  return <div className={css.controls}>{overlay.ended ? <button disabled={busy} onClick={configure}>Choose session settings</button> : overlay.content.controls.filter(control => control.kind === 'button').map(control => control.id === 'stop' ? <button key={control.id} disabled={busy || control.disabled} onClick={stop}>Stop session</button> : <ObserverButton key={control.id} control={control} />)}</div>
 }
 let ObserverButton = ({ control }: { control:PluginOverlayControl }) => {
   let { input, busy } = useObserver(), click = () => void input(control.id)
   return <button disabled={busy || control.disabled} onClick={click}>{control.label}</button>
 }
-let ObserverSettings = () => {
-  let { overlay } = useObserver()
-  return <details className={css.settings}><summary>Optimise this session</summary>{overlay.content.controls.filter(control => control.kind !== 'button').map(control => <OverlayField key={control.id} control={control} />)}</details>
+let ObserverDetails = () => {
+  let { overlay } = useObserver(), [selected, setSelected] = useState('settings')
+  let sections = [...(!overlay.ended && overlay.content.controls.some(control => control.kind !== 'button') ? [{ id: 'settings', title: 'Session settings' }] : []), ...overlay.content.details.map((detail, index) => ({ id: String(index), title: detail.title }))]
+  let current = sections.find(section => section.id === selected)?.id ?? sections[0]?.id
+  let choose = (event: ChangeEvent<HTMLSelectElement>) => setSelected(event.target.value)
+  if (!sections.length) return null
+  return <details><summary>Details and settings</summary><label className={css.field}>View<select aria-label="Observer detail" value={current} onChange={choose}>{sections.map(section => <option key={section.id} value={section.id}>{section.title}</option>)}</select></label>{current === 'settings' ? overlay.content.controls.filter(control => control.kind !== 'button').map(control => <OverlayField key={control.id} control={control} />) : <pre>{overlay.content.details[Number(current)]?.text}</pre>}</details>
 }
 let OverlayField = ({ control }: { control: PluginOverlayControl }) => {
   let { input } = useObserver(), [value, setValue] = useState(String(control.value ?? ''))

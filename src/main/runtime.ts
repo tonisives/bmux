@@ -185,6 +185,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     void scheduleVisuals()
     publish()
   }
+  let pluginActor = new AsyncLocalStorage<boolean>()
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
   let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait', 'client.tooltip'])
   let checkControl = (method: string, args: Record<string, unknown>, sourceClientId?: string) => {
@@ -2460,7 +2461,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let creation = ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(command.method)
     if (!sourceClientId && !remoteActor.getStore() && (agentCommands.has(command.method) || command.method === 'automation.acquire' || creation)) {
       let required = !creation || command.args?.url !== undefined
-      let actor = agentRegistry.resolve(command.args ?? {}, configuration?.automation.agents ?? DEFAULT_AGENTS, required)
+      let actor = agentRegistry.resolve(command.args ?? {}, configuration?.automation.agents ?? DEFAULT_AGENTS, required && !pluginActor.getStore())
       command = { ...command, args: { ...command.args, ...actor } }
     }
     if (agentCommands.has(command.method) || command.method === 'automation.acquire' || command.method === 'browser.set') {
@@ -2997,6 +2998,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let current = overlayForClient(sourceClientId), owner = clients.get(sourceClientId)
       if (!current || current.runId !== args.id || !owner) throw new Error('Observer no longer belongs to the selected pane')
       if (method === 'plugin.overlay.input') return plugins?.overlayInput(current.runId, required(args, 'control'), args.value)
+      if (method === 'plugin.overlay.configure') return plugins?.configureOverlay(current.runId)
       if (method === 'plugin.overlay.restart') return plugins?.restartOverlay(current.runId)
       if (method === 'plugin.overlay.bounds') {
         if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid observer bounds')
@@ -4110,7 +4112,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       audio[pane.id] = { playing: false, muted: true }
       publish()
       return pluginContext({ clientId: context.clientId, paneId: pane.id, agentId: context.agentId })
-    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute, before: async (context, method, args) => {
+    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
       await guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
       if (context.paneId) tabs.get(context.paneId)?.inputLock?.showCommand(agentCommandLabel(method, args))
     } }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })

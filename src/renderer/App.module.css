@@ -677,8 +677,23 @@
 
 .pluginParameters { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .pluginParameters h2, .pluginParameters p { margin: 0; }
-.pluginParameterFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-height: 55vh; overflow: auto; padding: 2px; }
-.pluginParameterFields label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pluginParameterBody { display: grid; gap: 16px; max-height: 60vh; overflow: auto; padding: 4px; min-width: 0; }
+.pluginParameterSection { margin: 0; padding: 16px; border: 1px solid #444b59; min-width: 0; }
+.pluginParameterSection legend, .pluginPresetSection h3 { font-size: 14px; line-height: 20px; font-weight: 600; padding: 0 4px; }
+.pluginPresetSection h3 { margin: 0; padding: 0; }
+.pluginPresetSection { display: grid; gap: 12px; min-width: 0; }
+.pluginPresetSection p, .pluginParameterFields small { color: #aab4bf; font-size: 12px; line-height: 16px; white-space: normal; overflow-wrap: anywhere; }
+.pluginPresetButtons { display: flex; flex-wrap: wrap; gap: 8px; }
+.panel .pluginPresetButtons button, .panel .pluginAdvancedSettings > button { padding: 8px 12px; border: 1px solid #505a66; white-space: normal; text-align: left; }
+.panel .pluginPresetButtons button[aria-pressed="true"] { background: #bdc9b4; color: #181818; }
+.pluginPresetSummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0; }
+.pluginPresetSummary > div { min-width: 0; }
+.pluginPresetSummary dt { color: #aab4bf; font-size: 12px; line-height: 16px; white-space: normal; }
+.pluginPresetSummary dd { margin: 0; font-size: 14px; line-height: 20px; white-space: normal; overflow-wrap: anywhere; }
+.pluginAdvancedSettings { display: grid; gap: 12px; }
+.pluginAdvancedSettings > div { display: grid; gap: 16px; }
+.pluginParameterFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 2px; }
+.pluginParameterFields label { display: flex; flex-direction: column; gap: 8px; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .pluginParameterFields input, .pluginParameterFields select { width: 100%; box-sizing: border-box; padding: 8px; background: #111318; border: 1px solid #505a66; color: #eceef2; font: inherit; }
 .pluginParameterActions { display: flex; justify-content: flex-end; gap: 12px; }
 .pluginParameterActions button { padding: 8px 16px; border: 1px solid #505a66; }
@@ -688,11 +703,12 @@
 .extensionWorkspace > .pluginDetails { display: flex; flex-direction: column; overflow: hidden; }
 .pluginDetails > h2 { margin: 0 0 12px; font-size: 16px; line-height: 24px; font-weight: 600; }
 .pluginFeaturePanel { flex: 1; min-height: 0; overflow: auto; padding: 16px 4px 4px; }
-.pluginFeaturePanel > p:first-child { margin-top: 0; }
-.pluginActionGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; align-content: start; }
-.panel .pluginActionButton { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; padding: 12px; border: 1px solid #444b59; background: #272727; color: #eceef2; text-align: left; overflow-wrap: anywhere; }
-.pluginActionButton strong { font-size: 14px; line-height: 20px; font-weight: 600; }
-.pluginActionButton span { color: #aab4bf; font-size: 12px; line-height: 16px; }
+.pluginFeaturePanel > p:first-child { margin-top: 0; white-space: normal; overflow-wrap: anywhere; }
+.pluginActionGrid { display: grid; gap: 24px; align-content: start; min-width: 0; }
+.pluginActionRow { display: grid; grid-template-columns: minmax(0, 240px) minmax(0, 1fr); gap: 16px; align-items: start; min-width: 0; }
+.pluginActionRow p { margin: 0; padding: 8px 0; min-width: 0; color: #aab4bf; font-size: 14px; line-height: 20px; white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
+.panel .pluginActionButton { justify-self: start; max-width: 100%; min-width: 0; padding: 8px 12px; border: 1px solid #444b59; background: #272727; color: #eceef2; text-align: left; white-space: normal; overflow-wrap: anywhere; font-size: 14px; line-height: 20px; font-weight: 600; }
+@media (max-width: 540px) { .pluginActionRow { grid-template-columns: minmax(0, 1fr); gap: 4px; } .pluginPresetSummary { grid-template-columns: minmax(0, 1fr); } }
 .panel .pluginActionButton:hover:not(:disabled) { background: #313131; border-color: #83917b; }
 .panel .pluginActionButton:active:not(:disabled) { transform: translateY(1px); }
 .panel .pluginActionButton:focus-visible { outline: 2px solid #bdc9b4; outline-offset: 2px; }
