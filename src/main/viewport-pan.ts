@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { viewportPanDelta } from '../shared/viewport-pan'
 
-// Runs in an isolated world, including child frames, without a page preload.
+// Runs in bmux's input shield. Webpages keep their normal wheel handling.
 export let observeViewportPan = (marker: string, enabled: boolean, delta: typeof viewportPanDelta) => {
   let scope = globalThis as typeof globalThis & { bmuxViewportPan?: { enabled: boolean } }
   if (scope.bmuxViewportPan) { scope.bmuxViewportPan.enabled = enabled; return }

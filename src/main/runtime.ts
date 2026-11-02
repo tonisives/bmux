@@ -99,12 +99,13 @@ import { createPreviewCache } from './preview-cache'
 import { createPreviewRefresh } from './preview-refresh'
 import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
+import { recentBackgroundPanes } from './recent-panes'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
 import { createViewportPan } from './viewport-pan'
 import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
-type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; viewportPan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
@@ -236,6 +237,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
   let idleRelease = new Map<string, Promise<void>>()
   let scriptTouchedTabs = new Set<string>()
   let lastTabUse = new Map<string, number>()
+  let lastPaneVisit = new Map<string, number>()
   let previouslyVisibleTabs = new Set<string>()
   let idleCheckRunning = false
   let pageLimitTimer: ReturnType<typeof setTimeout> | undefined
@@ -1281,7 +1283,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let target = owner.floats.get(tabId)?.webContents ?? owner.chrome.webContents
       target.send('viewport-scroll', tabId, x, y)
     }
-    live.viewportPan = createViewportPan(contents, panEnabled, expression => pageTools?.frameContexts(tabId, expression) ?? Promise.resolve(), pan)
     live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), contents => {
       installKeys(contents)
       live.shieldPan = createViewportPan(contents, panEnabled, expression => contents.executeJavaScript(expression), pan)
@@ -1630,16 +1631,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     if ((!minutes && !limit) || idleCheckRunning || shuttingDown) return
     idleCheckRunning = true
     try {
-      let hidden = [...tabs].filter(([id, live]) => !remotePages.has(id) && !live.disposed && !live.contents.isDestroyed() && !tabIsVisible(id)).sort(([a], [b]) => (lastTabUse.get(a) ?? 0) - (lastTabUse.get(b) ?? 0))
+      let hidden = [...tabs].filter(([id, live]) => !remotePages.has(id) && !live.disposed && !live.contents.isDestroyed() && !tabIsVisible(id))
+      let recent = () => recentBackgroundPanes(model.sessions, model.clients.filter(client => clients.has(client.id)), new Set(hidden.map(([id]) => id)), lastPaneVisit)
+      let positions = new Map(recent().order.map((id, index) => [id, index]))
+      hidden.sort(([a], [b]) => (positions.get(b) ?? Infinity) - (positions.get(a) ?? Infinity) || (lastTabUse.get(a) ?? 0) - (lastTabUse.get(b) ?? 0))
       let excess = limit ? Math.max(0, hidden.length - limit) : 0
       for (let [tabId, live] of hidden) {
-        if (remotePages.has(tabId)) continue
+        if (remotePages.has(tabId) || recent().retained.has(tabId)) continue
         let last = lastTabUse.get(tabId) ?? Date.now()
         let budget = excess > 0
         if (!budget && (!minutes || Date.now() - last < minutes * 60_000)) continue
         try {
           if (!await canUnloadIdleTab(tabId, live, budget)) continue
-          if (tabs.get(tabId) !== live || unloadProtected(tabId, live) || lastTabUse.get(tabId) !== last) continue
+          if (tabs.get(tabId) !== live || unloadProtected(tabId, live) || lastTabUse.get(tabId) !== last || recent().retained.has(tabId)) continue
           let history = live.contents.navigationHistory
           let saved = { entries: history.getAllEntries(), index: history.getActiveIndex() }
           if (live.initialHistory?.cancelled && saved.index === live.initialHistory.blankIndex) {
@@ -1928,6 +1932,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
     for (let tabId of deferredTabs) if (!liveIds.has(tabId)) deferredTabs.delete(tabId)
     for (let tabId of deferredLinkLoads.keys()) if (!liveIds.has(tabId)) deferredLinkLoads.delete(tabId)
     for (let tabId of idleUnloaded) if (!liveIds.has(tabId)) { idleUnloaded.delete(tabId); idleHistory.delete(tabId) }
+    for (let tabId of lastPaneVisit.keys()) if (!liveIds.has(tabId)) lastPaneVisit.delete(tabId)
     let selected = new Set(model.clients.filter(client => clients.has(client.id)).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
     let visibleSelected = new Set(model.clients.filter(client => { let owner = clients.get(client.id); return owner && owner.window.isVisible() && !owner.window.isMinimized() }).flatMap(client => visiblePaneIds(client).map(paneId => paneById(model, paneId).pane.id)))
     let remoteMedia = new Set<string>()
@@ -1945,8 +1950,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       if (tabs.has(pane.id) && !remoteMedia.has(pane.id)) disposeTab(pane.id)
     }
     for (let tabId of liveIds) if ((!tabById(model, tabId).session.remote || remoteMedia.has(tabId)) && !tabs.has(tabId) && (!deferredTabs.has(tabId) || selected.has(tabId)) && (!idleUnloaded.has(tabId) || visibleSelected.has(tabId))) { deferredTabs.delete(tabId); idleUnloaded.delete(tabId); createLiveTab(tabId) }
-    for (let tabId of previouslyVisibleTabs) if (liveIds.has(tabId) && !visibleSelected.has(tabId)) lastTabUse.set(tabId, Date.now())
-    for (let tabId of visibleSelected) lastTabUse.set(tabId, Date.now())
+    for (let tabId of previouslyVisibleTabs) if (liveIds.has(tabId) && !visibleSelected.has(tabId)) { lastTabUse.set(tabId, Date.now()); lastPaneVisit.set(tabId, Date.now()) }
+    for (let tabId of visibleSelected) { lastTabUse.set(tabId, Date.now()); lastPaneVisit.set(tabId, Date.now()) }
     previouslyVisibleTabs = visibleSelected
     schedulePageLimit()
     for (let candidate of model.clients) { let live = clients.get(candidate.id); if (live) prepareFloats(candidate, live) }
@@ -1997,7 +2002,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
         capturedViewport = true
       }
       let fixedSize = fixedViewport(tabId)
-      void live.viewportPan?.refresh()
       void live.shieldPan?.refresh()
       if (!fixedSize) removeRemoteFrame(live)
       // Remote viewer contents belong to the app session, outside profile extensions.
