@@ -313,3 +313,21 @@ test('choosing session settings returns to the form and waits for a new start', 
   plugins.respond('client', { id: plugins.prompt('client')!.id, cancel: true })
   expect((await done(plugins, next.id)).status).toBe('cancelled')
 })
+
+test('new-window setup survives source video navigation while document-bound prompts still cancel', async () => {
+  let prepare = vi.fn(async (context: PluginContext) => ({ ...context, paneId: 'new-pane', documentId: 'new-document' }))
+  let setup = fixture(hostScript + `host('result',{pane:host('context').paneId});`, { capabilities: ['browser.manage'], launch_url: 'https://example.test/', parameters: [{ name: 'seconds', title: 'Duration', kind: 'text' }] }, undefined, prepare)
+  let id = setup.plugins.run('test/run', setup.context, {}, true).id
+  await vi.waitFor(() => expect(setup.plugins.prompt('client')?.kind).toBe('form'))
+  let prompt = setup.plugins.prompt('client')!
+  setup.plugins.invalidate('original')
+  expect(setup.plugins.prompt('client')?.id).toBe(prompt.id)
+  expect(prepare).not.toHaveBeenCalled()
+  setup.plugins.respond('client', { id: prompt.id, value: { seconds: '5' } })
+  expect((await done(setup.plugins, id)).result).toEqual({ pane: 'new-pane' })
+  let bound = fixture(hostScript + `host('ui',{kind:'text',title:'Document-bound prompt'});`, { capabilities: ['ui'] })
+  let original = bound.plugins.run('test/run', bound.context, {}, true).id
+  await vi.waitFor(() => expect(bound.plugins.prompt('client')).toBeTruthy())
+  bound.plugins.invalidate('original')
+  expect((await done(bound.plugins, original)).status).toBe('cancelled')
+})

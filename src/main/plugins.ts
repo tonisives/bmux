@@ -314,7 +314,7 @@ export let createPlugins = (options: Options) => {
     }
   }
   let invalidate = (paneId: string) => {
-    for (let run of runs.values()) if (run.context.paneId === paneId && (run.public.hook || run.pending)) finish(run, 'cancelled')
+    for (let run of runs.values()) if (run.context.paneId === paneId && (run.public.hook || run.pending && !(run.action.launch_url && run.pending.prompt.kind === 'form'))) finish(run, 'cancelled')
   }
   let reload = () => {
     if (closed || scanning) return
