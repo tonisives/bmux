@@ -15,7 +15,8 @@ test('address search selects search for phrases and domains for exact known name
   try {
     await application.context().route('https://www.google.com/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Search fixture</title><h1>Search fixture</h1>' }))
     await application.context().route('https://github.com/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>GitHub fixture</title><h1>GitHub fixture</h1>' }))
-    await application.context().route('https://maps.google.com/**', route => route.fulfill({ status: 302, headers: { location: 'https://www.google.com/maps' } }))
+    // A separate navigation keeps the redirect destination inside the fixture routes.
+    await application.context().route('https://maps.google.com/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Maps redirect fixture</title><script>location.replace("https://www.google.com/maps")</script>' }))
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
