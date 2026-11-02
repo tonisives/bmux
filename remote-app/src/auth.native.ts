@@ -39,6 +39,20 @@ export let signIn = async (provider: 'google' | 'apple' = 'google'): Promise<voi
     if (revision === attempt && !signingOut) await writeSession(session)
   } finally { signingIn = false }
 }
+export let signInWithEmail = async (email: string, password: string): Promise<void> => {
+  if (signingIn || signingOut) return
+  signingIn = true
+  let attempt = ++revision
+  try {
+    let response = await fetch(new URL('/api/auth/mobile/password', origin), { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim(), password }), signal: AbortSignal.timeout(15000) })
+    if (!response.ok) {
+      let result = await response.json().catch(() => ({})) as { error?: string }
+      throw new Error(result.error ?? 'Email sign-in is unavailable.')
+    }
+    let session = issuedSession(await response.json())
+    if (revision === attempt && !signingOut) await writeSession(session)
+  } finally { signingIn = false }
+}
 export let accessToken = async (): Promise<string | undefined> => {
   if (signingOut) return
   if (refreshing) return refreshing

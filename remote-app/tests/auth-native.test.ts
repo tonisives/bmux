@@ -64,6 +64,22 @@ it('keeps Apple sign-in available with the same PKCE return flow', async () => {
   expect(url.searchParams.get('code_challenge_method')).toBe('S256')
   expect(persisted?.owner).toBe('owner')
 })
+it('stores native email credentials for the same account without opening OAuth', async () => {
+  let next = session('existing-google-owner')
+  let fetcher = vi.fn(async () => response(next))
+  vi.stubGlobal('fetch', fetcher)
+  let auth = await import('../src/auth.native')
+  await auth.signInWithEmail(' person@example.com ', 'fixture-password')
+  expect(fetcher).toHaveBeenCalledWith(new URL('https://remote.bmux.cc/api/auth/mobile/password'), expect.objectContaining({ credentials: 'omit', body: JSON.stringify({ email: 'person@example.com', password: 'fixture-password' }) }))
+  expect(persisted).toEqual(next)
+  expect(mocks.prompt).not.toHaveBeenCalled()
+})
+it('leaves storage empty when an email password is rejected', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({ error: 'Email or password is incorrect.' }) })))
+  let auth = await import('../src/auth.native')
+  await expect(auth.signInWithEmail('person@example.com', 'incorrect')).rejects.toThrow('Email or password is incorrect.')
+  expect(persisted).toBeUndefined()
+})
 it('coalesces concurrent refreshes so rotating tokens are used once', async () => {
   persisted = { ...session(), expiresAt: new Date(Date.now() - 1000).toISOString() }
   let next = { ...session(), accessToken: 'd'.repeat(64), refreshToken: 'e'.repeat(64) }

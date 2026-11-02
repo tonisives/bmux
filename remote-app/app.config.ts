@@ -24,6 +24,8 @@ let config: ExpoConfig = {
   web: { bundler: 'metro', output: 'single' },
   plugins: [
     'expo-router',
+    ['expo-asset', { assets: ['../design/app-icon.png'] }],
+    ['expo-font', { fonts: ['./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf'] }],
     'expo-secure-store',
     'expo-web-browser',
     ['expo-dev-client', { ios: { launchMode: 'launcher' } }],
