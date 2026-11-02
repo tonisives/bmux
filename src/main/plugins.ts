@@ -16,6 +16,7 @@ type Run = { overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[
 type Options = {
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
+  decisions?: (method: 'usage' | 'create', args: Record<string, unknown>) => Promise<unknown>
   settings: () => PluginSettings
   changed: () => void
   context: (target: PluginContext) => PluginContext
@@ -118,6 +119,11 @@ export let createPlugins = (options: Options) => {
       if (!run.action.capabilities.includes('ui') || run.public.hook || !run.context.paneId) throw new Error('Manual ui capability required for overlay')
       if (method === 'overlay.update') { run.overlay = parsePluginOverlay(args); options.changed(); return { updated: true } }
       return run.overlayInputs?.splice(0) ?? []
+    }
+    if (method === 'decisions.usage' || method === 'decisions.create') {
+      if (!run.action.capabilities.includes('ai.decisions') || run.public.hook || !options.decisions) throw new Error('AI decisions capability unavailable')
+      if (method === 'decisions.create' && (JSON.stringify(args).length > 255000 || typeof args.requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(args.requestId))) throw new Error('Invalid decision request')
+      return options.decisions(method === 'decisions.usage' ? 'usage' : 'create', args)
     }
     if (method === 'progress') {
       if (typeof args.percent !== 'number' || !Number.isFinite(args.percent) || args.percent < 0 || args.percent > 100) throw new Error('Invalid progress')

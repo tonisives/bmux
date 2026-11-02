@@ -7,3 +7,7 @@ Use `host('overlay.update', content)` to replace its bounded, text-only model. C
 Observers can be dragged by their header, resized from their bottom corner, and collapsed. Bounds stay inside the selected pane when the window changes size. Each client retains its own pane placement. An ended action retains its final observer with a confirmed restart option. Restart uses the original action and non-password parameters in the same profile; actions must still obtain their own browsing approval.
 
 Keep post and decision summaries short. Put complete prompts, responses and logs in expandable details. Never publish credentials in the observer model.
+
+## Included AI bridge
+
+The separate `ai.decisions` capability permits manual scripts to query `decisions.usage` and submit `decisions.create` with `{requestId,payload}`. BMUX uses the signed-in subscription; scripts never receive the account token or provider key. The service enforces a shared monthly allowance and bounded gpt-6-luna request shape. Hooks cannot spend the allowance. A host or service without this feature returns an error; callers should pause and offer Train mode or a personal key.

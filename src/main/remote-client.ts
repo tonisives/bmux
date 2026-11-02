@@ -132,7 +132,7 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     return result
   }
   let account = async (endpoint: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<unknown> => {
-    if (!/^\/api\/hooks(?:\/[a-f0-9-]{36}(?:\/(?:test|deliveries))?)?$/.test(endpoint) && !/^\/api\/(me|streams(?:\/disconnect)?|billing\/(status|rates|checkout|portal|cancel)|rentals(?:\/(catalog|checkout|[a-f0-9-]{36}(?:\/(cancel|delete))?))?|services(?:\/revoke)?)$/.test(endpoint)) throw new Error('Invalid account endpoint')
+    if (!/^\/api\/hooks(?:\/[a-f0-9-]{36}(?:\/(?:test|deliveries))?)?$/.test(endpoint) && !/^\/api\/(ai\/(usage|decisions)|me|streams(?:\/disconnect)?|billing\/(status|rates|checkout|portal|cancel)|rentals(?:\/(catalog|checkout|[a-f0-9-]{36}(?:\/(cancel|delete))?))?|services(?:\/revoke)?)$/.test(endpoint)) throw new Error('Invalid account endpoint')
     if (!['GET','POST','PATCH','DELETE'].includes(method) || !endpoint.startsWith('/api/hooks') && !['GET','POST'].includes(method)) throw new Error('Invalid account operation')
     if (!activeToken) await list()
     if (!activeToken) throw new Error('Sign in to remote')

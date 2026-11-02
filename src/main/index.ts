@@ -130,7 +130,7 @@ void app.whenReady().then(async () => {
     { role: 'editMenu' },
     { role: 'windowMenu' },
   ]))
-  runtime = createRuntime(dataDirectory, () => { updateMenu?.refresh(); void localRemote?.refreshPreviewSettings().catch(() => undefined) })
+  runtime = createRuntime(dataDirectory, () => { updateMenu?.refresh(); void localRemote?.refreshPreviewSettings().catch(() => undefined) }, (endpoint, body) => localRemote!.account(endpoint, body))
   localRemote = createLocalRemote(dataDirectory, () => runtime!.state().remotePreviews!)
   recordings = createRecordings(dataDirectory,runtime,localRemote)
   localRemote.useProfiles(() => runtime!.model.profiles.map(profile => profile.id))

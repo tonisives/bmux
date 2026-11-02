@@ -37,7 +37,7 @@ let ObserverHeader = ({ begin, update, end }: { begin:(event:PointerEvent)=>void
 let ObserverBody = ({ error }: { error:string }) => {
   let { overlay } = useObserver()
   return <div className={css.body}>
-    <p className={css.status} role="status">{overlay.ended ? overlay.error || 'Session ended' : overlay.content.status}</p>
+    <p className={css.status} role="status">{overlay.ended ? overlay.error || overlay.content.status || 'Session ended' : overlay.content.status}</p>
     <div className={css.nodes}>{overlay.content.nodes.map((node, index) => <ObserverNode key={index} node={node} />)}</div>
     <p className={css.metrics}>{overlay.content.metrics}</p>
     <ObserverButtons />
