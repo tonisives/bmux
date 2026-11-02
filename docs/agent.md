@@ -383,3 +383,9 @@ seconds after automated navigation, scroll or click. A limit stops further
 automation commands; start a new run after the rolling window permits it.
 
 Use `BMUX_DATA_DIR` for a separate instance when testing. Never point bmux at a Chrome or Brave profile directory.
+
+
+Viewport screenshots return the current surface without waiting for the social
+command interval. Policy and account checks still run. Page evaluation results
+can return during their action cooldown so screenshot capture and inference can
+start promptly; the next page action still waits for that cooldown.

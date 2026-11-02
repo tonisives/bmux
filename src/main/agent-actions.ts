@@ -45,7 +45,7 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
     inputs.delete(pane); clearTimeout(lease.timer)
     await lease.release()
   }
-  let run = async <T>(pane: string, profileId: string, urls: () => string[], operation: () => Promise<T>, input?: Input): Promise<T> => {
+  let run = async <T>(pane: string, profileId: string, urls: () => string[], operation: () => Promise<T>, input?: Input, resultBeforeCooldown = false): Promise<T> => {
     if (scope.getStore() === pane) return operation()
     let held = inputs.get(pane)
     if (held && input?.owner === held.owner) {
@@ -76,7 +76,14 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
         lease.timer.unref?.(); inputs.set(pane, lease); retained = true
       }
       return result
-    } finally { if (!retained) await cooldown(release) }
+    } finally {
+      if (!retained) {
+        // Reads can feed a screenshot or inference while the next action stays queued.
+        let cooling = cooldown(release)
+        if (resultBeforeCooldown) void cooling.catch(() => undefined)
+        else await cooling
+      }
+    }
   }
   return { run }
 }

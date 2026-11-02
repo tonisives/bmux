@@ -1,3 +1,18 @@
+# Prompt observation and viewport capture
+
+A feed trace showed roughly one second inside screenshot capture even after the
+runner moved it ahead of pointer input. The screenshot was waiting for social
+command pacing, and page evaluation returned its value only after the action
+cooldown. Screenshots now check policy without waiting for that pacing delay.
+Observation results return as soon as evaluation completes while their domain
+and pane remain locked for the full cooldown before subsequent input. Clicks,
+keys, navigation, session limits and warnings retain their existing checks.
+
+Unit regressions hold the cooldown clock, require a returned observation, and
+verify that the next input remains blocked, including after a failed read. The
+policy fixture checks immediate screenshots and an expired session. Repeat the
+native viewport capture case alongside agent input and feedback cases in CI.
+
 # Focused test verification
 
 ## Viewport screenshot flicker

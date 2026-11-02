@@ -783,7 +783,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}) =
       let result = await operation()
       if (!readsPage(method, args) && currentPane(pane) === original) { original.lastActivityAt = Date.now(); save(); publish() }
       return result
-    }, agentActionInput(method, args, owner))).finally(() => { if (remotePreviewsEnabled && currentPane(pane) === original) previewRefresh.request(pane) })
+    }, agentActionInput(method, args, owner), readsPage(method, args))).finally(() => { if (remotePreviewsEnabled && currentPane(pane) === original) previewRefresh.request(pane) })
   }
   let readAutomationPage = <T>(tabId: string, read: () => Promise<T>): Promise<T> => {
     let live = tabs.get(tabId), document = documents.get(tabId)

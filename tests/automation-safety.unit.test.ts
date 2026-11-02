@@ -615,3 +615,16 @@ test('legacy profile clocks restart per website while warning pauses survive', a
   await policy.before('unknown', instagram)
   expect(policy.status().profiles.find(row => row.profileId === 'unknown')?.siteHost).toBe('www.instagram.com')
 })
+
+
+test('screenshots inspect current policy without spending a social command delay', async () => {
+  let { policy, sleeps, advance } = fixture()
+  await policy.before('bot', instagram)
+  expect(paceAutomationCommand('screenshot', {})).toBe(false)
+  await policy.before('bot', instagram, undefined, paceAutomationCommand('screenshot', {}))
+  expect(sleeps).toEqual([])
+  expect(paceAutomationCommand('eval', {})).toBe(true)
+  expect(paceAutomationCommand('click', {})).toBe(true)
+  advance(10 * 60_000)
+  await expect(policy.before('bot', instagram, undefined, paceAutomationCommand('screenshot', {}))).rejects.toThrow('session limit')
+})

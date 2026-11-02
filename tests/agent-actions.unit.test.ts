@@ -119,3 +119,39 @@ test('uses live action pause limits and permits zero without changing action ser
   finish.resolve(); await Promise.all([first, second])
   expect(events).toEqual(['first', 'second']); expect(waits).toEqual([200])
 })
+
+
+test('returns observation results before cooldown while keeping subsequent input queued', async () => {
+  vi.useFakeTimers()
+  try {
+    let actions = createAgentActions(undefined, () => .5), events: string[] = []
+    let read = actions.run('one', 'profile', () => ['https://example.com/'], async () => { events.push('read'); return 'post' }, undefined, true).then(value => { events.push('returned'); return value })
+    let input = actions.run('one', 'profile', () => ['https://example.com/'], async () => { events.push('input') })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await read).toBe('post')
+    expect(events).toEqual(['read', 'returned'])
+    await vi.advanceTimersByTimeAsync(999)
+    expect(events).not.toContain('input')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(events).toContain('input')
+    await vi.advanceTimersByTimeAsync(1000)
+    await input
+  } finally { vi.useRealTimers() }
+})
+
+test('a failed prompt observation retains its action cooldown before another pane can act', async () => {
+  vi.useFakeTimers()
+  try {
+    let actions = createAgentActions(undefined, () => .5), invoked = false
+    let failure = expect(actions.run('one', 'profile', () => ['https://example.com/'], async () => { throw new Error('Read failed') }, undefined, true)).rejects.toThrow('Read failed')
+    let next = actions.run('two', 'profile', () => ['https://example.com/'], async () => { invoked = true })
+    await vi.advanceTimersByTimeAsync(0)
+    await failure
+    expect(invoked).toBe(false)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(invoked).toBe(false)
+    await vi.advanceTimersByTimeAsync(1001)
+    await next
+    expect(invoked).toBe(true)
+  } finally { vi.useRealTimers() }
+})
