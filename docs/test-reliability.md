@@ -1,3 +1,13 @@
+# Prompt feed observations
+
+GP captures took 64–98 ms and most API answers arrived within a second, but the
+second DOM inspection waited for the two-second social command interval. Declared
+observation evaluations now run outside input scheduling. Native input releases
+return after delivery while their cooldown continues to hold subsequent input.
+The fixture holds a raw key lease, requires a real page observation to return,
+and verifies that a queued ordinary evaluation waits until release and cooldown.
+Repeat it with viewport capture and agent scroll cases.
+
 # Prompt observation and viewport capture
 
 A feed trace showed roughly one second inside screenshot capture even after the

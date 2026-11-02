@@ -628,3 +628,10 @@ test('screenshots inspect current policy without spending a social command delay
   advance(10 * 60_000)
   await expect(policy.before('bot', instagram, undefined, paceAutomationCommand('screenshot', {}))).rejects.toThrow('session limit')
 })
+
+
+test('only explicit evaluation observations skip command pacing', () => {
+  expect(paceAutomationCommand('eval', { observation: true })).toBe(false)
+  expect(paceAutomationCommand('eval', { observation: 'true' })).toBe(true)
+  expect(paceAutomationCommand('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed' }, observation: true })).toBe(true)
+})

@@ -72,14 +72,14 @@ test('raw input holds its domain lock until release without delaying the press o
     let second = actions.run('two', 'profile', url, async () => { events.push('second') })
     await vi.advanceTimersByTimeAsync(5000)
     expect(events).toEqual(['down'])
-    let released = actions.run('one', 'profile', url, async () => { events.push('up') }, { owner: 'agent', type: 'up', key: 'mouse:left' })
+    let released = actions.run('one', 'profile', url, async () => { events.push('up') }, { owner: 'agent', type: 'up', key: 'mouse:left' }).then(() => { events.push('release-returned') })
     await vi.advanceTimersByTimeAsync(0)
-    expect(events).toEqual(['down', 'up'])
+    expect(events).toEqual(['down', 'up', 'release-returned'])
     await vi.advanceTimersByTimeAsync(999)
     expect(events).not.toContain('second')
     await vi.advanceTimersByTimeAsync(1001)
     await Promise.all([second, released])
-    expect(events).toEqual(['down', 'up', 'second'])
+    expect(events).toEqual(['down', 'up', 'release-returned', 'second'])
   } finally { vi.useRealTimers() }
 })
 
@@ -154,4 +154,11 @@ test('a failed prompt observation retains its action cooldown before another pan
     await next
     expect(invoked).toBe(true)
   } finally { vi.useRealTimers() }
+})
+
+
+test('declared observations leave action queues to native input and ordinary evaluations', () => {
+  expect(agentAction('eval', { observation: true })).toBe(false)
+  expect(agentAction('eval', { observation: 'true' })).toBe(true)
+  expect(agentAction('cdp', { method: 'Input.dispatchKeyEvent', observation: true })).toBe(true)
 })

@@ -389,3 +389,13 @@ Viewport screenshots return the current surface without waiting for the social
 command interval. Policy and account checks still run. Page evaluation results
 can return during their action cooldown so screenshot capture and inference can
 start promptly; the next page action still waits for that cooldown.
+
+
+Plugins can pass `observation: true` to `eval` for synchronous DOM observations,
+such as identifying the visible post. These evaluations retain the original
+pane/document binding, account checks, group authorization and reading feedback,
+while running outside native-input pacing and action queues. Ordinary evaluations
+remain queued; use them for playback changes, scrolling and other mutations.
+Native key and mouse releases acknowledge delivery immediately while keeping the
+input action's domain lock through its full cooldown. This lets an observation,
+screenshot and inference run while the next input remains queued.

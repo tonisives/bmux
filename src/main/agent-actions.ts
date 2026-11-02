@@ -5,6 +5,7 @@ type Input = { owner: string; type: 'down' | 'up' | 'continue'; key?: string }
 type Lease = { owner: string; keys: Set<string>; release: () => Promise<void>; timer: ReturnType<typeof setTimeout> }
 
 export let agentAction = (method: string, args: Record<string, unknown> = {}) => {
+  if (method === 'eval' && args.observation === true) return false
   if (['navigate', 'back', 'forward', 'reload', 'hard-reload', 'history.go-to', 'click', 'scroll', 'type', 'key', 'fill', 'forms.fill', 'eval'].includes(method)) return true
   return method === 'cdp' && /^(Input\.|Runtime\.(evaluate|callFunctionOn)|Page\.(navigate|reload)|DOM\.(set|remove|move|copy|focus|scrollIntoView))/.test(String(args.method))
 }
@@ -40,10 +41,12 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
     let { actionDelayMinMs: minimum, actionDelayMaxMs: maximum } = settings()
     try { if (maximum) await sleep(minimum + random() * (maximum - minimum)) } finally { release() }
   }
-  let finishInput = async (pane: string, lease: Lease) => {
+  let finishInput = async (pane: string, lease: Lease, wait = true) => {
     if (inputs.get(pane) !== lease) return
     inputs.delete(pane); clearTimeout(lease.timer)
-    await lease.release()
+    let released = lease.release()
+    if (wait) await released
+    else void released.catch(() => undefined)
   }
   let run = async <T>(pane: string, profileId: string, urls: () => string[], operation: () => Promise<T>, input?: Input, resultBeforeCooldown = false): Promise<T> => {
     if (scope.getStore() === pane) return operation()
@@ -52,7 +55,7 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
       try {
         let result = await scope.run(pane, operation)
         if (input.type === 'down') held.keys.add(input.key!)
-        if (input.type === 'up') { held.keys.delete(input.key!); if (!held.keys.size) await finishInput(pane, held) }
+        if (input.type === 'up') { held.keys.delete(input.key!); if (!held.keys.size) await finishInput(pane, held, false) }
         return result
       } catch (error) { await finishInput(pane, held); throw error }
     }
