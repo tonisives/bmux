@@ -2690,6 +2690,7 @@ test('address suggestions complete URLs and keep history scoped to the pane prof
     return saved.profiles.find((profile: { id: string }) => profile.id === pane.profileId)?.history?.some((entry: { url: string }) => entry.url === `${url}/history-suggestion`) ?? false
   }).toBe(true)
   await cli('kill-pane', { pane: created.id, confirm: true })
+  await expect(chrome.locator(`[data-pane-id="${created.id}"]`)).toHaveCount(0)
   let isolated = await ui(chrome, 'split-window', { pane: pane.id, profile: 'bot', client: client.id })
   await expect(address).toBeFocused()
   await address.fill('history-suggestion')

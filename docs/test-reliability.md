@@ -727,7 +727,8 @@ The full Check on `0046aa3` found address fixtures creating panes through the
 agent CLI. Agent-owned blank panes intentionally skip automatic address editing,
 and agent navigation can leave an input lock above a floating address field.
 These human-input cases now create panes through their client's UI bridge and
-resolve that client's renderer. The floating drag case waits for its document
+resolve that client's renderer. Before reusing the blank pane ID, the history
+case waits for its removal in that renderer. The floating drag case waits for its document
 before requesting focus. The restored floating-layout case also waits for its
 document and requires a successful close before checking window removal.
 
