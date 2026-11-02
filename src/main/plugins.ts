@@ -1,4 +1,6 @@
 import fs from 'node:fs'
+import { parsePluginOverlay, validatePluginOverlayInput } from '../shared/plugin-overlay'
+import type { PluginOverlayContent, PluginOverlayInput } from '../shared/plugin-overlay'
 import path from 'node:path'
 import net from 'node:net'
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -10,7 +12,7 @@ import { createPluginSocket, listenSocket } from '../../bin/ipc.mjs'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
-type Run = { public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
+type Run = { overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
@@ -112,6 +114,11 @@ export let createPlugins = (options: Options) => {
       if (args.refresh === true) run.context = options.context(run.context)
       return { ...run.context, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
     }
+    if (method === 'overlay.update' || method === 'overlay.events') {
+      if (!run.action.capabilities.includes('ui') || run.public.hook || !run.context.paneId) throw new Error('Manual ui capability required for overlay')
+      if (method === 'overlay.update') { run.overlay = parsePluginOverlay(args); options.changed(); return { updated: true } }
+      return run.overlayInputs?.splice(0) ?? []
+    }
     if (method === 'progress') {
       if (typeof args.percent !== 'number' || !Number.isFinite(args.percent) || args.percent < 0 || args.percent > 100) throw new Error('Invalid progress')
       run.public.progress = { percent: args.percent, message: shortText(args.message) }; options.changed(); return null
@@ -211,7 +218,7 @@ export let createPlugins = (options: Options) => {
     if ([...runs.values()].filter(run => live(run)).length >= 256) throw new Error('Plugin queue is full')
     for (let [id, run] of runs) if (!live(run) && runs.size >= 200) runs.delete(id)
     let id = randomUUID()
-    let run: Run = { public: { id, pluginId: definition.manifest.id, actionId: action.id, title: action.title, hook, status: 'queued' }, definition, action, context: { ...context, agentId: context.agentId ?? `plugin:${definition.manifest.id}` }, parameters: { ...parameters }, interactive, token: randomBytes(32).toString('hex'), controller: new AbortController() }
+    let run: Run = { public: { id, pluginId: definition.manifest.id, actionId: action.id, title: action.title, hook, status: 'queued' }, definition, action, context: { ...context, agentId: context.agentId ?? `plugin:${definition.manifest.id}` }, parameters: { ...parameters }, restartParameters: Object.fromEntries(Object.entries(parameters).filter(([key]) => action.parameters.find(parameter => parameter.name === key)?.kind !== 'password')), interactive, token: randomBytes(32).toString('hex'), controller: new AbortController() }
     runs.set(id, run); options.changed(); pump(); return { id }
   }
   let runAction = (target: string, context: PluginContext, parameters: Record<string, unknown> = {}, interactive = false) => {
@@ -220,6 +227,26 @@ export let createPlugins = (options: Options) => {
     if (extra || !definition || !action || !settings[pluginId]?.enabled) throw new Error('Plugin action unavailable; check plugin configuration')
     if (Object.keys(parameters).some(key => !action.parameters.some(parameter => parameter.name === key))) throw new Error('Unknown plugin parameter')
     return enqueue(definition, action, options.context(context), parameters, false, interactive)
+  }
+  let overlay = (paneId: string) => {
+    let run = [...runs.values()].reverse().find(run => run.context.paneId === paneId && run.overlay)
+    return run?.overlay ? { runId: run.public.id, paneId, content: run.overlay, ended: !live(run), error: run.public.error } : undefined
+  }
+  let overlayInput = (id: string, controlId: string, value: unknown) => {
+    let run = runs.get(id), control = run?.overlay?.controls.find(control => control.id === controlId)
+    if (!run || !live(run) || !control) throw new Error('Overlay control unavailable')
+    validatePluginOverlayInput(control, value)
+    let pending = run.overlayInputs ??= []
+    if (pending.length >= 32) throw new Error('Wait for the current controls to finish')
+    pending.push({ id: controlId, value: value as string | boolean | undefined })
+    return { accepted: true }
+  }
+  let restartOverlay = (id: string) => {
+    let run = runs.get(id)
+    if (!run?.overlay || live(run) || !run.context.paneId) throw new Error('Stop the current session before restarting')
+    let context = options.context(run.context)
+    if (context.profileId !== run.context.profileId) throw new Error('The original profile is unavailable')
+    return runAction(run.public.pluginId + '/' + run.public.actionId, context, run.restartParameters ?? {}, false)
   }
   let hook = (event: PluginHook['event'], context: PluginContext, onlyPlugin?: string) => {
     for (let definition of definitions.values()) {
@@ -285,5 +312,5 @@ export let createPlugins = (options: Options) => {
       return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
     } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
   })
-  return { ready, list, bookmarks, runs: publicRuns, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  return { ready, list, bookmarks, runs: publicRuns, overlay, overlayInput, restartOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }

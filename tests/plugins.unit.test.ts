@@ -172,3 +172,22 @@ test('filters hooks and starts startup only on activation, invalidates page hook
   plugins.invalidate('original')
   expect(plugins.runs().find(run => run.actionId === 'page')?.status).toBe('cancelled')
 })
+
+test('overlay is available to manual UI scripts and validates queued controls', async () => {
+  let script = hostScript + `host('overlay.update',{title:'Fixture observer',nodes:[],controls:[{id:'start',label:'Start',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}]});
+  for(let attempt=0;attempt<200;attempt++){let input=host('overlay.events');if(input.length){host('result',input);break}await new Promise(resolve=>setTimeout(resolve,20))}`
+  let { plugins, context } = fixture(script, { capabilities: ['ui'] })
+  let { id } = plugins.run('test/run', context)
+  await vi.waitFor(() => expect(plugins.overlay(context.paneId!)).toMatchObject({ runId: id, ended: false, content: { title: 'Fixture observer' } }))
+  expect(() => plugins.overlayInput(id, 'ads', 'true')).toThrow()
+  expect(() => plugins.overlayInput(id, 'unknown', undefined)).toThrow()
+  expect(plugins.overlayInput(id, 'ads', true)).toEqual({ accepted: true })
+  expect((await done(plugins, id)).result).toEqual([{ id: 'ads', value: true }])
+  expect(plugins.overlay(context.paneId!)).toMatchObject({ ended: true })
+  expect(() => plugins.overlayInput(id, 'start', undefined)).toThrow()
+})
+test('overlay requires the UI capability', async () => {
+  let { plugins, context } = fixture(hostScript + `host('overlay.update',{title:'Denied'});`)
+  expect((await done(plugins, plugins.run('test/run', context).id)).status).toBe('failed')
+  expect(plugins.overlay(context.paneId!)).toBeUndefined()
+})
