@@ -190,9 +190,13 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     await cli('cdp', { pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseMoved', ...point, button: 'none' } })
     let hoverMoves = await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)
     expect(hoverMoves).toBeGreaterThanOrEqual(20)
-    for (let type of ['mousePressed', 'mouseReleased']) await cli('cdp', { pane, method: 'Input.dispatchMouseEvent', params: { type, ...point, button: 'left', clickCount: 1 } })
-    await expectClickPause()
+    await cli('cdp', { pane, method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed', ...point, button: 'left', clickCount: 1 } })
+    let following = cli('eval', { pane, expression: 'window.afterRawClick = Date.now()' })
+    await cli('cdp', { pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 } })
     expect(await page.evaluate(() => (window as any).events.filter((event: any) => event.type === 'mousemove').length)).toBe(hoverMoves)
+    // Release acknowledges promptly; the following action still observes click pacing.
+    await following
+    expect(await page.evaluate(() => (window as any).afterRawClick - (window as any).events.filter((event: any) => event.type === 'click').at(-1).wall)).toBeGreaterThanOrEqual(800)
     // The default pointer setting is independent of every Anti-bot exclusion.
     for (let mode of ['profile-off', 'pane-off', 'excluded-site', 'local-address']) {
       await rpc('profile.anti-bot.set', { profile: 'profile_default', enabled: mode !== 'profile-off' })
