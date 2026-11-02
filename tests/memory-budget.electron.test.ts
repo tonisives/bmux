@@ -60,6 +60,10 @@ test('background page limit unloads older applications and restores them without
     await rich.page.locator('#rich-draft').fill('Unsaved rich text')
     let newest = await create('newest')
     let selection = (await state()).model.clients
+    let expireRecent = () => application!.evaluate(() => {
+      let now = Date.now
+      Date.now = () => now() + 20 * 60_000
+    })
     await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 5 })
     let live = async (pane: string) => (await rpc('memory')).current.panes.find((item: any) => item.paneId === pane).webContentsId
     await expect.poll(() => live(old.pane.id)).toBeNull()
@@ -85,6 +89,25 @@ test('background page limit unloads older applications and restores them without
     await expect(rich.page.locator('#rich-draft')).toHaveText('Unsaved rich text')
     expect((await rpc('list-panes', { window: old.window.id }))[0].runtimeState).toBe('unloaded')
 
+    // A quick switch away and back keeps the same document even below four slots.
+    await rpc('select-window', { client: client.id, window: old.window.id })
+    await rpc('eval', { pane: old.pane.id, expression: 'window.quickSwitchMarker = "retained"' })
+    let originalContents = await live(old.pane.id)
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    let sentinel = await create('quick-budget-check')
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 1 })
+    // Another eligible page unloading proves that the budget check has completed.
+    await expect.poll(() => live(sentinel.pane.id), { timeout: 35000 }).toBeNull()
+    expect(await live(old.pane.id)).toBe(originalContents)
+    await rpc('select-window', { client: client.id, window: old.window.id })
+    expect(await rpc('eval', { pane: old.pane.id, expression: 'window.quickSwitchMarker' })).toBe('retained')
+    expect(await live(old.pane.id)).toBe(originalContents)
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    await expireRecent()
+    await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
+    await expect.poll(() => live(old.pane.id), { timeout: 35000 }).toBeNull()
+    selection = (await state()).model.clients
+
     // Agent access restores history and cookies even when all budget slots are protected.
     expect(await rpc('eval', { pane: old.pane.id, expression: '({url:location.href,cookie:document.cookie})' })).toEqual({ url: `${origin}/old-second`, cookie: 'fixture=retained' })
     await rpc('back', { pane: old.pane.id })
@@ -101,6 +124,7 @@ test('background page limit unloads older applications and restores them without
     // Selecting an unloaded page starts restoration. A new navigation must
     // interrupt even a server that never answers the restored request.
     for (let destination of ['old-third', 'old']) {
+      await expireRecent()
       await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 3 })
       await expect.poll(() => live(old.pane.id), { timeout: 35000 }).toBeNull()
       holdOldRestore = true
