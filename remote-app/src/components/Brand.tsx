@@ -1,12 +1,10 @@
-import { Image, StyleSheet, Text, View } from 'react-native'
+import { Image, Platform, StyleSheet, Text, View } from 'react-native'
 import { colors } from '../theme'
-import { Asset } from 'expo-asset'
 
-export let brandIcon = require('../../../design/app-icon.png')
-let icon = Asset.fromModule(brandIcon)
+let icon = Platform.OS === 'ios' ? { uri: 'app-icon' } : require('../../../design/app-icon.png')
 
 export let Brand = () => <View style={local.brand}>
-  <Image source={{ uri: icon.localUri ?? icon.uri }} style={local.icon} resizeMode="contain" accessible={false} />
+  <Image source={icon} style={local.icon} resizeMode="contain" accessible={false} />
   <Text style={local.wordmark} numberOfLines={1}>bmux</Text>
 </View>
 
