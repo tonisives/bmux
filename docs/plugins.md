@@ -86,6 +86,8 @@ Authenticated plugin browser operations carry the plugin's own identity. The
 external CLI identity requirements apply to external agents; plugin capability,
 document and automation checks still apply to each browser operation.
 
+Plugin setup uses the same rows, text size and controls as Settings. Edit settings replaces each displayed value with its control in place; Done editing returns to the values.
+
 The page overlay has one Details and settings expander with a view selector. Stop
 returns browsing actions to their configuration form. Starting from that form
 is the only start step; completed runs offer Choose session settings.
@@ -364,3 +366,16 @@ and binds the invocation to that new pane. The runner acquires its automation
 lease before navigating to the platform. The form can select Auto continue or
 Ask before each action. Cancelling the form creates no window. CLI invocations
 keep their existing pane and explicit session behavior.
+
+
+Overlay content may include up to two copy entries in copies with id, label,
+and text. Each full text is limited to 300,000 characters, separately from the
+32 KB display limit. BMUX retains these texts privately for the run; published
+overlay state contains only IDs and labels. A trusted copy button writes that
+run's selected text to the clipboard. overlay.update reports copyPayloads: true
+when this is supported.
+
+Close overlay hides the view without stopping the run. Show overlay in plugin
+activity reopens its original pane. When a run ends, its overlay collapses once
+to a completion header; it can be expanded to inspect the last post or used to
+choose a new session. Stop still returns directly to the configuration form.

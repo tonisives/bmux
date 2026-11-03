@@ -5,12 +5,17 @@ import type { PluginOverlayControl, PluginOverlayState } from '../shared/plugin-
 import css from './PluginOverlay.module.css'
 
 export let PluginOverlay = () => {
-  let [state, setState] = useState<PublicState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  let [state, setState] = useState<PublicState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [returnToSetup, setReturnToSetup] = useState(false)
   let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];resize:boolean} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
   useEffect(() => { void bridge.state().then(setState); return bridge.subscribe(setState) }, [])
   let overlay = state?.pluginOverlay
   let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await bridge.command({ method, args: { ...args, id: overlay?.runId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
   let input = async (id: string, value?: string | boolean) => { setBusy(true); await command('plugin.overlay.input', { control: id, value }); setBusy(false) }
+  let stop = () => { setReturnToSetup(true); void input('stop') }
+  useEffect(() => { setReturnToSetup(false) }, [overlay?.runId])
+  useEffect(() => {
+    if (overlay?.ended && returnToSetup) { setReturnToSetup(false); void command('plugin.overlay.configure') }
+  }, [overlay?.ended, returnToSetup, command])
   let move = async () => { if (sending.current) return; sending.current = true; try { while (queued.current) { let bounds = queued.current; queued.current = undefined; await command('plugin.overlay.bounds', bounds) } } finally { sending.current = false } }
   let begin = (event: PointerEvent, resize = false) => { if (!overlay || (event.target as HTMLElement).closest('button,input,select,textarea')) return; event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.screenX, y: event.screenY, bounds: overlay.bounds, resize }; event.preventDefault() }
   let update = (event: PointerEvent) => { let start = drag.current; if (!start) return; let dx = event.screenX - start.x, dy = event.screenY - start.y; queued.current = start.resize ? { ...start.bounds, width: start.bounds.width + dx, height: start.bounds.height + dy } : { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy }; void move() }
@@ -18,7 +23,7 @@ export let PluginOverlay = () => {
   let beginResize = (event: PointerEvent) => begin(event, true)
   let resizeKey = (event: KeyboardEvent) => { if (!overlay || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return; event.preventDefault(); void command('plugin.overlay.bounds', { ...overlay.bounds, width: overlay.bounds.width + (event.key === 'ArrowRight' ? 24 : event.key === 'ArrowLeft' ? -24 : 0), height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) }) }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
-  return <OverlayContext.Provider value={{ overlay, command, input, busy }}><aside className={css.panel} aria-label="Page overlay">
+  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop }}><aside className={css.panel} aria-label="Page overlay">
     <OverlayHeader begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && <OverlayBody error={error} />}
     {!overlay.bounds.collapsed && <OverlayButtons />}
@@ -26,7 +31,7 @@ export let PluginOverlay = () => {
   </aside></OverlayContext.Provider>
 }
 
-type OverlayValue = { overlay: PluginOverlayState; command: (method:string,args?:Record<string,unknown>)=>Promise<unknown>; input:(id:string,value?:string|boolean)=>Promise<void>; busy:boolean }
+type OverlayValue = { overlay: PluginOverlayState; command: (method:string,args?:Record<string,unknown>)=>Promise<unknown>; input:(id:string,value?:string|boolean)=>Promise<void>; busy:boolean; stop:()=>void }
 let OverlayContext = createContext<OverlayValue | undefined>(undefined)
 let useOverlay = () => { let value = useContext(OverlayContext); if (!value) throw new Error('Overlay unavailable'); return value }
 let bridge = (window as unknown as { bmux: Bridge }).bmux
@@ -58,13 +63,8 @@ let OverlayNode = ({ node, copyable }: { node:PluginOverlayState['content']['nod
   return <section data-tone={node.tone}><h2>{node.title}</h2>{node.lines.map((line, index) => <p key={index}>{line}</p>)}{copyable && <div className={css.copies}>{overlay.content.copies?.map(item => <button key={item.id} data-copy={item.id} onClick={copy}>{copied === item.id ? 'Copied' : item.label}</button>)}</div>}</section>
 }
 let OverlayButtons = () => {
-  let { overlay, command, busy, input } = useOverlay(), [returnToSetup, setReturnToSetup] = useState(false)
-  useEffect(() => { setReturnToSetup(false) }, [overlay.runId])
-  useEffect(() => {
-    if (overlay.ended && returnToSetup) { setReturnToSetup(false); void command('plugin.overlay.configure') }
-  }, [overlay.ended, returnToSetup, command])
+  let { overlay, command, busy, stop } = useOverlay()
   let configure = () => void command('plugin.overlay.configure')
-  let stop = () => { setReturnToSetup(true); void input('stop') }
   return <div className={css.controls}>{overlay.ended ? <button disabled={busy} onClick={configure}>Choose session settings</button> : overlay.content.controls.filter(control => control.kind === 'button').map(control => control.id === 'stop' ? <button key={control.id} disabled={busy || control.disabled} onClick={stop}>Stop session</button> : <OverlayButton key={control.id} control={control} />)}</div>
 }
 let OverlayButton = ({ control }: { control:PluginOverlayControl }) => {
