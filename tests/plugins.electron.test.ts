@@ -42,8 +42,15 @@ if (action === 'pick') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
 } else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
 } else if (action === 'overlay') {
- host('overlay.update',{copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'1 Post',lines:['A software demo'],tone:'cyan'},{title:'2 Input',lines:['Caption and post metadata'],tone:'cyan'},{title:'3 Decision',lines:['Match: software'],tone:'neutral'},{title:'4 Action',lines:['Watch for 10 seconds'],tone:'green'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'Profile',text:'Interested in computers'}]});
- while(true){let inputs=host('overlay.events');if(inputs.some(input=>input.id==='start')){host('result',{started:true});break}await new Promise(resolve=>setTimeout(resolve,100))}
+ let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'Profile',text:'Interested in computers'}]};host('overlay.update',content);
+ while(true){
+  let inputs=host('overlay.events');
+  if(inputs.some(input=>input.id==='finish')){host('overlay.update',{...content,status:'Session complete'});host('result',{started:true});break}
+  for(let input of inputs)if(['start','pause','resume'].includes(input.id)){
+   let paused=input.id==='pause';content={...content,status:paused?'Paused':'Browsing',controls:[{id:paused?'resume':'pause',label:paused?'Resume session':'Pause session',kind:'button'},{id:'finish',label:'Finish fixture',kind:'button'}]};host('overlay.update',content)
+  }
+  await new Promise(resolve=>setTimeout(resolve,100))
+ }
 } else if (action === 'capture') { host('result',host('screenshot',{fullPage:false,encoding:'base64',format:'jpeg',quality:60,maxDimension:768})); }
 `
 test.beforeAll(async () => {
@@ -321,9 +328,17 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   expect(pixel.every(channel => channel > 240)).toBe(true)
   await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay.png') })
   await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await expect(observer.getByRole('button', { name: 'Pause session', exact: true })).toBeVisible()
+  await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay-running.png') })
+  await observer.getByRole('button', { name: 'Pause session', exact: true }).click()
+  await expect(observer.getByRole('status')).toHaveText('Paused')
+  await observer.getByRole('button', { name: 'Resume session', exact: true }).click()
+  await expect(observer.getByRole('status')).toHaveText('Browsing')
+  await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
   await completed(id)
   await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
   await expect(observer.getByRole('button', { name: 'New session', exact: true })).toBeVisible()
+  await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay-complete.png') })
   await expect(observer.getByRole('button', { name: 'Expand page overlay', exact: true })).toBeVisible()
   await observer.getByRole('button', { name: 'Expand page overlay', exact: true }).click()
   await expect(observer.getByRole('button', { name: 'Choose session settings', exact: true })).toBeVisible()
