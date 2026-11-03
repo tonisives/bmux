@@ -38,6 +38,14 @@ static NSView *find_page(NSView *parent, NSView *root, NSRect target) {
   }
   return nil;
 }
+static NSView *find_renderer(NSView *view) {
+  if ([view isKindOfClass:NSClassFromString(@"RenderWidgetHostViewCocoa")]) return view;
+  for (NSView *child in view.subviews) {
+    NSView *renderer = find_renderer(child);
+    if (renderer) return renderer;
+  }
+  return nil;
+}
 static void restore(NSNumber *key) {
   BmuxInputRegion *region = regions[key]; NSView *page = region.page;
   if (page) {
@@ -111,7 +119,7 @@ static napi_value initialize(napi_env env, napi_value exports) {
       // but has no native renderer. Deliver margin input to chrome and keep a
       // margin-started drag there when it crosses over the native page.
       NSView *chrome = find_page(root, root, root.bounds);
-      NSView *target = [chrome hitTest:[root convertPoint:point toView:chrome.superview]];
+      NSView *target = find_renderer(chrome);
       if (!target) continue;
       switch (event.type) {
         case NSEventTypeScrollWheel: [target scrollWheel:event]; break;
