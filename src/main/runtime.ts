@@ -2994,18 +2994,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return pageTools?.list()
     }
     if (method.startsWith('plugin.overlay.')) {
-      if (!sourceClientId) throw new Error('Trusted observer UI required')
+      if (!sourceClientId) throw new Error('Trusted page overlay UI required')
       let current = overlayForClient(sourceClientId), owner = clients.get(sourceClientId)
-      if (!current || current.runId !== args.id || !owner) throw new Error('Observer no longer belongs to the selected pane')
+      if (!current || current.runId !== args.id || !owner) throw new Error('Page overlay no longer belongs to the selected pane')
       if (method === 'plugin.overlay.input') return plugins?.overlayInput(current.runId, required(args, 'control'), args.value)
       if (method === 'plugin.overlay.configure') return plugins?.configureOverlay(current.runId)
       if (method === 'plugin.overlay.restart') return plugins?.restartOverlay(current.runId)
       if (method === 'plugin.overlay.bounds') {
-        if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid observer bounds')
+        if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid page overlay bounds')
         pluginOverlayBounds.set(sourceClientId + ':' + current.paneId, { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height), collapsed: args.collapsed })
         refreshPluginOverlay(sourceClientId, owner); publish(); return null
       }
-      throw new Error('Unknown observer command')
+      throw new Error('Unknown page overlay command')
     }
     if (method === 'plugin.list') return plugins?.list() ?? []
     if (method === 'plugin.runs') return plugins?.runs() ?? []
