@@ -384,3 +384,5 @@ Close overlay hides the view without stopping the run. Show overlay in plugin
 activity reopens its original pane. When a run ends, its overlay collapses once
 to a completion header; it can be expanded to inspect the last post or used to
 choose a new session. Stop still returns directly to the configuration form.
+
+Text parameters can declare `range: { min: 1, max: 120, step: 1, unit: s }` to show a two-handle slider. Values remain strings such as `8-12` (or `10` for a fixed value), including saved settings and CLI arguments. Bounds and step are validated before execution. Slider edits use the same automatic save as other settings.

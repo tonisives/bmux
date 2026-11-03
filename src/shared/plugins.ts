@@ -1,5 +1,5 @@
 export type PluginCapability = 'browser.forms' | 'browser.read' | 'browser.write' | 'browser.manage' | 'browser.cdp' | 'ui' | 'ai.decisions'
-export type PluginParameter = { name: string; title: string; kind: 'text' | 'password' | 'boolean' | 'choice'; required?: boolean; choices?: string[]; hidden?: boolean; default?: string | boolean; section?: string; description?: string; advanced?: boolean; multiline?: boolean }
+export type PluginParameter = { name: string; title: string; kind: 'text' | 'password' | 'boolean' | 'choice'; required?: boolean; choices?: string[]; hidden?: boolean; default?: string | boolean; section?: string; description?: string; advanced?: boolean; multiline?: boolean; range?: { min: number; max: number; step: number; unit?: string } }
 export type PluginPreset = { id: string; title: string; description?: string; values: Record<string, string | boolean> }
 export type PluginAction = { id: string; title: string; description?: string; group?: string; command: string[]; capabilities: PluginCapability[]; timeout_seconds: number; parameters: PluginParameter[]; launch_url?: string; configuration_command?: string[]; configuration_save_command?: string[]; presets?: PluginPreset[] }
 export type PluginHook = PluginAction & { event: 'startup' | 'page-ready' | 'url-change'; matches?: string[]; profiles?: string[] }

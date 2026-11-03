@@ -1,4 +1,5 @@
 import { parseDocument } from 'yaml'
+import { pluginRangeValue } from '../shared/plugin-range'
 import { bookmarkPluginValues } from '../shared/bookmark-plugins'
 import type { BookmarkPluginContribution, BookmarkPluginControl, PluginAction, PluginCapability, PluginHook, PluginManifest, PluginParameter, PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 
@@ -20,7 +21,14 @@ let parameter = (raw: unknown): PluginParameter => {
   if (value.default !== undefined && (kind === 'password' || (kind === 'boolean' ? typeof value.default !== 'boolean' : typeof value.default !== 'string' || value.default.length > 65536 || kind === 'choice' && !choices?.includes(value.default)))) throw new Error('Invalid parameter default')
   if (value.multiline !== undefined && (typeof value.multiline !== 'boolean' || kind !== 'text')) throw new Error('multiline requires a text parameter')
   if (value.advanced !== undefined && typeof value.advanced !== 'boolean') throw new Error('advanced must be boolean')
-  return { ...(value.multiline === undefined ? {} : { multiline: value.multiline }), ...(value.section === undefined ? {} : { section: text(value.section).trim() }), ...(value.description === undefined ? {} : { description: text(value.description) }), ...(value.advanced === undefined ? {} : { advanced: value.advanced }), ...(value.hidden === undefined ? {} : { hidden: value.hidden }), ...(value.default === undefined ? {} : { default: value.default as string | boolean }), name: identifier(value.name), title: text(value.title), kind, required: value.required === true, choices }
+  let range: PluginParameter['range']
+  if (value.range !== undefined) {
+    let item = object(value.range), min = Number(item.min), max = Number(item.max), step = Number(item.step ?? 1)
+    if (kind !== 'text' || value.multiline || ![min, max, step].every(Number.isSafeInteger) || min < 0 || max <= min || step < 1 || (max - min) % step) throw new Error('Invalid parameter slider')
+    range = { min, max, step, ...(item.unit === undefined ? {} : { unit: text(item.unit) }) }
+    if (value.default !== undefined) pluginRangeValue(value.default, range)
+  }
+  return { ...(range ? { range } : {}), ...(value.multiline === undefined ? {} : { multiline: value.multiline }), ...(value.section === undefined ? {} : { section: text(value.section).trim() }), ...(value.description === undefined ? {} : { description: text(value.description) }), ...(value.advanced === undefined ? {} : { advanced: value.advanced }), ...(value.hidden === undefined ? {} : { hidden: value.hidden }), ...(value.default === undefined ? {} : { default: value.default as string | boolean }), name: identifier(value.name), title: text(value.title), kind, required: value.required === true, choices }
 }
 let action = (raw: unknown): PluginAction => {
   let value = object(raw), command = strings(value.command), allowed = strings(value.capabilities ?? []) as PluginCapability[]
@@ -39,6 +47,7 @@ let action = (raw: unknown): PluginAction => {
     let preset = object(raw), values = object(preset.values)
     for (let [name, entry] of Object.entries(values)) {
       let field = parameters.find(field => field.name === name && !field.hidden && field.kind !== 'password')
+      if (field?.range) pluginRangeValue(value, field.range)
       if (!field || (field.kind === 'boolean' ? typeof entry !== 'boolean' : typeof entry !== 'string' || entry.length > 65536 || field.kind === 'choice' && !field.choices?.includes(entry))) throw new Error('Invalid preset value')
     }
     return { id: identifier(preset.id), title: text(preset.title), ...(preset.description === undefined ? {} : { description: text(preset.description) }), values: values as Record<string, string | boolean> }

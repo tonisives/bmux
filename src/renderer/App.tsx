@@ -1,4 +1,5 @@
 import { remoteWorkspaceShortcut } from '../shared/remote-workspace'
+import { PluginRange } from './PluginRange'
 import { RemotePaneControls } from './RemotePaneControls'
 import { useViewportPan } from './useViewportPan'
 import { PROFILE_COLORS, profileHash, profileColor } from '../shared/profile-color'
@@ -1894,7 +1895,10 @@ let PluginParameters = () => {
   let change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     let { name, value } = event.target
     let field = fields.find(field => field.name === name)
-    let patch = { [name]: field?.kind === 'boolean' ? value === 'true' : value }
+    update(name, field?.kind === 'boolean' ? value === 'true' : value)
+  }
+  let update = (name: string, value: unknown) => {
+    let patch = { [name]: value }
     setPreset('custom'); setValues(current => ({ ...current, ...patch })); save(patch)
   }
   let choosePreset = (event: MouseEvent<HTMLButtonElement>) => {
@@ -1919,11 +1923,11 @@ let PluginParameters = () => {
   let field = (item: typeof fields[number]) => {
     let fallback = saved.current[item.name] ?? item.default
     let inherited = fallback === undefined ? 'Not set' : display(item, fallback)
-    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name}><label className={css.settingsRow}><span>{item.title}</span>
+    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name}>{item.range ? <PluginRange field={item} value={values[item.name] ?? fallback} onChange={update} /> : <label className={css.settingsRow}><span>{item.title}</span>
       {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={values[item.name] === undefined ? '' : String(values[item.name])} onChange={change} required={item.required}>
         {!item.required && values[item.name] === undefined && <option value="">{inherited}</option>}
         {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{display(item, value)}</option>)}
-      </select> : item.multiline ? <textarea name={item.name} value={String(values[item.name] ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}</label>
+      </select> : item.multiline ? <textarea name={item.name} value={String(values[item.name] ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}</label>}
       {item.description && <small>{item.description}</small>}
     </div>
   }

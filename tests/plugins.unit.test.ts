@@ -5,6 +5,7 @@ import os from 'node:os'
 import { stringify } from 'yaml'
 import { createPlugins } from '../src/main/plugins'
 import { parsePluginManifest, matchesPluginUrl } from '../src/main/plugin-manifest'
+import { pluginRangeValue } from '../src/shared/plugin-range'
 import { parseConfig } from '../src/main/config'
 import type { PluginSettings, PluginContext } from '../src/shared/plugins'
 
@@ -358,4 +359,17 @@ test('configuration save failures preserve the open form and can be retried', as
   let prompt = plugins.prompt('client')!
   await expect(plugins.respond('client',{id:prompt.id,save:true,value:{one:'changed'}})).rejects.toThrow('Could not save plugin settings')
   expect(plugins.prompt('client')?.id).toBe(prompt.id)
+})
+
+test('range parameters validate slider bounds, defaults and presets', () => {
+  let range = { min: 1, max: 120, step: 1, unit: 's' }
+  expect(pluginRangeValue('8-12', range)).toEqual([8, 12])
+  expect(pluginRangeValue('10', range)).toEqual([10, 10])
+  for (let value of ['0-12', '12-8', '8-121', '8.5-12', '', 'NaN']) expect(() => pluginRangeValue(value, range)).toThrow()
+  let manifest = (parameter: Record<string, unknown>, values?: Record<string, unknown>) => stringify({ schema_version: 1, id: 'slider', name: 'Slider', version: '1', actions: [{ id: 'run', title: 'Run', command: ['node', './run.mjs'], parameters: [{ name: 'watch', title: 'Watch', kind: 'text', ...parameter }], ...(values ? { presets: [{ id: 'preset', title: 'Preset', values }] } : {}) }] })
+  expect(parsePluginManifest(manifest({ range, default: '8-12' })).actions[0].parameters[0].range).toEqual(range)
+  expect(() => parsePluginManifest(manifest({ range, default: '0-12' }))).toThrow()
+  expect(() => parsePluginManifest(manifest({ range }, { watch: '15-12' }))).toThrow()
+  for (let invalid of [{ ...range, min: 120 }, { ...range, step: 0 }, { ...range, max: Infinity }]) expect(() => parsePluginManifest(manifest({ range: invalid }))).toThrow()
+  expect(() => parsePluginManifest(manifest({ kind: 'boolean', range }))).toThrow()
 })

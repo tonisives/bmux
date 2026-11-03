@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { pluginRangeValue } from '../shared/plugin-range'
 import { parsePluginOverlay, validatePluginOverlayInput } from '../shared/plugin-overlay'
 import type { PluginOverlayContent, PluginOverlayInput } from '../shared/plugin-overlay'
 import path from 'node:path'
@@ -37,6 +38,7 @@ let shortText = (value: unknown, limit = 4096) => { if (typeof value !== 'string
 let validateParameter = (parameter: PluginParameter, value: unknown) => {
   if (value === undefined) { if (parameter.required) throw new Error('Missing required parameter'); return }
   if (parameter.kind === 'boolean' ? typeof value !== 'boolean' : typeof value !== 'string' || value.length > 65536 || (parameter.required && !value.length) || (parameter.kind === 'choice' && !parameter.choices?.includes(value))) throw new Error('Invalid parameter')
+  if (parameter.range) pluginRangeValue(value, parameter.range)
 }
 let methods: Record<string, PluginAction['capabilities'][number]> = {
   'forms.list': 'browser.forms', 'forms.save': 'browser.forms', 'forms.fill': 'browser.forms', 'forms.delete': 'browser.forms',
