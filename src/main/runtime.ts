@@ -2488,7 +2488,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
 
   let execute = async (command: Command, sourceClientId?: string): Promise<unknown> => {
-    if (sourceClientId && model.clients.find(client => client.id === sourceClientId)?.readOnly && !['switch-client', 'command-line', 'detach-client'].includes(command.method)) throw new Error('Client is read-only; use switchc -r to enable input')
+    if (sourceClientId && model.clients.find(client => client.id === sourceClientId)?.readOnly && !['switch-client', 'command-line', 'detach-client', 'activate-client', 'focus-page'].includes(command.method)) throw new Error('Client is read-only; use switchc -r to enable input')
     let creation = ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(command.method)
     if (!sourceClientId && !remoteActor.getStore() && (agentCommands.has(command.method) || command.method === 'automation.acquire' || creation)) {
       let required = !creation || command.args?.url !== undefined
