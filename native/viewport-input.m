@@ -115,7 +115,7 @@ static napi_value initialize(napi_env env, napi_value exports) {
       if (!target) continue;
       switch (event.type) {
         case NSEventTypeScrollWheel: [target scrollWheel:event]; break;
-        case NSEventTypeLeftMouseDown: drag_target = target; [target mouseDown:event]; break;
+        case NSEventTypeLeftMouseDown: drag_target = target; [event.window makeFirstResponder:target]; [target mouseDown:event]; break;
         case NSEventTypeLeftMouseUp: [target mouseUp:event]; break;
         case NSEventTypeLeftMouseDragged: [target mouseDragged:event]; break;
         case NSEventTypeMouseMoved: [target mouseMoved:event]; break;

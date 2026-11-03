@@ -258,7 +258,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
           let input = (phase: number, point: { x: number; y: number }) => application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { ...point, phase, modifier: modifier === 'Alt' ? 1 : modifier === 'Meta' ? 2 : 0 })
           await input(0, start)
           await input(1, start)
-          await expect.poll(() => chrome.locator(`[data-pane-id="${client.paneId}"]`).evaluate(element => element.hasPointerCapture(1)), { message: `${modifier} gutter drag captures the pointer` }).toBe(true)
+          await expect.poll(() => chrome.locator(`[data-pane-id="${client.paneId}"]`).evaluate(element => { let id = (globalThis as any).gutterTrace?.findLast((event: any) => event.type === 'pointerdown')?.id; return id !== undefined && element.hasPointerCapture(id) }), { message: `${modifier} gutter drag captures the pointer` }).toBe(true)
           await input(2, finish)
           await expect.poll(() => content(client.paneId).evaluate(element => element.scrollLeft), { message: `${modifier} native gutter drag pans across the page` }).toBe(40)
           await input(3, finish)
