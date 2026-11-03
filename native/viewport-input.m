@@ -15,9 +15,9 @@
 @implementation BmuxInputRegion
 @end
 static NSMutableDictionary<NSNumber *, BmuxInputRegion *> *regions;
-static id input_monitor;
-static __weak NSView *drag_target;
-static char region_key;
+static id scroll_monitor;
+static char region_key, root_key;
+static NSHashTable<NSView *> *input_roots;
 static NSView *hit_test(NSView *page, SEL selector, NSPoint point) {
   BmuxInputRegion *region = objc_getAssociatedObject(page, &region_key);
   if (region.root && !NSPointInRect([page.superview convertPoint:point toView:region.root], region.rect)) return nil;
@@ -45,6 +45,34 @@ static NSView *find_renderer(NSView *view) {
     if (renderer) return renderer;
   }
   return nil;
+}
+// Give AppKit the actual chrome renderer for margins, so its normal mouse-down
+// tracking and Chromium pointer capture continue across the page during a drag.
+static NSView *root_hit_test(NSView *root, SEL selector, NSPoint point) {
+  NSPoint local = [root.superview convertPoint:point toView:root];
+  for (BmuxInputRegion *region in regions.allValues) {
+    if (region.root != root || !region.page || !NSPointInRect(local, region.rect)) continue;
+    if (NSPointInRect([root convertPoint:local toView:region.page], region.page.bounds)) continue;
+    NSView *renderer = find_renderer(find_page(root, root, root.bounds));
+    if (renderer) return renderer;
+  }
+  BmuxInputRegion *state = objc_getAssociatedObject(root, &root_key);
+  struct objc_super parent = { root, state.originalClass };
+  return ((NSView *(*)(struct objc_super *, SEL, NSPoint))objc_msgSendSuper)(&parent, selector, point);
+}
+static void install_root(NSView *root) {
+  if (objc_getAssociatedObject(root, &root_key)) return;
+  BmuxInputRegion *state = [BmuxInputRegion new]; state.originalClass = object_getClass(root);
+  NSString *name = [@"BmuxViewportRoot_" stringByAppendingString:NSStringFromClass(state.originalClass)];
+  Class subclass = NSClassFromString(name);
+  if (!subclass) {
+    subclass = objc_allocateClassPair(state.originalClass, name.UTF8String, 0);
+    class_addMethod(subclass, @selector(hitTest:), (IMP)root_hit_test, method_getTypeEncoding(class_getInstanceMethod(state.originalClass, @selector(hitTest:))));
+    objc_registerClassPair(subclass);
+  }
+  state.clippedClass = subclass;
+  objc_setAssociatedObject(root, &root_key, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  object_setClass(root, subclass); [input_roots addObject:root];
 }
 static void restore(NSNumber *key) {
   BmuxInputRegion *region = regions[key]; NSView *page = region.page;
@@ -85,7 +113,7 @@ static napi_value clip(napi_env env, napi_callback_info info) {
     objc_setAssociatedObject(page, &region_key, region, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     object_setClass(page, subclass); regions[key] = region;
   }
-  region.root = root; region.rect = frame;
+  region.root = root; region.rect = frame; install_root(root);
   return nothing(env);
 }
 static napi_value clear(napi_env env, napi_callback_info info) {
@@ -96,40 +124,29 @@ static napi_value clear(napi_env env, napi_callback_info info) {
 }
 static void cleanup(void *data) {
   (void)data;
-  if (input_monitor) [NSEvent removeMonitor:input_monitor];
-  input_monitor = nil; drag_target = nil;
+  if (scroll_monitor) [NSEvent removeMonitor:scroll_monitor];
+  scroll_monitor = nil;
   for (NSNumber *key in regions.allKeys) restore(key);
+  for (NSView *root in input_roots.allObjects) {
+    BmuxInputRegion *state = objc_getAssociatedObject(root, &root_key);
+    if (object_getClass(root) == state.clippedClass) object_setClass(root, state.originalClass);
+    objc_setAssociatedObject(root, &root_key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  }
 }
 static napi_value initialize(napi_env env, napi_value exports) {
+  input_roots = [NSHashTable weakObjectsHashTable];
   regions = [NSMutableDictionary dictionary]; napi_add_env_cleanup_hook(env, cleanup, NULL);
-  NSEventMask mask = NSEventMaskScrollWheel | NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged | NSEventMaskMouseMoved;
-  input_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
-    NSView *captured = drag_target;
-    if (captured && captured.window == event.window) {
-      if (event.type == NSEventTypeLeftMouseDragged) { [captured mouseDragged:event]; return nil; }
-      if (event.type == NSEventTypeLeftMouseUp) { drag_target = nil; [captured mouseUp:event]; return nil; }
-    }
-    if (event.type == NSEventTypeLeftMouseDown) drag_target = nil;
+  scroll_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event) {
     for (BmuxInputRegion *region in regions.allValues) {
       NSView *root = region.root, *page = region.page;
       if (!root || !page || event.window != root.window) continue;
       NSPoint point = [root convertPoint:event.locationInWindow fromView:nil];
       if (!NSPointInRect(point, region.rect) || NSPointInRect([root convertPoint:point toView:page], page.bounds)) continue;
       // The compositor's clipping View claims these margins in Views hit testing,
-      // but has no native renderer. Deliver margin input to chrome and keep a
-      // margin-started drag there when it crosses over the native page.
+      // but has no native renderer to receive wheel input. Deliver it to chrome.
       NSView *chrome = find_page(root, root, root.bounds);
-      NSView *target = find_renderer(chrome);
-      if (!target) continue;
-      switch (event.type) {
-        case NSEventTypeScrollWheel: [target scrollWheel:event]; break;
-        case NSEventTypeLeftMouseDown: drag_target = target; [event.window makeFirstResponder:target]; [target mouseDown:event]; break;
-        case NSEventTypeLeftMouseUp: [target mouseUp:event]; break;
-        case NSEventTypeLeftMouseDragged: [target mouseDragged:event]; break;
-        case NSEventTypeMouseMoved: [target mouseMoved:event]; break;
-        default: return event;
-      }
-      return nil;
+      NSView *target = [chrome hitTest:[root convertPoint:point toView:chrome.superview]];
+      if (target) { [target scrollWheel:event]; return nil; }
     }
     return event;
   }];
