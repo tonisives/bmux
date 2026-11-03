@@ -17,9 +17,9 @@ let fixture = (pause?: (ms: number) => Promise<void>) => {
   let current: ReturnType<typeof createAutomationSafety>
   let create = () => current = createAutomationSafety({ file, settings: () => settings, now: () => time, sleep: async ms => { sleeps.push(ms); if (pause) await pause(ms); time += ms }, changed: () => { changes++ } })
   let active = (ms: number) => {
-    // Complete an interaction every three seconds, leaving the final interval open.
+    // Complete an interaction every second, leaving the final interval open.
     for (let remaining = ms; remaining > 0;) {
-      let step = Math.min(3000, remaining)
+      let step = Math.min(1000, remaining)
       time += step; remaining -= step
       if (remaining) for (let row of current.status().profiles) current.after(row.profileId, '%active', `https://${row.siteHost}/`)
     }
@@ -104,7 +104,7 @@ test('a sleeping hostname queue does not block other sites, profiles, or local f
 })
 
 test('persisted pacing uses only the requested hostname after a restart', async () => {
-  let { policy, advance, active, sleeps, restart } = fixture()
+  let { policy, advance, sleeps, restart } = fixture()
   await policy.before('bot', instagram)
   advance(1000)
   await policy.before('bot', async () => ({ url: 'https://x.com/' }))
@@ -127,7 +127,7 @@ test('a warning from another hostname still stops an action waiting in this prof
 })
 
 test('navigation during a delay joins the destination queue and respects its latest action', async () => {
-  let { policy, advance, active, sleeps } = fixture()
+  let { policy, advance, sleeps } = fixture()
   await policy.before('bot', instagram)
   let inspections = 0
   await policy.before('bot', async () => {
@@ -179,7 +179,7 @@ test('records only admitted automation panes and agent IDs without extending coo
 })
 
 test('website clocks and actors stay separate across navigation, resets and restarts', async () => {
-  let { policy, advance, active, restart } = fixture()
+  let { policy, active, restart } = fixture()
   let actor = { paneId: '%1', agentId: 'research', agentType: 'tmux', agentData: { paneId: '%42' } }
   await policy.before('bot', instagram, 'https://example.com/path', true, actor)
   active(10 * 60_000)
@@ -206,7 +206,7 @@ test('new-pane tracking skips local, excluded and unrelated sites', async () => 
 })
 
 test('pane toggles persist independently and bypass only the chosen pane', async () => {
-  let { policy, settings, advance, active, restart } = fixture()
+  let { policy, settings, active, restart } = fixture()
   await policy.before('bot', instagram, undefined, true, { paneId: '%1' })
   active(10 * 60_000)
   settings.panes = { '%1': false, '%2': true }
@@ -223,7 +223,7 @@ test('pane toggles persist independently and bypass only the chosen pane', async
 })
 
 test('warnings latch across restarts and other sites until a human resolves the affected site', async () => {
-  let { policy, advance, active, restart } = fixture()
+  let { policy, advance, restart } = fixture()
   await expect(policy.before('bot', async () => ({ url: 'https://www.instagram.com/', warning: 'account-warning' }))).rejects.toThrow('Automation paused')
   advance(24 * 60 * 60_000)
   let next = restart()
@@ -250,17 +250,17 @@ test('resuming a website clears both www aliases without clearing other websites
 })
 
 test('hitting the session limit publishes the cooldown without extending its deadline', async () => {
-  let { policy, advance, active, changes } = fixture()
+  let { policy, active, changes } = fixture()
   await policy.before('bot', instagram)
-  let previous = changes()
   active(10 * 60_000)
+  let previous = changes()
   expect(() => policy.assertAvailable('bot', undefined, 'https://www.instagram.com/')).toThrow('Open the UI alert or Profile > Bot')
   expect(changes()).toBe(previous + 1)
   expect(policy.status().profiles[0].retryAfter).toBe('2026-10-01T00:30:00.000Z')
 })
 
 test('idle websites never raise retroactive limits after exclusions expire and a completed break starts a fresh session', async () => {
-  let { policy, settings, advance, active, restart } = fixture()
+  let { policy, settings, advance, restart } = fixture()
   let youtube = async () => ({ url: 'https://studio.youtube.com/' })
   let actor = { paneId: '%11', agentId: '%76' }
   await policy.before('bot', youtube, undefined, true, actor)
@@ -292,7 +292,7 @@ test('slow commands count at most three seconds and idle time survives restarts'
 })
 
 test('a human session reset persists fresh usage for only that profile and preserves warning pauses', async () => {
-  let { policy, advance, active, restart } = fixture()
+  let { policy, active, restart } = fixture()
   await policy.before('bot', instagram)
   await policy.before('other', instagram)
   active(10 * 60_000)
@@ -358,7 +358,7 @@ test('corrupt or unwritable ledgers stop automation, while an explicit opt-out s
 })
 
 test('navigation from a blank pane counts only toward its destination website', async () => {
-  let { policy, advance, active } = fixture()
+  let { policy, active } = fixture()
   await policy.before('bot', async () => ({ url: 'about:blank' }), 'https://instagram.com/')
   active(10 * 60_000)
   await policy.before('bot', async () => ({ url: 'about:blank' }), 'https://youtube.com/')
@@ -366,7 +366,7 @@ test('navigation from a blank pane counts only toward its destination website', 
 })
 
 test('blank panes and raw CDP navigation cannot avoid session accounting or social pacing', async () => {
-  let { policy, advance, active, sleeps } = fixture()
+  let { policy, active, sleeps } = fixture()
   let target = automationTargetUrl('cdp', { method: 'Page.navigate', params: { url: 'https://instagram.com/' } })
   expect(target).toBe('https://instagram.com/')
   await policy.before('bot', async () => ({ url: 'about:blank' }))
@@ -503,7 +503,7 @@ test('profile limits validate, inherit old defaults, and isolate pacing and cool
 })
 
 test('excluded websites skip session limits, pacing, and warnings only in their profile', async () => {
-  let { settings, policy, advance, active, sleeps, restart } = fixture()
+  let { settings, policy, active, sleeps, restart } = fixture()
   await policy.before('bot', instagram)
   await policy.before('other', instagram)
   let before = policy.status().profiles.find(item => item.profileId === 'bot')
@@ -522,7 +522,7 @@ test('excluded websites skip session limits, pacing, and warnings only in their 
   await next.before('bot', async () => ({ url: 'https://x.com/' }))
   await expect(next.before('other', instagram)).rejects.toThrow('session limit')
   delete settings.sites.bot['www.instagram.com']
-  await expect(next.before('bot', instagram)).rejects.toThrow('session limit')
+  await expect(next.before('bot', instagram)).resolves.toBeUndefined()
 })
 
 let localResources = [
@@ -570,7 +570,7 @@ test('mouse movement defaults on and can be overridden independently per profile
 })
 
 test('social delay starts after an animated click completes', async () => {
-  let { policy, advance, active, sleeps, restart } = fixture()
+  let { policy, advance, sleeps, restart } = fixture()
   await policy.before('bot', instagram)
   advance(600)
   policy.after('bot', 'pane', 'https://www.instagram.com/')
@@ -594,7 +594,7 @@ test('navigation preflights pace each destination hostname and profile without c
 })
 
 test('a navigation preflight creates no session until navigation succeeds', async () => {
-  let { policy, file, advance, active } = fixture()
+  let { policy, file, active } = fixture()
   let actor = { paneId: '%1', agentId: 'research' }
   await policy.before('bot', async () => ({ url: 'about:blank' }), 'https://example.com/', true, actor, false)
   expect(policy.status().profiles).toEqual([])
@@ -620,7 +620,7 @@ test('legacy profile clocks restart per website while warning pauses survive', a
 
 
 test('screenshots inspect current policy without spending a social command delay', async () => {
-  let { policy, sleeps, advance, active } = fixture()
+  let { policy, sleeps, active } = fixture()
   await policy.before('bot', instagram)
   expect(paceAutomationCommand('screenshot', {})).toBe(false)
   await policy.before('bot', instagram, undefined, paceAutomationCommand('screenshot', {}))
@@ -636,4 +636,55 @@ test('only explicit evaluation observations skip command pacing', () => {
   expect(paceAutomationCommand('eval', { observation: true })).toBe(false)
   expect(paceAutomationCommand('eval', { observation: 'true' })).toBe(true)
   expect(paceAutomationCommand('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mousePressed' }, observation: true })).toBe(true)
+})
+
+
+test('idle gaps stop counting at three seconds, including after a restart', async () => {
+  let { policy, advance, restart } = fixture()
+  await policy.before('bot', instagram)
+  advance(2000)
+  await policy.before('bot', instagram)
+  expect(policy.status().profiles[0].activeMs).toBe(2000)
+  advance(60_000)
+  let next = restart()
+  await next.before('bot', instagram)
+  expect(next.status().profiles[0].activeMs).toBe(5000)
+  for (let i = 0; i < 15; i++) { advance(60_000); await next.before('bot', instagram) }
+  expect(next.status().profiles[0]).toMatchObject({ activeMs: 50_000, retryAfter: null })
+})
+
+test('parallel actions share a three-action burst then normal pacing and a minute cooldown across restarts', async () => {
+  let { policy, sleeps, advance, restart } = fixture()
+  await Promise.all(Array.from({ length: 5 }, (_, i) => policy.before('bot', instagram, undefined, true, { paneId: `%${i}` })))
+  expect(sleeps).toEqual([334, 334, 3000, 3000])
+  let next = restart()
+  await next.before('bot', instagram)
+  expect(sleeps.at(-1)).toBe(3000)
+  advance(60_000)
+  await next.before('bot', instagram)
+  await next.before('bot', instagram)
+  await next.before('bot', instagram)
+  expect(sleeps.slice(-2)).toEqual([334, 334])
+})
+
+test('old idle clocks become active clocks while existing breaks remain in force', async () => {
+  let { file, restart, advance } = fixture()
+  let startedAt = Date.parse('2026-10-01T00:00:00Z')
+  fs.writeFileSync(file, JSON.stringify({ idle: { profileId: 'bot', siteHost: 'example.com', startedAt, lastUsed: startedAt }, paused: { profileId: 'bot', siteHost: 'x.com', startedAt, lastUsed: startedAt, limitReachedAt: startedAt + 600_000 } }))
+  advance(11 * 60_000)
+  let next = restart()
+  await expect(next.before('bot', async () => ({ url: 'https://example.com/' }))).resolves.toBeUndefined()
+  await expect(next.before('bot', async () => ({ url: 'https://x.com/' }))).rejects.toThrow('session limit')
+})
+
+
+test('failed retries preserve the persisted active-session break deadline', async () => {
+  let { policy, active, advance, file, restart } = fixture()
+  await policy.before('bot', instagram)
+  active(10 * 60_000)
+  await expect(policy.before('bot', instagram)).rejects.toThrow('00:30:00.000Z')
+  let saved = fs.readFileSync(file, 'utf8')
+  advance(19 * 60_000)
+  await expect(restart().before('bot', instagram)).rejects.toThrow('00:30:00.000Z')
+  expect(fs.readFileSync(file, 'utf8')).toBe(saved)
 })

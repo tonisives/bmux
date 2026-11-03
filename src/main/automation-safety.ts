@@ -46,12 +46,18 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
       }
       if (value.siteHost !== undefined) {
         if (typeof value.profileId !== 'string' || !value.profileId || automationWebsiteHost(`https://${value.siteHost}`) !== value.siteHost) throw new Error('Invalid website usage')
+        if (value.activeMs === undefined) {
+          // Old elapsed clocks cannot tell active work from idle time. Keep earned breaks.
+          let limit = automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
+          if (value.lastUsed >= value.startedAt + limit) value.limitReachedAt ??= value.lastUsed
+          value.activeMs = value.limitReachedAt === undefined ? 0 : limit
+        }
         usage[JSON.stringify([value.profileId, value.siteHost])] = value
       } else {
         // Website start times are absent from profile clocks. Keep warning
         // pauses; website sessions begin with their next admitted command.
         let siteHost = value.warningHost
-        if (value.warning && siteHost && automationWebsiteHost(`https://${siteHost}`) === siteHost) usage[JSON.stringify([key, siteHost])] = { ...value, profileId: key, siteHost, startedAt: now(), lastUsed: now(), actors: value.actors?.filter(actor => actor.hosts?.includes(siteHost)).map(actor => ({ ...actor, hosts: [siteHost] })) }
+        if (value.warning && siteHost && automationWebsiteHost(`https://${siteHost}`) === siteHost) usage[JSON.stringify([key, siteHost])] = { ...value, profileId: key, siteHost, activeMs: 0, startedAt: now(), lastUsed: now(), actors: value.actors?.filter(actor => actor.hosts?.includes(siteHost)).map(actor => ({ ...actor, hosts: [siteHost] })) }
       }
     }
   } catch (error) { ledgerError = (error as NodeJS.ErrnoException).code !== 'ENOENT' }
@@ -71,13 +77,12 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
   }
   let retryAt = (profileId: string, value: Usage) => {
     let limits = automationProfileLimits(options.settings(), profileId)
-    return (value.activeMs === undefined ? Math.max(value.startedAt + limits.maxSessionMinutes * 60_000, value.lastUsed) : value.limitReachedAt ?? value.lastUsed) + limits.cooldownMinutes * 60_000
+    return (value.limitReachedAt ?? value.lastUsed) + limits.cooldownMinutes * 60_000
   }
-  let sessionEnd = (value: Usage) => value.startedAt + automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
   let activeTime = (value: Usage) => (value.activeMs ?? 0) + (value.pendingSession ? 0 : Math.min(3000, Math.max(0, now() - value.lastUsed)))
-  let overLimit = (value: Usage) => value.activeMs === undefined ? now() >= sessionEnd(value) : activeTime(value) >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
+  let overLimit = (value: Usage) => value.limitReachedAt !== undefined || activeTime(value) >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
   let touch = (value: Usage) => { value.activeMs = activeTime(value); value.lastUsed = now() }
-  let reachedLimit = (value: Usage) => !value.pendingSession && (value.activeMs === undefined ? Math.max(value.limitReachedAt ?? 0, value.lastUsed) >= sessionEnd(value) : value.limitReachedAt !== undefined || value.activeMs >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000)
+  let reachedLimit = (value: Usage) => !value.pendingSession && (value.limitReachedAt !== undefined || (value.activeMs ?? 0) >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000)
   let rested = (value: Usage) => value.pendingSession || now() >= retryAt(value.profileId, value) || !reachedLimit(value) && now() - value.lastUsed >= automationProfileLimits(options.settings(), value.profileId).cooldownMinutes * 60_000
   let assertAvailable = (profileId: string, paneId?: string, url?: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
@@ -86,7 +91,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning && automationWarningEnabled(options.settings(), profileId, item.warningHost!, now(), paneId))
     if (warning) throw safetyError(`Automation paused: ${warning.warning} on ${warning.warningHost}. Open the UI alert or Profile > Bot to resolve, resume, or exclude this website`)
     if (value && overLimit(value) && !rested(value)) {
-      if (!reachedLimit(value)) { value.limitReachedAt = value.activeMs === undefined ? now() : value.lastUsed + Math.max(0, automationProfileLimits(options.settings(), profileId).maxSessionMinutes * 60_000 - value.activeMs); persist() }
+      if (!reachedLimit(value)) { value.limitReachedAt = value.lastUsed + Math.max(0, automationProfileLimits(options.settings(), profileId).maxSessionMinutes * 60_000 - (value.activeMs ?? 0)); persist() }
       else options.changed?.()
       throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(profileId, value)).toISOString()}. Open the UI alert or Profile > Bot to reset the session`)
     }
@@ -123,7 +128,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
         let checkWarning = () => {
           let host = automationWebsiteHost(page.url)
           if (!page.warning || !host || !automationSiteEnabled(options.settings(), profileId, page.url, now(), actor?.paneId)) return
-          let key = usageKey(profileId, page.url), value = usage[key] ?? { profileId, siteHost: host, startedAt: now(), lastUsed: now() }
+          let key = usageKey(profileId, page.url), value = usage[key] ?? { profileId, siteHost: host, startedAt: now(), lastUsed: now(), activeMs: 0 }
           usage[key] = { ...value, warning: page.warning, warningHost: host, warningAt: value.warning === page.warning ? value.warningAt ?? value.startedAt : now(), ...(actor ? { actors: actorsFor(value, actor, page.url) } : {}) }
           persist()
         }
