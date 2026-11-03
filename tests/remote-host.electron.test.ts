@@ -597,7 +597,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one'}))
       await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
       await command('rpc','remote.job',JSON.stringify({id:'job',attempt:'one',result:'succeeded'}))
-      await expect.poll(async()=>(await pool.query('SELECT succeeded FROM bmux_usage WHERE service=$1',[service])).rows[0]?.succeeded,{timeout:10000}).toBe('1')
+      // A run crossing midnight UTC has usage rows for both days.
+      await expect.poll(async()=>(await pool.query('SELECT sum(succeeded) AS succeeded FROM bmux_usage WHERE service=$1',[service])).rows[0]?.succeeded,{timeout:10000}).toBe('1')
     },{timeout:30000})
     await test.step('Revoke the original viewer and verify signed-out controls',async()=>{
       let response = await fetch(`${origin}/api/revoke`,{method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({id:viewerDevice}),signal:AbortSignal.timeout(10000)})
