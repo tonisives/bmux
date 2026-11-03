@@ -285,6 +285,11 @@ with profile and pane switches and their On/Off states, then **Limits** and
 when a warning, break, or safety error needs attention. Its action resumes after
 a resolved warning or resets a session to end a break. It lists paused websites
 across the profile, including websites in other panes or closed tabs.
+Session minutes count active time: at most three seconds after each interaction.
+Idle thinking time and slow commands beyond those three seconds do not count.
+Social sites default to one action every three seconds, with up to three actions
+in one second once per minute. Actions queue per website and profile, so parallel
+commands share the same allowance. Existing custom delays still apply between bursts.
 Session minutes, break minutes, and social site delay are editable for the
 selected profile. Press Enter or leave the field to save. Changes apply
 immediately and preserve existing usage. Existing config values remain the
@@ -314,7 +319,7 @@ automation:
     enabled: true
     maxSessionMinutes: 10
     cooldownMinutes: 20
-    socialDelayMs: 2000
+    socialDelayMs: 3000
     simulateMouseMovement: true
     profiles:
       profile_default: false
