@@ -251,6 +251,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
           await hand.click()
           await expect(hand).toHaveAttribute('aria-pressed', 'true')
           await expect.poll(async () => (await state()).viewportPanModes).toContain(client.paneId)
+          await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveCSS('cursor', 'grab')
         } else await chrome.keyboard.down(modifier)
         let start = { x: gutter.x + 180, y: gutter.y + gutter.height - 24 }
         let finish = { x: gutter.x + 140, y: gutter.y + gutter.height / 2 }
