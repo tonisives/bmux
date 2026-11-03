@@ -388,7 +388,8 @@ test('plugin overlays detach when switching panes and windows during and after b
     await rpc('select-pane', { client: client.id, pane: original })
     await expect.poll(attached).toBe(1)
     await expect.poll(async () => (await state()).pluginOverlay?.runId).toBe(id)
-    await expect(observer.getByRole('status')).toHaveText(ended ? 'Session complete' : 'Browsing')
+    if (ended) await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
+    else await expect(observer.getByRole('status')).toHaveText('Browsing')
     if (!ended) {
       await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
       await completed(id)
