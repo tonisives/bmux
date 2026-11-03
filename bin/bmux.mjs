@@ -96,7 +96,7 @@ let parse = () => {
   let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
   let explicit = new Set()
   let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-type': 'agentType', '--agent-data': 'agentData' }
-  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'no-start', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z', 'E', 'l', 'n', 'p', 'r'])
+  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'no-start', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break
     let flag = argv[index].split('=')[0], key = flags[flag]
@@ -104,7 +104,7 @@ let parse = () => {
       let inline = argv[index].includes('='), value = inline ? argv[index].slice(flag.length + 1) : argv[index + 1]
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`)
       info[key] = value; explicit.add(key); argv.splice(index, inline ? 1 : 2); index--
-    } else if (argv[index].startsWith('-') && !argv[index].includes('=') && !switches.has(argv[index].replace(/^-+/, ''))) index++
+    } else if (argv[index].startsWith('-') && !argv[index].includes('=') && !switches.has(argv[index].replace(/^-+/, '')) && !(['switchc', 'switch-client'].includes(argv[0]) && /^-(?:[ElnprZ]+|[ElnprZ]*[ctTO].+)$/.test(argv[index]))) index++
   }
   for (let [key, value] of Object.entries(info)) if (key !== 'agentData' && value !== undefined && (!value.trim() || value.length > (key === 'agentPurpose' ? 1000 : 128) || /[\x00-\x1f\x7f]/.test(value))) throw new Error(`Invalid ${key}`)
   if (info.agentData !== undefined) { info.agentData = JSON.parse(info.agentData); if (!info.agentData || typeof info.agentData !== 'object' || Array.isArray(info.agentData)) throw new Error('agentData must be a JSON object') }
