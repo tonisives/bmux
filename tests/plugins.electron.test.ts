@@ -363,6 +363,42 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   expect(await page.evaluate(() => typeof (window as any).bmux)).toBe('undefined')
 })
 
+test('plugin overlays detach when switching panes and windows during and after browsing', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let original = client.paneId
+  await rpc('select-pane', { client: client.id, pane: original })
+  let id = await run('overlay', { tab: original })
+  let attached = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay')).length)
+  await expect.poll(attached).toBe(1)
+  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
+  await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await expect(observer.getByRole('status')).toHaveText('Browsing')
+  let other = await rpc('split-window', { client: client.id, pane: original, url: url + '/other-pane' })
+  await rpc('wait', { pane: other.id, selector: '#username' })
+  let otherWindow = await rpc('new-window', { client: client.id, session: client.sessionId, url: url + '/other-window' })
+  await rpc('wait', { pane: otherWindow.panes[0].id, selector: '#username' })
+  for (let ended of [false, true]) {
+    await rpc('select-pane', { client: client.id, pane: other.id })
+    await expect.poll(attached).toBe(0)
+    await expect.poll(async () => (await state()).pluginOverlay).toBeUndefined()
+    await rpc('select-window', { client: client.id, window: otherWindow.id })
+    await expect.poll(attached).toBe(0)
+    await expect.poll(async () => (await state()).pluginOverlay).toBeUndefined()
+    await rpc('select-pane', { client: client.id, pane: original })
+    await expect.poll(attached).toBe(1)
+    await expect.poll(async () => (await state()).pluginOverlay?.runId).toBe(id)
+    if (ended) await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
+    else await expect(observer.getByRole('status')).toHaveText('Browsing')
+    if (!ended) {
+      await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
+      await completed(id)
+    }
+  }
+  await rpc('kill-pane', { pane: other.id, confirm: true })
+  await rpc('kill-window', { window: otherWindow.id, confirm: true })
+})
+
 test('Social Media details launch one settings form and a muted window with the active profile', async () => {
   let before = await state(), client = before.model.clients.find((client: any) => client.id === before.clientId)
   let profile = (await rpc('profile.create', { name: 'Feed launch fixture' })).id

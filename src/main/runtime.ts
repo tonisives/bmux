@@ -517,10 +517,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
   let refreshPluginOverlay = (clientId: string, owner: LiveClient) => {
     let overlay = overlayForClient(clientId)
-    if (!overlay || overlays.has(clientId) || owner.window.isDestroyed() || !owner.window.isVisible()) { owner.pluginOverlay?.setVisible(false); return }
+    if (!overlay || overlays.has(clientId) || owner.window.isDestroyed() || !owner.window.isVisible()) {
+      let view = owner.pluginOverlay
+      if (view) {
+        view.setVisible(false)
+        if (!owner.window.isDestroyed() && owner.window.contentView.children.includes(view)) owner.window.contentView.removeChildView(view)
+      }
+      return
+    }
     if (!owner.pluginOverlay) {
       let view = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
-      owner.pluginOverlay = view; view.setVisible(false); owner.window.contentView.addChildView(view)
+      owner.pluginOverlay = view; view.setVisible(false)
       installKeys(view.webContents)
       view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
       view.webContents.on('will-navigate', event => event.preventDefault())
@@ -528,9 +535,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       void loading.then(() => { if (!view.webContents.isDestroyed()) { refreshPluginOverlay(clientId, owner); publish() } }).catch(reportError)
     }
     let view = owner.pluginOverlay
+    if (view.webContents.isLoading()) return
+    view.webContents.send('state', state(clientId))
     view.setBounds({ x: overlay.bounds.x, y: overlay.bounds.y, width: overlay.bounds.width, height: overlay.bounds.collapsed ? 48 : overlay.bounds.height })
-    view.setVisible(true)
     if (owner.window.contentView.children.at(-1) !== view) owner.window.contentView.addChildView(view)
+    view.setVisible(true)
   }
   let state = (clientId = ''): PublicState => ({ viewportPanModes: [...viewportPanModes], pluginOverlay: overlayForClient(clientId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
@@ -2205,6 +2214,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!keepsPages(candidate.id) && raisedOverlayChrome.delete(candidate.id)) {
         live.chrome.setBackgroundColor('#111318'); live.window.contentView.addChildView(live.chrome, 0)
       }
+      refreshPluginOverlay(candidate.id, live)
       if (overlays.has(candidate.id) && !keepsPages(candidate.id)) continue
       let window = model.sessions.flatMap(session => session.windows).find(window => window.id === candidate.windowId)
       let ordered: View[] = []
