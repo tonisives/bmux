@@ -40,6 +40,8 @@ let action = (raw: unknown): PluginAction => {
   if (new Set(parameters.map(item => item.name)).size !== parameters.length) throw new Error('Duplicate parameter')
   let configuration = value.configuration_command === undefined ? undefined : strings(value.configuration_command)
   let configurationSave = value.configuration_save_command === undefined ? undefined : strings(value.configuration_save_command)
+  let configurationProfiles = value.configuration_profile_command === undefined ? undefined : strings(value.configuration_profile_command)
+  if (configurationProfiles && (!configurationProfiles.length || !configuration || !configurationSave)) throw new Error('Profile configuration requires read and write commands')
   if (configurationSave && (!configurationSave.length || !configuration)) throw new Error('Saving configuration requires read and write commands')
   if (configuration && !configuration.length) throw new Error('Configuration command must be nonempty')
   if (value.presets !== undefined && (!Array.isArray(value.presets) || value.presets.length > 20)) throw new Error('presets must be a list of at most 20 items')
@@ -47,7 +49,7 @@ let action = (raw: unknown): PluginAction => {
     let preset = object(raw), values = object(preset.values)
     for (let [name, entry] of Object.entries(values)) {
       let field = parameters.find(field => field.name === name && !field.hidden && field.kind !== 'password')
-      if (field?.range) pluginRangeValue(value, field.range)
+      if (field?.range) pluginRangeValue(entry, field.range)
       if (!field || (field.kind === 'boolean' ? typeof entry !== 'boolean' : typeof entry !== 'string' || entry.length > 65536 || field.kind === 'choice' && !field.choices?.includes(entry))) throw new Error('Invalid preset value')
     }
     return { id: identifier(preset.id), title: text(preset.title), ...(preset.description === undefined ? {} : { description: text(preset.description) }), values: values as Record<string, string | boolean> }
@@ -55,7 +57,7 @@ let action = (raw: unknown): PluginAction => {
   if (presets && new Set(presets.map(preset => preset.id)).size !== presets.length) throw new Error('Duplicate preset')
   let launch = value.launch_url === undefined ? undefined : new URL(text(value.launch_url))
   if (launch && (!['http:', 'https:'].includes(launch.protocol) || launch.username || launch.password || !allowed.includes('browser.manage'))) throw new Error('Window launch requires an HTTP URL and browser.manage')
-  return { ...(configurationSave ? { configuration_save_command: configurationSave } : {}), ...(configuration ? { configuration_command: configuration } : {}), ...(presets ? { presets } : {}), ...(value.group === undefined ? {} : { group: text(value.group).trim() }), ...(launch ? { launch_url: launch.href } : {}), id: identifier(value.id), title: text(value.title), description: value.description === undefined ? undefined : text(value.description), command, capabilities: allowed, timeout_seconds: Number(timeout), parameters }
+  return { ...(configurationProfiles ? { configuration_profile_command: configurationProfiles } : {}), ...(configurationSave ? { configuration_save_command: configurationSave } : {}), ...(configuration ? { configuration_command: configuration } : {}), ...(presets ? { presets } : {}), ...(value.group === undefined ? {} : { group: text(value.group).trim() }), ...(launch ? { launch_url: launch.href } : {}), id: identifier(value.id), title: text(value.title), description: value.description === undefined ? undefined : text(value.description), command, capabilities: allowed, timeout_seconds: Number(timeout), parameters }
 }
 let proxyRegion = (raw: unknown): PluginProxyRegion => {
   let value = object(raw), protocol = value.protocol as PluginProxyRegion['protocol'], host = text(value.host).trim()

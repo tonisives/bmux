@@ -27,3 +27,11 @@ test('full payload copies are separate from the compact overlay text limits', ()
   expect(() => parsePluginOverlay({ ...content, copies: [{ id: 'request', label: 'Copy', text: 'x'.repeat(300001) }] })).toThrow()
   expect(() => parsePluginOverlay({ ...content, copies: [{ id: 'request', label: 'Copy', text }, { id: 'request', label: 'Copy', text }] })).toThrow()
 })
+
+test('settings buttons link only to an existing editable control', () => {
+  let button = { id: 'configure', label: 'AI limit settings', kind: 'button', setting: 'mode' }
+  expect(parsePluginOverlay({ ...content, controls: [...content.controls, button] }).controls.at(-1)?.setting).toBe('mode')
+  expect(() => parsePluginOverlay({ ...content, controls: [button] })).toThrow('Unknown overlay setting')
+  expect(() => parsePluginOverlay({ ...content, controls: [{ ...button, setting: 'configure' }] })).toThrow()
+  expect(() => parsePluginOverlay({ ...content, controls: [{ ...content.controls[0], setting: 'mode' }] })).toThrow()
+})

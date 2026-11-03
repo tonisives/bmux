@@ -1,4 +1,4 @@
-export type PluginOverlayControl = { id: string; label: string; kind: 'button' | 'toggle' | 'choice' | 'text'; value?: string | boolean; choices?: string[]; disabled?: boolean }
+export type PluginOverlayControl = { id: string; label: string; kind: 'button' | 'toggle' | 'choice' | 'text'; value?: string | boolean; choices?: string[]; disabled?: boolean; setting?: string }
 export type PluginOverlayContent = { title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
 export type PluginOverlayBounds = { x: number; y: number; width: number; height: number; collapsed?: boolean }
 export type PluginOverlayState = { runId: string; paneId: string; content: PluginOverlayContent; bounds: PluginOverlayBounds; ended: boolean; error?: string }
@@ -12,11 +12,13 @@ export let parsePluginOverlay = (value: Record<string, unknown>): PluginOverlayC
   let controls = array(value.controls ?? [], 16).map((control): PluginOverlayControl => {
     if (!control || !['button','toggle','choice','text'].includes(control.kind) || !/^[a-zA-Z0-9._-]{1,64}$/.test(control.id)) throw new Error('Invalid overlay control')
     let choices = control.kind === 'choice' ? array(control.choices, 16).map(choice => text(choice, 80)) : undefined
-    let result = { id: control.id, label: text(control.label, 80), kind: control.kind, value: control.value, disabled: control.disabled === true, choices }
+    if (control.setting !== undefined && (control.kind !== 'button' || typeof control.setting !== 'string' || !/^[a-zA-Z0-9._-]{1,64}$/.test(control.setting))) throw new Error('Invalid overlay settings link')
+    let result = { ...(control.setting ? { setting: control.setting as string } : {}), id: control.id, label: text(control.label, 80), kind: control.kind, value: control.value, disabled: control.disabled === true, choices }
     if (control.kind !== 'button') validatePluginOverlayInput({ ...result, disabled: false }, control.value)
     return result
   })
   if (new Set(controls.map(control => control.id)).size !== controls.length) throw new Error('Duplicate overlay control')
+  for (let control of controls) if (control.setting && !controls.some(target => target.id === control.setting && target.kind !== 'button')) throw new Error('Unknown overlay setting')
   let copies = array(rawCopies ?? [], 2).map(copy => {
     if (!copy || !/^[a-zA-Z0-9._-]{1,64}$/.test(copy.id)) throw new Error('Invalid overlay copy')
     return { id: copy.id, label: text(copy.label, 80), text: text(copy.text, 300000) }

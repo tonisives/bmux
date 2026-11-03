@@ -386,3 +386,20 @@ to a completion header; it can be expanded to inspect the last post or used to
 choose a new session. Stop still returns directly to the configuration form.
 
 Text parameters can declare `range: { min: 1, max: 120, step: 1, unit: s }` to show a two-handle slider. Values remain strings such as `8-12` (or `10` for a fixed value), including saved settings and CLI arguments. Bounds and step are validated before execution. Slider edits use the same automatic save as other settings.
+
+### Named configuration profiles
+
+Actions can declare `configuration_profile_command` alongside the configuration
+read and save commands. BMUX supplies `BMUX_PLUGIN_PROFILE_ID` and
+`BMUX_PLUGIN_CONFIGURATION_VERSION=2` to all three commands. The read and profile
+commands return `{values, profiles: {active, items: [{id, name}], templates?: [{id, name}]}}`.
+The save command continues to receive a field patch on stdin. The profile command
+receives `{action: "create" | "select" | "rename" | "delete", id?, name?, template?}`
+on stdin. Profile switching flushes pending edits and refreshes the same form;
+it never starts the action. Plugins own storage and scope their libraries to the
+provided BMUX profile. Older hosts omit the version variable; plugins supporting
+them should return the original flat settings object in that case.
+
+Form sections are collapsible. An overlay button can set `setting` to the ID of
+an editable overlay control to open Session settings and focus that control,
+without submitting a browser action.

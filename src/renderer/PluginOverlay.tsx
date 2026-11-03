@@ -6,6 +6,7 @@ import css from './PluginOverlay.module.css'
 
 export let PluginOverlay = () => {
   let [state, setState] = useState<PublicState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [returnToSetup, setReturnToSetup] = useState(false)
+  let [setting, openSetting] = useState<{ id: string }>()
   let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];edge:string} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
   useEffect(() => { void bridge.state().then(setState); return bridge.subscribe(setState) }, [])
   let overlay = state?.pluginOverlay
@@ -37,7 +38,7 @@ export let PluginOverlay = () => {
     void command('plugin.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + overlay.bounds.width - width : overlay.bounds.x, width, height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) })
   }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
-  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop }}><aside className={css.panel} aria-label="Page overlay">
+  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting, openSetting }}><aside className={css.panel} aria-label="Page overlay">
     <OverlayHeader begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && <OverlayBody error={error} />}
     {!overlay.bounds.collapsed && <OverlayButtons />}
@@ -45,7 +46,7 @@ export let PluginOverlay = () => {
   </aside></OverlayContext.Provider>
 }
 
-type OverlayValue = { overlay: PluginOverlayState; command: (method:string,args?:Record<string,unknown>)=>Promise<unknown>; input:(id:string,value?:string|boolean)=>Promise<void>; busy:boolean; stop:()=>void }
+type OverlayValue = { setting?: { id: string }; openSetting: (setting: { id: string }) => void; overlay: PluginOverlayState; command: (method:string,args?:Record<string,unknown>)=>Promise<unknown>; input:(id:string,value?:string|boolean)=>Promise<void>; busy:boolean; stop:()=>void }
 let OverlayContext = createContext<OverlayValue | undefined>(undefined)
 let useOverlay = () => { let value = useContext(OverlayContext); if (!value) throw new Error('Overlay unavailable'); return value }
 let bridge = (window as unknown as { bmux: Bridge }).bmux
@@ -82,16 +83,23 @@ let OverlayButtons = () => {
   return <div className={css.controls}>{overlay.ended ? <button disabled={busy} onClick={configure}>Choose session settings</button> : overlay.content.controls.filter(control => control.kind === 'button').map(control => control.id === 'stop' ? <button key={control.id} disabled={busy || control.disabled} onClick={stop}>Stop session</button> : <OverlayButton key={control.id} control={control} />)}</div>
 }
 let OverlayButton = ({ control }: { control:PluginOverlayControl }) => {
-  let { input, busy } = useOverlay(), click = () => void input(control.id)
+  let { input, busy, openSetting } = useOverlay(), click = () => control.setting ? openSetting({ id: control.setting }) : void input(control.id)
   return <button disabled={busy || control.disabled} onClick={click}>{control.label}</button>
 }
 let OverlayDetails = () => {
-  let { overlay } = useOverlay(), [selected, setSelected] = useState('settings')
+  let { overlay, setting } = useOverlay(), [selected, setSelected] = useState('settings')
+  let details = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!setting || !details.current) return
+    details.current.open = true; setSelected('settings')
+    let frame = requestAnimationFrame(() => { let field = [...details.current!.querySelectorAll<HTMLElement>('[data-overlay-setting]')].find(field => field.dataset.overlaySetting === setting.id); field?.querySelector<HTMLElement>('input,select,textarea')?.focus(); field?.scrollIntoView({ block: 'nearest' }) })
+    return () => cancelAnimationFrame(frame)
+  }, [setting])
   let sections = [...(!overlay.ended && overlay.content.controls.some(control => control.kind !== 'button') ? [{ id: 'settings', title: 'Session settings' }] : []), ...overlay.content.details.map((detail, index) => ({ id: String(index), title: detail.title }))]
   let current = sections.find(section => section.id === selected)?.id ?? sections[0]?.id
   let choose = (event: ChangeEvent<HTMLSelectElement>) => setSelected(event.target.value)
   if (!sections.length) return null
-  return <details><summary>Details and settings</summary><label className={css.field}>View<select aria-label="Page overlay detail" value={current} onChange={choose}>{sections.map(section => <option key={section.id} value={section.id}>{section.title}</option>)}</select></label>{current === 'settings' ? overlay.content.controls.filter(control => control.kind !== 'button').map(control => <OverlayField key={control.id} control={control} />) : <pre>{overlay.content.details[Number(current)]?.text}</pre>}</details>
+  return <details ref={details}><summary>Details and settings</summary><label className={css.field}>View<select aria-label="Page overlay detail" value={current} onChange={choose}>{sections.map(section => <option key={section.id} value={section.id}>{section.title}</option>)}</select></label>{current === 'settings' ? overlay.content.controls.filter(control => control.kind !== 'button').map(control => <OverlayField key={control.id} control={control} />) : <pre>{overlay.content.details[Number(current)]?.text}</pre>}</details>
 }
 let OverlayField = ({ control }: { control: PluginOverlayControl }) => {
   let { input } = useOverlay(), [value, setValue] = useState(String(control.value ?? ''))
@@ -100,5 +108,5 @@ let OverlayField = ({ control }: { control: PluginOverlayControl }) => {
   let choose = (event:ChangeEvent<HTMLSelectElement>) => void input(control.id,event.target.value)
   let change = (event:ChangeEvent<HTMLTextAreaElement>) => setValue(event.target.value)
   let apply = () => void input(control.id,value)
-  return <label className={css.field} data-kind={control.kind}><span>{control.label}</span>{control.kind === 'toggle' ? <input type="checkbox" checked={control.value === true} disabled={control.disabled} onChange={toggle} /> : control.kind === 'choice' ? <select value={String(control.value)} disabled={control.disabled} onChange={choose}>{control.choices?.map(choice => <option key={choice}>{choice}</option>)}</select> : <><textarea value={value} maxLength={2000} disabled={control.disabled} onChange={change} /><button disabled={control.disabled || value === control.value} onClick={apply}>Apply</button></>}</label>
+  return <label className={css.field} data-kind={control.kind} data-overlay-setting={control.id}><span>{control.label}</span>{control.kind === 'toggle' ? <input type="checkbox" checked={control.value === true} disabled={control.disabled} onChange={toggle} /> : control.kind === 'choice' ? <select value={String(control.value)} disabled={control.disabled} onChange={choose}>{control.choices?.map(choice => <option key={choice}>{choice}</option>)}</select> : <><textarea value={value} maxLength={2000} disabled={control.disabled} onChange={change} /><button disabled={control.disabled || value === control.value} onClick={apply}>Apply</button></>}</label>
 }

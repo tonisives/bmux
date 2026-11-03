@@ -1,3 +1,4 @@
+import { PluginConfigurationProfiles } from './PluginConfigurationProfiles'
 import { remoteWorkspaceShortcut } from '../shared/remote-workspace'
 import { PluginRange } from './PluginRange'
 import { RemotePaneControls } from './RemotePaneControls'
@@ -1931,11 +1932,12 @@ let PluginParameters = () => {
       {item.description && <small>{item.description}</small>}
     </div>
   }
-  let sections = [...new Set(fields.map(item => item.section ?? 'Settings'))].map(section => <section key={section} className={css.settingsGroup} role="group" aria-label={section}><h3>{section}</h3>{fields.filter(item => (item.section ?? 'Settings') === section).map(field)}</section>)
+  let sections = [...new Set(fields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section}><summary>{section}</summary>{fields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{request.pluginName} · {request.title}</h2>
     <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
+      {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {!!request.presets?.length && <section aria-label="Browsing presets" className={css.pluginPresetSection}>
         <h3>Browsing preset</h3>
         <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{request.presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
@@ -1968,7 +1970,7 @@ let PluginDialog = () => {
     event.preventDefault()
     if (items.length) setIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length)
   }
-  if (request.kind === 'form') return <PluginParameters />
+  if (request.kind === 'form') return <PluginParameters key={request.id} />
   return <><p>{request.pluginName}</p>{request.kind === 'confirm' ? <><p>{request.title}</p><button autoFocus onClick={yes}>Yes</button><button onClick={no}>No</button></> : <form onSubmit={submit}>
     {request.kind === 'pick' ? <SearchInput ref={ref} aria-label={request.title} value={value} onChange={change} onKeyDown={keys} /> : <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.required} /></label>}
     {request.kind === 'pick' ? items.map((item, position) => <button key={item.id} type="button" className={css.listRow} data-id={item.id} data-active={position === index} disabled={busy} onClick={pick}>{item.label}{item.description && <span className={css.pluginDescription}>{item.description}</span>}</button>) : <button type="submit" disabled={busy}>Continue</button>}

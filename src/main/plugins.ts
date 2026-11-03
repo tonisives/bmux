@@ -10,10 +10,10 @@ import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
 import { isAutomationSafetyError } from './automation-safety'
 import { createPluginSocket, listenSocket } from '../../bin/ipc.mjs'
-import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginParameter, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
+import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginParameter, PluginPrompt, PluginRun, PluginSettings, PluginSettingsProfiles } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
-type Run = { saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
+type Run = { profiles?: PluginSettingsProfiles; saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
@@ -88,7 +88,7 @@ export let createPlugins = (options: Options) => {
       return { id: shortText(item.id, 256), label: shortText(item.label), description: item.description === undefined ? undefined : shortText(item.description) }
     }) : undefined) : undefined
     if (kind === 'pick' && (!items?.length || new Set(items.map(item => item.id)).size !== items.length)) throw new Error('Picker requires unique items')
-    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { fields: run.action.parameters.filter(field => !field.hidden), autosave: !!run.action.configuration_save_command, savedValues: run.savedValues, presets: run.action.presets, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launch: !!run.action.launch_url } : {}) }
+    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { fields: run.action.parameters.filter(field => !field.hidden), autosave: !!run.action.configuration_save_command, savedValues: run.savedValues, profiles: run.profiles, presets: run.action.presets, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launch: !!run.action.launch_url } : {}) }
     return new Promise((resolve, reject) => {
       run.pending = { prompt: request, resolve, reject }
       options.changed(); options.show(run.context.clientId!)
@@ -97,7 +97,7 @@ export let createPlugins = (options: Options) => {
   let configuration = (run: Run, commandLine: string[], values?: Record<string, unknown>) => {
     let [command, ...args] = commandLine
     let executable = command.startsWith('.') ? path.resolve(run.definition.directory, command) : command
-    let env: NodeJS.ProcessEnv = { ...process.env, BMUX_PLUGIN_PROFILE_ID: run.context.profileId, BMUX_DATA_DIR: options.dataDirectory }
+    let env: NodeJS.ProcessEnv = { ...process.env, BMUX_PLUGIN_PROFILE_ID: run.context.profileId, BMUX_PLUGIN_CONFIGURATION_VERSION: '2', BMUX_DATA_DIR: options.dataDirectory }
     delete env.ELECTRON_RUN_AS_NODE
     delete env.BW_SESSION; delete env.BMUX_VAULT_PASSWORD
     delete env.BMUX_PLUGIN_SOCKET; delete env.BMUX_PLUGIN_TOKEN; delete env.BMUX_PLUGIN_RUN_ID
@@ -107,6 +107,42 @@ export let createPlugins = (options: Options) => {
       child.stdin?.on('error', () => undefined)
       child.stdin?.end(values ? JSON.stringify(values) : undefined)
     })
+  }
+  let readConfiguration = (run: Run, output: string) => {
+    let payload = record(JSON.parse(output)), profiled = !!run.action.configuration_profile_command
+    let saved = profiled ? record(payload.values) : payload, values: Record<string, string | boolean> = {}
+    for (let [name, value] of Object.entries(saved)) {
+      let field = run.action.parameters.find(field => field.name === name && !field.hidden && field.kind !== 'password')
+      if (!field) throw new Error('Unknown saved setting')
+      validateParameter(field, value); values[name] = value as string | boolean
+    }
+    if (profiled) {
+      let profiles = record(payload.profiles)
+      let items = (raw: unknown) => {
+        if (!Array.isArray(raw) || !raw.length || raw.length > 16) throw new Error('Invalid configuration profiles')
+        let entries = raw.map(entry => { let item = record(entry), id = shortText(item.id, 128), name = shortText(item.name, 60); if (!/^[a-zA-Z0-9._-]+$/.test(id) || !name.trim()) throw new Error('Invalid configuration profile'); return { id, name } })
+        if (new Set(entries.map(item => item.id)).size !== entries.length || new Set(entries.map(item => item.name)).size !== entries.length) throw new Error('Duplicate configuration profile')
+        return entries
+      }
+      let entries = items(profiles.items), active = shortText(profiles.active, 128)
+      if (!entries.some(item => item.id === active)) throw new Error('Unknown configuration profile')
+      run.profiles = { active, items: entries, ...(profiles.templates === undefined ? {} : { templates: items(profiles.templates) }) }
+    }
+    run.savedValues = values
+  }
+  let changeProfile = async (run: Run, raw: unknown) => {
+    let operation = record(raw), request = run.pending!.prompt
+    if (request.kind !== 'form' || !run.action.configuration_profile_command || !['create','select','rename','delete'].includes(String(operation.action))) throw new Error('Profile configuration is unavailable')
+    if (Object.keys(operation).some(key => !['action','id','name','template'].includes(key))) throw new Error('Unknown profile operation')
+    for (let key of ['id','name','template']) if (operation[key] !== undefined) shortText(operation[key], key === 'name' ? 60 : 128)
+    await run.saving
+    let output = await configuration(run, run.action.configuration_profile_command, operation)
+    if (!live(run) || run.pending?.prompt.id !== request.id) throw new Error('Plugin prompt is unavailable')
+    readConfiguration(run, output)
+    for (let field of request.fields ?? []) delete run.parameters[field.name]
+    run.pending.prompt = { ...request, id: randomUUID(), savedValues: run.savedValues, values: {}, profiles: run.profiles }
+    options.changed()
+    return { updated: true }
   }
   let saveSettings = (run: Run, values: unknown) => {
     let request = run.pending!.prompt, patch = record(values)
@@ -129,6 +165,7 @@ export let createPlugins = (options: Options) => {
   let respond = (clientId: string, args: Record<string, unknown>) => {
     let run = [...runs.values()].find(run => run.pending?.prompt.id === args.id)
     if (!run?.pending || run.context.clientId !== clientId || !options.interactive(run.context)) throw new Error('Plugin prompt is unavailable')
+    if (args.profile !== undefined) return changeProfile(run, args.profile)
     if (args.save === true) return saveSettings(run, args.value)
     if (args.cancel === true) { finish(run, 'cancelled'); return null }
     let { prompt: request, resolve } = run.pending, value = args.value
@@ -232,14 +269,7 @@ export let createPlugins = (options: Options) => {
       let form = run.interactive && (fields.length > 1 || !!run.action.launch_url)
       if (form && run.action.configuration_command) {
         let output = await configuration(run, run.action.configuration_command)
-        let saved = record(JSON.parse(output)), values: Record<string, string | boolean> = {}
-        for (let [name, value] of Object.entries(saved)) {
-          let field = fields.find(field => field.name === name && field.kind !== 'password')
-          if (!field) throw new Error('Unknown saved setting')
-          validateParameter(field, value)
-          values[name] = value as string | boolean
-        }
-        run.savedValues = values
+        readConfiguration(run, output)
       }
       if (form) {
         for (let field of fields) if (run.parameters[field.name] === undefined && run.savedValues?.[field.name] === undefined && field.default !== undefined) run.parameters[field.name] = field.default

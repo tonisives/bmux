@@ -705,3 +705,10 @@
 .panel .pluginActionButton:active:not(:disabled) { transform: translateY(1px); }
 .panel .pluginActionButton:focus-visible { outline: 2px solid #bdc9b4; outline-offset: 2px; }
 .panel .pluginActionButton:disabled { opacity: .45; cursor: not-allowed; }
+
+.pluginSettingsSection { max-width: var(--settings-row-width); }
+.pluginSettingsSection > summary { padding: 8px 0; color: #aab4bf; font-size: 11px; font-weight: 600; text-transform: uppercase; cursor: pointer; }
+.pluginProfiles { max-width: var(--settings-row-width); margin-bottom: 16px; }
+.pluginProfiles p { color: #8e98a4; margin: 8px 0; }
+.pluginProfiles .settingsRow { white-space: normal; }
+.pluginProfiles .settingsRow select, .pluginProfiles .settingsRow input { width: 55%; min-width: 0; box-sizing: border-box; }

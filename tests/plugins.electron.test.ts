@@ -10,6 +10,7 @@ import { observeNativeFocus, recordNativeFocus } from './native-focus'
 
 let directory: string, application: ElectronApplication, chrome: Page, url: string, server: http.Server
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+let openSettings = async (dialog: ReturnType<Page['getByRole']>) => { for (let summary of await dialog.locator('details:not([open]) > summary').all()) await summary.click() }
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let run = async (action: string, args: Record<string, unknown> = {}) => (await rpc('plugin.run', { action: `test/${action}`, ...args })).id as string
@@ -42,7 +43,7 @@ if (action === 'pick') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
 } else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
 } else if (action === 'overlay') {
- let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'Profile',text:'Interested in computers'}]};host('overlay.update',content);
+ let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI limit settings',kind:'button',setting:'ads'}],details:[{title:'Profile',text:'Interested in computers'}]};host('overlay.update',content);
  while(true){
   let inputs=host('overlay.events');
   if(inputs.some(input=>input.id==='finish')){host('overlay.update',{...content,status:'Session complete'});host('result',{started:true});break}
@@ -72,6 +73,16 @@ console.log(JSON.stringify(values));`)
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
   let manifest = parse(await fs.readFile(path.join(folder, 'plugin.yaml'), 'utf8'))
   manifest.actions.find((action: any) => action.id === 'launch').launch_url = url + '/feed'
+  let launch = manifest.actions.find((action: any) => action.id === 'launch')
+  manifest.actions.push({ ...launch, id: 'profiles', title: 'Browse feed', configuration_command: ['node','./profiles.mjs'], configuration_save_command: ['node','./profiles.mjs','save'], configuration_profile_command: ['node','./profiles.mjs','profile'] })
+  await fs.writeFile(path.join(folder, 'profiles.mjs'), `import fs from 'node:fs';
+let file='profiles-'+encodeURIComponent(process.env.BMUX_PLUGIN_PROFILE_ID)+'.json';
+let library=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):{active:'default',items:[{id:'default',name:'Default',values:{seconds:'300',persona:'Software',ads:false}}]};
+let item=()=>library.items.find(item=>item.id===library.active);
+if(['save','profile'].includes(process.argv[2])){let text='';for await(let chunk of process.stdin)text+=chunk;let input=JSON.parse(text);
+if(process.argv[2]==='save')Object.assign(item().values,input);else if(input.action==='create'){let created={id:'profile-'+library.items.length,name:input.name,values:{...item().values,...(input.template?{persona:'AI research'}:{})}};library.items.push(created);library.active=created.id}else if(input.action==='select')library.active=input.id;else if(input.action==='rename')item().name=input.name;else if(input.action==='delete'){library.items=library.items.filter(item=>item.id!==input.id);library.active=library.items[0].id}
+fs.writeFileSync(file,JSON.stringify(library))}
+console.log(JSON.stringify({values:item().values,profiles:{active:library.active,items:library.items.map(({id,name})=>({id,name})),templates:[{id:'research',name:'AI Researcher'}]}}));`)
   await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify(manifest))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_DEBUG: '1' } })
   await observeNativeFocus(application)
@@ -306,7 +317,11 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   expect((await rpc('plugin.runs')).find((run: any) => run.id === id).status).toBe('running')
   await chrome.evaluate(id => (window as any).bmux.command({ method: 'plugin.overlay.show', args: { id } }), id)
   await expect.poll(visible).toBe(true)
-  await observer.getByText('Details and settings', { exact: true }).click()
+  await observer.getByRole('button', { name: 'AI limit settings', exact: true }).click()
+  await expect(observer.getByRole('checkbox', { name: 'Skip ads' })).toBeFocused()
+  await observer.getByLabel('Page overlay detail').selectOption({ label: 'Profile' })
+  await observer.getByRole('button', { name: 'AI limit settings', exact: true }).click()
+  await expect(observer.getByRole('checkbox', { name: 'Skip ads' })).toBeFocused()
   let skipAds = observer.getByRole('checkbox', { name: 'Skip ads' })
   await expect(skipAds).not.toBeChecked()
   let checkboxBounds = await skipAds.boundingBox(), labelBounds = await observer.getByText('Skip ads', { exact: true }).boundingBox()
@@ -457,6 +472,9 @@ test('Social Media details launch one settings form and a muted window with the 
   await expect(dialog.getByRole('heading', { name: 'Fixture plugin · Simulate feed browsing' })).toBeVisible()
   await expect(dialog.getByText('Opens a new muted window using Feed launch fixture.')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Saved settings', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(dialog.getByRole('group', { name: 'Persona', exact: true })).not.toHaveAttribute('open')
+  await chrome.screenshot({ path: path.resolve('artifacts/plugin-settings-collapsed.png') })
+  await openSettings(dialog)
   await expect(dialog.getByLabel('Duration in seconds')).toHaveValue('300')
   await expect(dialog.getByLabel('AI source')).toHaveValue('personal')
   await expect(dialog.getByLabel('AI source').getByRole('option', { name: 'Personal OpenAI API key', exact: true })).toHaveCount(1)
@@ -506,6 +524,7 @@ test('Social Media details launch one settings form and a muted window with the 
   await expect(dialog).toHaveCount(0)
   expect((await state()).model.sessions.find((session: any) => session.id === client.sessionId).windows.length).toBe(windows)
   let id = await run('launch')
+  await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible(); await openSettings(dialog)
   await expect(dialog.getByRole('textbox', { name:'Persona', exact:true })).toHaveValue('tonisdev\nIndie hacking, AI and computers')
   await expect(dialog.getByRole('slider', { name: 'Brief watch time minimum', exact: true })).toHaveValue('7')
   await expect(dialog.getByRole('slider', { name: 'Brief watch time maximum', exact: true })).toHaveValue('13')
@@ -547,4 +566,41 @@ test('Social Media Stop returns to configuration without Prepare or a new window
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
   expect((await state()).model.sessions.flatMap((session: any) => session.windows).length).toBe(windows)
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+})
+
+test('browsing profiles switch saved settings in place without starting a window', async () => {
+  let current = await state(), client = current.model.clients.find((client: any) => client.id === current.clientId)
+  let profile = (await rpc('profile.create', { name: 'Named browsing profiles' })).id
+  let source = await rpc('new-window', { session: client.sessionId, client: client.id, profile, url })
+  await rpc('wait', { pane: source.panes[0].id, selector: '#username' }); await activate()
+  let windows = (await state()).model.sessions.flatMap((session: any) => session.windows).length
+  let id = await run('profiles'), dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  let selector = dialog.getByRole('combobox', { name: 'Browsing profile', exact: true })
+  await expect(selector).toHaveValue('default')
+  await dialog.getByRole('button', { name: 'New profile', exact: true }).click()
+  await dialog.getByLabel('Profile template', { exact: true }).selectOption('research')
+  await dialog.getByRole('button', { name: 'Create profile', exact: true }).click()
+  await expect(selector).toHaveValue('profile-1')
+  await expect(dialog.getByRole('group', { name: 'Persona', exact: true })).not.toHaveAttribute('open')
+  await openSettings(dialog)
+  await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveValue('AI research')
+  await dialog.getByRole('textbox', { name: 'Persona', exact: true }).fill('Research experiments')
+  await selector.selectOption('default')
+  await expect(selector).toHaveValue('default'); await openSettings(dialog)
+  await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveValue('Software')
+  await selector.selectOption('profile-1')
+  await expect(selector).toHaveValue('profile-1'); await openSettings(dialog)
+  await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveValue('Research experiments')
+  await dialog.getByRole('button', { name: 'Rename', exact: true }).click()
+  await dialog.getByLabel('Browsing profile name', { exact: true }).fill('Technical research')
+  await dialog.getByRole('button', { name: 'Save name', exact: true }).click()
+  await expect(selector.locator('option:checked')).toHaveText('Technical research')
+  await chrome.screenshot({ path: path.resolve('artifacts/browsing-profiles.png') })
+  expect((await state()).model.sessions.flatMap((session: any) => session.windows).length).toBe(windows)
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await completed(id,'cancelled')
+  id = await run('profiles'); await expect(selector.locator('option:checked')).toHaveText('Technical research')
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(selector).toHaveValue('default'); await expect(selector.getByRole('option')).toHaveCount(1)
+  await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await completed(id,'cancelled')
 })
