@@ -312,7 +312,7 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   let checkboxBounds = await skipAds.boundingBox(), labelBounds = await observer.getByText('Skip ads', { exact: true }).boundingBox()
   expect(Math.abs(checkboxBounds!.y + checkboxBounds!.height / 2 - labelBounds!.y - labelBounds!.height / 2)).toBeLessThan(2)
   let before = (await state()).pluginOverlay.bounds
-  await observer.getByRole('slider', { name: 'Resize page overlay' }).focus()
+  await observer.getByRole('slider', { name: 'Resize page overlay', exact: true }).focus()
   await observer.keyboard.press('ArrowLeft')
   await expect.poll(async () => (await state()).pluginOverlay.bounds.width).toBe(before.width - 24)
   let resized = (await state()).pluginOverlay.bounds
