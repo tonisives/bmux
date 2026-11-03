@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { viewportPanDelta } from '../shared/viewport-pan'
 
-export type ViewportPanArea = { x: number; y: number; width: number; height: number; zoom?: number; toggled?: boolean }
+export type ViewportPanArea = { x: number; y: number; width: number; height: number; zoom?: number; toggled?: boolean; control?: boolean; standalone?: boolean }
 
 // Runs in an isolated world on the page and on the agent input shield.
 export let observeViewportPan = (marker: string, area: ViewportPanArea | undefined, delta: typeof viewportPanDelta) => {
@@ -14,12 +14,12 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
   host.style.cssText = 'all:initial;position:fixed;inset:auto;z-index:2147483647;pointer-events:none'
   let root = host.attachShadow({ mode: 'open' })
   root.innerHTML = `<style>
-    button { position:absolute;right:12px;top:12px;box-sizing:border-box;width:32px;height:32px;padding:4px;transform-origin:top right;border:1px solid #666;border-radius:4px;background:#272727;color:white;cursor:pointer;pointer-events:auto }
+    button { position:absolute;display:flex;align-items:center;justify-content:center;right:12px;top:12px;box-sizing:border-box;width:32px;height:32px;padding:0;transform-origin:top right;border:1px solid #666;border-radius:4px;background:#272727;color:white;cursor:pointer;pointer-events:auto }
     button:hover:not([aria-pressed="true"]) { background:#444 }
     button[aria-pressed="true"] { background:#c2ceb9;color:#111318;border-color:#c2ceb9;box-shadow:inset 0 0 0 1px #111318 }
     button:active { filter:brightness(.9) }
     button:focus-visible { outline:2px solid white;outline-offset:2px }
-    svg { width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round }
+    svg { display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round }
     div { position:absolute;inset:0;pointer-events:none;cursor:grab;touch-action:none }
   </style><div></div><button type="button" aria-label="Pan viewport" aria-pressed="false" title="Pan viewport (Alt or Meta + drag; Escape to exit)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a1.5 1.5 0 0 1 3 0v6-8a1.5 1.5 0 0 1 3 0v8-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v6c0 4-3 7-7 7h-1c-2 0-3-1-4-2l-4-5a1.5 1.5 0 0 1 2-2l2 2"/></svg></button>`
   let surface = root.querySelector('div')!, button = root.querySelector('button')!
@@ -31,6 +31,7 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
     surface.style.cursor = dragging ? 'grabbing' : 'grab'
     button.setAttribute('aria-pressed', String(toggled))
     host.style.display = area ? 'block' : 'none'
+    button.style.display = area?.control === false ? 'none' : 'flex'
   }
   let end = () => {
     if (dragging && surface.hasPointerCapture(dragging.id)) surface.releasePointerCapture(dragging.id)
@@ -43,7 +44,7 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
     if (area) Object.assign(host.style, { left: `${area.x}px`, top: `${area.y}px`, width: `${area.width}px`, height: `${area.height}px` })
     if (area) {
       let scale = 1 / (area.zoom ?? 1)
-      Object.assign(button.style, { transform: `scale(${scale})`, right: `${12 * scale}px`, top: `${12 * scale}px` })
+      Object.assign(button.style, { transform: `scale(${scale})`, right: `${area.standalone ? 0 : 12 * scale}px`, top: `${area.standalone ? 0 : 12 * scale}px` })
     }
     if (!host.isConnected) document.documentElement.append(host)
     render()
@@ -52,6 +53,8 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
   scope.bmuxViewportPan = { update }
   let setMode = (enabled: boolean) => { toggled = enabled; report(marker + JSON.stringify({ mode: enabled })); render() }
   button.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); setMode(!toggled) })
+  button.addEventListener('mouseenter', () => report(marker + JSON.stringify({ tooltip: true })))
+  button.addEventListener('mouseleave', () => report(marker + JSON.stringify({ tooltip: false })))
   let keys = (event: KeyboardEvent) => {
     modifier = event.altKey || event.metaKey
     if (event.key === 'Escape' && (toggled || dragging)) { event.preventDefault(); event.stopImmediatePropagation(); setMode(false); modifier = false; end() }
@@ -81,12 +84,13 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
   surface.addEventListener('wheel', event => {
     if (!area || !event.isTrusted) return
     event.preventDefault(); event.stopPropagation()
-    report(marker + JSON.stringify(delta(event, area.width * (area.zoom ?? 1), area.height * (area.zoom ?? 1), area.zoom ?? 1)))
+    if (event.altKey) report(marker + JSON.stringify({ zoom: delta(event, area.width, area.height, area.zoom ?? 1).y }))
+    else report(marker + JSON.stringify(delta(event, area.width * (area.zoom ?? 1), area.height * (area.zoom ?? 1), area.zoom ?? 1)))
   }, { passive: false })
   update(area)
 }
 
-export let createViewportPan = (contents: WebContents, geometry: () => ViewportPanArea | undefined, evaluate: (expression: string) => Promise<unknown>, pan: (x: number, y: number) => void, mode?: (enabled: boolean) => void) => {
+export let createViewportPan = (contents: WebContents, geometry: () => ViewportPanArea | undefined, evaluate: (expression: string) => Promise<unknown>, pan: (x: number, y: number) => void, mode?: (enabled: boolean) => void, zoom?: (delta: number) => void, tooltip?: (visible: boolean) => void) => {
   let marker = `bmux-viewport-pan:${randomUUID()}`, previous = '', revision = 0, closed = false
   let work = Promise.resolve()
   let refresh = (force = false) => {
@@ -104,9 +108,11 @@ export let createViewportPan = (contents: WebContents, geometry: () => ViewportP
   let message = (details: Electron.Event<Electron.WebContentsConsoleMessageEventParams>) => {
     if (closed || !geometry() || !details.message.startsWith(marker)) return
     try {
-      let { x, y, mode: enabled, refresh: requested } = JSON.parse(details.message.slice(marker.length))
+      let { x, y, mode: enabled, refresh: requested, zoom: zoomDelta, tooltip: hover } = JSON.parse(details.message.slice(marker.length))
       if (requested === true) { void refresh(true); return }
       if (typeof enabled === 'boolean') { mode?.(enabled); return }
+      if (typeof hover === 'boolean') { tooltip?.(hover); return }
+      if (Number.isFinite(zoomDelta)) { zoom?.(zoomDelta); return }
       if (Number.isFinite(x) && Number.isFinite(y)) pan(x, y)
     } catch { /* Ignore messages outside the viewport gesture. */ }
   }

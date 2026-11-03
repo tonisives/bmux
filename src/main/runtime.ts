@@ -105,10 +105,12 @@ import { createUnloadGuard } from './unload-guard'
 import { recentBackgroundPanes } from './recent-panes'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
 import { createViewportPan, viewportPanEvaluator } from './viewport-pan'
+import { createViewportControl } from './viewport-control'
+import { viewportZoomFactor } from '../shared/viewport-pan'
 import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
-type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; pagePan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveTab = { panControl?: ReturnType<typeof createViewportControl>; inputLock?: ReturnType<typeof createAgentInputLock>; pagePan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { pluginOverlay?: WebContentsView; window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
@@ -117,6 +119,7 @@ let isLiveTabOpen = (live: LiveTab) => !live.disposed && !live.closing && !live.
 let pageRoot = (live: LiveTab) => live.remoteFrame ?? live.view
 let removeRemoteFrame = (live: LiveTab) => {
   if (!live.remoteFrame) return
+  let focused = live.contents.isFocused()
   clearViewportInput(live.contents)
   live.remoteFrame.removeChildView(live.view)
   if (!live.parent.isDestroyed()) {
@@ -124,6 +127,7 @@ let removeRemoteFrame = (live: LiveTab) => {
     live.parent.contentView.addChildView(live.view)
   }
   live.remoteFrame = undefined
+  if (focused && live.parent.isFocused()) live.contents.focus()
 }
 type PendingPermission = Permission & { reply: (allowed: boolean) => void; privateSessionId?: string }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -159,7 +163,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     else viewportPanModes.delete(pane)
     void tabs.get(pane)?.pagePan?.refresh()
     void tabs.get(pane)?.shieldPan?.refresh()
+    tabs.get(pane)?.panControl?.refresh(enabled)
     publish()
+  }
+  let zoomViewport = (pane: string, delta: number) => {
+    let live = tabs.get(pane)
+    if (!live || !Number.isFinite(delta) || automatedContents.has(live.contents.id)) return
+    let tab = tabById(model, pane).tab
+    tab.zoom = viewportZoomFactor(tab.zoom || 1, delta)
+    live.contents.setZoomFactor(tab.zoom)
+    save(); void scheduleVisuals()
   }
   let viewportSequence = 0
   let remoteViewports = new Map<string, { width: number; height: number; generation: number }>()
@@ -1371,7 +1384,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let panArea = (shield = false) => {
       if (!isLiveTabOpen(live) || !fixedViewport(tabId)) return undefined
       let page = live.view.getBounds(), frame = live.remoteFrame?.getBounds() ?? page, zoom = shield ? 1 : contents.getZoomFactor()
-      return { x: shield || !live.remoteFrame ? 0 : Math.max(0, -page.x) / zoom, y: shield || !live.remoteFrame ? 0 : Math.max(0, -page.y) / zoom, width: Math.min(frame.width, page.width) / zoom, height: Math.min(frame.height, page.height) / zoom, zoom, toggled: viewportPanModes.has(tabId) }
+      return { x: shield || !live.remoteFrame ? 0 : Math.max(0, -page.x) / zoom, y: shield || !live.remoteFrame ? 0 : Math.max(0, -page.y) / zoom, width: Math.min(frame.width, page.width) / zoom, height: Math.min(frame.height, page.height) / zoom, zoom, toggled: viewportPanModes.has(tabId), control: false }
     }
     let pan = (x: number, y: number) => {
       let owner = [...clients.values()].find(owner => owner.window === live.parent)
@@ -1379,10 +1392,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let target = owner.floats.get(tabId)?.webContents ?? owner.chrome.webContents
       target.send('viewport-scroll', tabId, x, y)
     }
-    live.pagePan = createViewportPan(contents, () => panArea(), viewportPanEvaluator(contents), pan, enabled => setViewportPanMode(tabId, enabled))
+    live.pagePan = createViewportPan(contents, () => panArea(), viewportPanEvaluator(contents), pan, enabled => setViewportPanMode(tabId, enabled), delta => zoomViewport(tabId, delta))
     live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), contents => {
       installKeys(contents)
-      live.shieldPan = createViewportPan(contents, () => panArea(true), expression => contents.executeJavaScript(expression), pan, enabled => setViewportPanMode(tabId, enabled))
+      live.shieldPan = createViewportPan(contents, () => panArea(true), expression => contents.executeJavaScript(expression), pan, enabled => setViewportPanMode(tabId, enabled), delta => zoomViewport(tabId, delta))
       void live.shieldPan.refresh()
     }, () => {
       let owner = [...clients.values()].find(owner => owner.window === live.parent)
@@ -1872,6 +1885,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
       live.camera?.webContents.close()
       live.inputLock?.dispose()
+      live.panControl?.dispose()
       if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
       tabs.delete(tabId)
       virtualMouse.forget(tabId)
@@ -2137,6 +2151,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         let fits = width >= fixedSize.width && height >= fixedSize.height
         if (fits) removeRemoteFrame(live)
         if (!fits && !live.remoteFrame) {
+          let focused = live.contents.isFocused()
           live.remoteFrame = new View()
           // A backing layer is required for Electron to mask native child layers.
           live.remoteFrame.setBackgroundBlur(0)
@@ -2144,6 +2159,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           live.parent.contentView.removeChildView(live.view)
           live.remoteFrame.addChildView(live.view)
           live.parent.contentView.addChildView(live.remoteFrame)
+          if (focused && live.parent.isFocused()) live.contents.focus()
         }
         let scrollX = Math.min(Math.max(0, bounds?.scrollX ?? 0), Math.max(0, fixedSize.width - width))
         let scrollY = Math.min(Math.max(0, bounds?.scrollY ?? 0), Math.max(0, fixedSize.height - height))
@@ -2153,6 +2169,34 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       live.inputLock?.refresh()
       void live.pagePan?.refresh()
       void live.shieldPan?.refresh()
+      if (fixedSize && target === viewer?.live.window && bounds) {
+        live.panControl ??= createViewportControl(tabId, enabled => {
+          setViewportPanMode(tabId, enabled)
+          let owner = [...clients.values()].find(owner => owner.window === live.parent)
+          owner?.tabTooltip.setVisible(false)
+          if (live.parent.isFocused()) {
+            let contents = live.inputLock?.contents ?? live.contents
+            contents.focus(); syncPageSelection(contents)
+          }
+        }, delta => zoomViewport(tabId, delta), visible => {
+          let owner = [...clients.values()].find(owner => owner.window === live.parent)
+          if (!owner || owner.window.isDestroyed()) return
+          if (!visible) { owner.tabTooltip.setVisible(false); return }
+          let button = live.panControl!.view.getBounds(), window = owner.window.getContentBounds()
+          let width = Math.min(400, window.width - 16)
+          owner.tabTooltip.setBounds({ x: Math.max(8, Math.min(window.width - width - 8, button.x + button.width - width)), y: Math.min(window.height - 28, button.y + 36), width, height: 28 })
+          owner.tabTooltip.webContents.send('link-preview', 'Pan viewport · Alt/Meta + drag · Alt + scroll to zoom')
+          owner.window.contentView.addChildView(owner.tabTooltip); owner.tabTooltip.setVisible(true)
+        })
+        let page = live.view.getBounds(), frame = live.remoteFrame?.getBounds()
+        let left = frame ? frame.x + Math.max(0, page.x) : page.x
+        let top = frame ? frame.y + Math.max(0, page.y) : page.y
+        let width = frame ? Math.min(frame.width, page.width) : page.width
+        live.panControl.mount(live.parent.contentView, { x: Math.round(left + width - 44), y: Math.round(top + 12), width: 32, height: 32 })
+        live.panControl.refresh(viewportPanModes.has(tabId))
+      } else if (live.panControl) {
+        live.panControl.dispose(); live.panControl = undefined
+      }
     }
     if (capturedViewport) save()
     for (let candidate of model.clients) {
@@ -2167,7 +2211,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       for (let paneId of visiblePaneIds(candidate)) {
         if (!candidate.zoomedPaneId && window?.floating?.some(item => item.paneId === paneId)) continue
         let page = tabs.get(paneById(model, paneId).pane.id)
-        if (page?.parent === live.window) { ordered.push(pageRoot(page)); if (page.inputLock?.view) ordered.push(page.inputLock.view); if (page.camera) ordered.push(page.camera) }
+        if (page?.parent === live.window) { ordered.push(pageRoot(page)); if (page.inputLock?.view) ordered.push(page.inputLock.view); if (page.camera) ordered.push(page.camera); if (page.panControl) ordered.push(page.panControl.view) }
       }
       for (let placement of candidate.zoomedPaneId ? [] : window?.floating ?? []) {
         let frame = live.floats.get(placement.paneId)
@@ -2177,6 +2221,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           ordered.push(pageRoot(page))
           if (page.inputLock?.view) ordered.push(page.inputLock.view)
           if (page.camera) ordered.push(page.camera)
+          if (page.panControl) ordered.push(page.panControl.view)
         }
       }
       if (keepsPages(candidate.id)) {
@@ -3545,6 +3590,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let pane = paneById(model, args.pane).pane
       setViewportPanMode(pane.id, args.enabled === true && !!fixedViewport(pane.id))
       return viewportPanModes.has(pane.id)
+    }
+    if (method === 'viewport.zoom-wheel') {
+      let pane = paneById(model, args.pane).pane
+      if (fixedViewport(pane.id)) zoomViewport(pane.id, Number(args.delta))
+      return { factor: pane.zoom }
     }
     if (method === 'lock-viewport' || method === 'unlock-viewport') {
       let window = resolveWindow(model, args.window)

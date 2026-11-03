@@ -215,6 +215,18 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await expect.poll(zoomed).toBe(true)
     await cmdZ()
     await expect.poll(zoomed).toBe(false)
+    // Enlarging a locked pane removes its native clipping wrapper. Keep the
+    // website focused so the conditional shortcut can restore the split again.
+    await rpc('lock-viewport', { window: client.windowId, width: Math.floor(await chrome.evaluate(() => innerWidth) * .7), height: 200 })
+    await page.locator('#surface').click()
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await cmdZ()
+      await expect.poll(zoomed).toBe(true)
+      await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+      await cmdZ()
+      await expect.poll(zoomed).toBe(false)
+    }
+    await rpc('unlock-viewport', { window: client.windowId })
     await fs.writeFile(config, 'keyboard:\n  shortcuts:\n    Cmd+Z: null\n    Cmd+ShiftLeft: { action: toggle-pane-zoom, when: pane-not-editing }\n')
     await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).keyboard.shortcuts['Cmd+Z'])).toBeUndefined()
     await cmdZ()

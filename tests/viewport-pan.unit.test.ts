@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import vm from 'node:vm'
 import { observeViewportPan } from '../src/main/viewport-pan'
-import { viewportPanDelta } from '../src/shared/viewport-pan'
+import { viewportPanDelta, viewportZoomFactor } from '../src/shared/viewport-pan'
 
 let fixture = () => {
   let element = () => {
@@ -79,4 +79,17 @@ test('hand controls counter page zoom and share the authoritative pressed state'
     f.fire(f.surface, 'wheel', { deltaX: 10, deltaY: 20, deltaMode: 0 })
     expect(JSON.parse(f.reports.pop()!.slice(4))).toEqual({ x: 10 * zoom, y: 20 * zoom })
   }
+})
+
+test('Alt wheel zooms without panning and clamps the page zoom range', () => {
+  let f = fixture()
+  f.configure({ x: 0, y: 0, width: 320, height: 200, control: false })
+  expect(f.button.style).toMatchObject({ display: 'none' })
+  f.fire(f.window, 'keydown', { altKey: true })
+  f.fire(f.surface, 'wheel', { altKey: true, deltaX: 0, deltaY: -40, deltaMode: 0 })
+  expect(f.reports).toEqual(['pan:{"zoom":-40}'])
+  expect(viewportZoomFactor(1, -40)).toBeGreaterThan(1)
+  expect(viewportZoomFactor(1, 40)).toBeLessThan(1)
+  expect(viewportZoomFactor(1, -10000)).toBe(3)
+  expect(viewportZoomFactor(1, 10000)).toBe(.25)
 })

@@ -37,7 +37,8 @@ export let useViewportPan = (viewport: RefObject<HTMLDivElement | null>, paneId:
       if (!(toggled || event.altKey || event.metaKey)) return
       event.preventDefault(); event.stopPropagation()
       let delta = viewportPanDelta(event, element.clientWidth, element.clientHeight)
-      element.scrollBy(delta.x, delta.y)
+      if (event.altKey) void bridge.command({ method: 'viewport.zoom-wheel', args: { pane: paneId, delta: delta.y } })
+      else element.scrollBy(delta.x, delta.y)
     }
     let keys = (event: KeyboardEvent) => {
       modifier = event.altKey || event.metaKey
