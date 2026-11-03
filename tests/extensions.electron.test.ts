@@ -100,7 +100,14 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     let page = application!.context().pages().find(page => page.url() === url)!
     await expect(page.locator('h1')).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-extension-fixture', 'loaded')
-    await page.keyboard.press('Meta+e')
+    await focusClient()
+    await page.locator('input[type=password]').click()
+    await expect.poll(async () => (await clientWindow())?.focused).toBe(true)
+    await application!.evaluate(({ webContents }, url) => {
+      let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url)!
+      contents.sendInputEvent({ type: 'keyDown', keyCode: 'E', modifiers: ['meta'] })
+      contents.sendInputEvent({ type: 'keyUp', keyCode: 'E', modifiers: ['meta'] })
+    }, url)
     let extensionPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
     await expect(extensionPanel.getByRole('tab').first()).toHaveText('Plugins')
     await expect(extensionPanel.getByRole('tab', { name: 'Plugins', exact: true })).toHaveAttribute('aria-selected', 'true')
