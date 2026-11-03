@@ -395,8 +395,8 @@ test('plugin overlays detach when switching panes and windows during and after b
       await completed(id)
     }
   }
-  await rpc('close-pane', { pane: other.id })
-  await rpc('close-window', { window: otherWindow.id })
+  await rpc('kill-pane', { pane: other.id, confirm: true })
+  await rpc('kill-window', { window: otherWindow.id, confirm: true })
 })
 
 test('Social Media details launch one settings form and a muted window with the active profile', async () => {
