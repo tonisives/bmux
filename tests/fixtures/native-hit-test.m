@@ -65,6 +65,10 @@ static napi_value mouse(napi_env env, napi_callback_info info) {
   CGEventSetFlags(event, modifier == 1 ? kCGEventFlagMaskAlternate : modifier == 2 ? kCGEventFlagMaskCommand : 0);
   CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
   CGEventPost(kCGHIDEventTap, event); CFRelease(event);
+  if (phase == 3 && modifier) {
+    CGEventRef release = CGEventCreateKeyboardEvent(NULL, modifier == 1 ? 58 : 55, false);
+    CGEventSetFlags(release, 0); CGEventPost(kCGHIDEventTap, release); CFRelease(release);
+  }
   napi_get_undefined(env, &result); return result;
 }
 static void describe(NSView *view, NSMutableString *text, NSUInteger depth) {
