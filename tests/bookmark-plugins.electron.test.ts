@@ -49,7 +49,11 @@ test.beforeAll(async () => {
   let manifest = parse(await fs.readFile('bundled-plugins/bmux.reddit-search/plugin.yaml', 'utf8'))
   manifest.id = 'fixture.reddit'; manifest.bookmark.matches = ['http://127.0.0.1:*/search*', 'http://127.0.0.1:*/r/*/search*']
   await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify(manifest)); await fs.copyFile('bundled-plugins/bmux.reddit-search/filter.js', path.join(folder, 'filter.js'))
-  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { autoUpdateFilters: false }, memory: { lazyRestore: false }, plugins: { 'fixture.reddit': { enabled: true, hooks: false } } }))
+  let xFolder = path.join(directory, 'plugins/fixture.x'); await fs.mkdir(xFolder, { recursive: true })
+  let xManifest = parse(await fs.readFile('bundled-plugins/bmux.x-search/plugin.yaml', 'utf8'))
+  xManifest.id = 'fixture.x'; xManifest.bookmark.matches = ['http://127.0.0.1:*/search*']
+  await fs.writeFile(path.join(xFolder, 'plugin.yaml'), stringify(xManifest)); await fs.copyFile('bundled-plugins/bmux.x-search/filter.js', path.join(xFolder, 'filter.js'))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { autoUpdateFilters: false }, memory: { lazyRestore: false }, plugins: { 'fixture.reddit': { enabled: true, hooks: false }, 'fixture.x': { enabled: false, hooks: false } } }))
   server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
@@ -267,4 +271,35 @@ test('Reddit connection posts filter titles and loaded excerpts and restore when
   await expect(page.locator('#connect_body')).toBeHidden()
   await page.locator('#connect_body [data-testid="post-excerpt"]').evaluate(node => { node.textContent = 'Shipping a new developer tool today' })
   await expect(page.locator('#connect_body')).toBeVisible()
+})
+test('X search bookmarks filter connection prompts in tweet text and restore results', async () => {
+  await rpc('plugin.enable', { id: 'fixture.x', enabled: true })
+  await rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.x', enabled: true, values: {} })
+  try {
+    let pane = await openBookmark(), page = await pageFor(pane)
+    await page.evaluate(() => {
+      for (let [id, text] of [['x_connect', 'Let’s #connect'], ['x_technical', "Let's connect to Postgres"], ['x_author', 'I shipped a developer tool']]) {
+        let article = document.createElement('article'); article.dataset.testid = 'tweet'; article.id = id
+        let author = document.createElement('div'); author.textContent = "Let's connect"; article.append(author)
+        let body = document.createElement('div'); body.dataset.testid = 'tweetText'; body.textContent = text; article.append(body)
+        document.body.append(article)
+      }
+    })
+    await expect(page.locator('#x_connect')).toBeHidden()
+    await expect(page.locator('#x_technical')).toBeVisible()
+    await expect(page.locator('#x_author')).toBeVisible()
+    await page.locator('#x_author [data-testid="tweetText"]').evaluate(node => { node.textContent = 'Looking to #connect with people interested in dev tools' })
+    await expect(page.locator('#x_author')).toBeHidden()
+    await rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.x', enabled: true, values: { connectionPosts: false } })
+    await expect(page.locator('#x_connect')).toBeVisible()
+    await expect(page.locator('#x_author')).toBeVisible()
+    await rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.x', enabled: true, values: {} })
+    await expect(page.locator('#x_connect')).toBeHidden()
+    await rpc('navigate', { tab: pane, url: `${base}/plain` })
+    await page.evaluate(() => { document.body.innerHTML = '<article data-testid="tweet" id="x_home"><div data-testid="tweetText">Let’s #connect</div></article>' })
+    await expect(page.locator('#x_home')).toBeVisible()
+  } finally {
+    await rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.x', remove: true })
+    await rpc('plugin.enable', { id: 'fixture.x', enabled: false })
+  }
 })

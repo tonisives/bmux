@@ -282,8 +282,9 @@ separate opt-in in config. Bundled IDs take precedence over local plugin folders
 A plugin can declare a `bookmark` contribution independently of actions and
 hooks. Enable the plugin in the Plugins panel, then attach it through a matching
 bookmark's sliders. Global hooks need not be enabled. The bundled
-`bmux.reddit-search` plugin provides Reddit post search filtering and starts
-disabled.
+`bmux.reddit-search` plugin provides Reddit post search filtering. The bundled
+`bmux.x-search` plugin filters connection prompts in X and Twitter search
+bookmarks. Both start disabled.
 
 ```yaml
 bookmark:

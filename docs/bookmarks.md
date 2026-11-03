@@ -92,6 +92,11 @@ be turned off per bookmark. A minimum of 0 disables that threshold.
 Unknown counts remain visible. The first qualifying duplicate stays visible;
 matching titles ignore case and repeated whitespace but preserve punctuation.
 
+For X or Twitter search bookmarks, enable **X search filter** and attach it in
+the bookmark's sliders. Its **Connection posts** toggle uses the same networking
+phrases against post text, including newly loaded results. Both filters start
+globally disabled until enabled in the Plugins panel.
+
 Opening the bookmark attaches its plugins to the new pane. Choosing a bookmark
 from address suggestions attaches them to the current pane instead. Other panes, copied
 windows, and links opened in new panes do not inherit them. Attachments survive
