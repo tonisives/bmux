@@ -94,7 +94,12 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning && automationWarningEnabled(options.settings(), profileId, item.warningHost!, now(), paneId))
     if (warning) throw safetyError(`Automation paused: ${warning.warning} on ${warning.warningHost}. Open the UI alert or Profile > Bot to resolve, resume, or exclude this website`)
     if (value && overLimit(value) && !rested(value)) {
-      if (!reachedLimit(value)) { value.limitReachedAt = value.lastUsed + Math.max(0, automationProfileLimits(options.settings(), profileId).maxSessionMinutes * 60_000 - (value.activeMs ?? 0)); value.activeMs = activeTime({ ...value, limitReachedAt: undefined }); persist() }
+      if (!reachedLimit(value)) {
+        let activeMs = activeTime(value)
+        value.limitReachedAt = value.lastUsed + Math.max(0, automationProfileLimits(options.settings(), profileId).maxSessionMinutes * 60_000 - (value.activeMs ?? 0))
+        value.activeMs = activeMs
+        persist()
+      }
       else options.changed?.()
       throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(profileId, value)).toISOString()}. Open the UI alert or Profile > Bot to reset the session`)
     }
