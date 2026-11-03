@@ -100,7 +100,7 @@ test('loads an extension per profile, opens its sandboxed popup, restores and re
     let page = application!.context().pages().find(page => page.url() === url)!
     await expect(page.locator('h1')).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-extension-fixture', 'loaded')
-    await chrome.getByRole('button', { name: 'Extensions', exact: true }).click()
+    await page.keyboard.press('Meta+e')
     let extensionPanel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
     await expect(extensionPanel.getByRole('tab').first()).toHaveText('Plugins')
     await expect(extensionPanel.getByRole('tab', { name: 'Plugins', exact: true })).toHaveAttribute('aria-selected', 'true')

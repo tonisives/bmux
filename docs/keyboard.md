@@ -68,6 +68,7 @@ Common direct shortcuts:
 | Hyper+W (Command+Control+Option+Shift+W) | Show sessions |
 | Command+Shift+W | Detach the client |
 | Command+D | Bookmark the current page and choose its folder |
+| Command+E | Show extensions |
 | Command+, | Open settings |
 | Command+. (macOS) / Control+. (Linux and Windows) | Pin or unpin the current window |
 | F1 | Show help and shortcuts |
@@ -167,6 +168,7 @@ keyboard:
     Cmd+Shift+W: detach
     CmdOrCtrl+F: find
     Cmd+Ctrl+Alt+Shift+W: sessions
+    Cmd+E: extensions
     Cmd+,: settings
     Escape: stop
   prefixBindings:

@@ -7,7 +7,7 @@ export type KeyboardConfig = { prefix: string; prefixTimeoutMs: number; shortcut
 export let DEFAULT_KEYBOARD: KeyboardConfig = {
   prefix: 'Ctrl+B', prefixTimeoutMs: 1600,
   shortcuts: {
-    'Ctrl+E': 'vim-editor', 'Cmd+L': 'address', 'Cmd+R': 'reload', 'Cmd+Shift+R': 'hard-reload',
+    'Ctrl+E': 'vim-editor', 'Cmd+E': 'extensions', 'Cmd+L': 'address', 'Cmd+R': 'reload', 'Cmd+Shift+R': 'hard-reload',
     'Cmd+T': 'new-window', 'Cmd+W': 'close-window', 'CmdOrCtrl+Shift+T': 'reopen-closed', 'Cmd+Shift+W': 'detach', 'Cmd+N': 'new-client', 'Cmd+Shift+N': 'new-private-session', 'Cmd+D': 'bookmark',
     'Cmd+1': 'select-window-1', 'Cmd+2': 'select-window-2', 'Cmd+3': 'select-window-3',
     'Cmd+4': 'select-window-4', 'Cmd+5': 'select-window-5', 'Cmd+6': 'select-window-6',
