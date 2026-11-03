@@ -209,7 +209,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 20, y: 30 })
       await first.keyboard.press('Escape')
       await expect(hand).toHaveAttribute('aria-pressed', 'false')
-      await first.screenshot({ path: info.outputPath('viewport-hand-control.png') })
+      await chrome.screenshot({ path: info.outputPath('viewport-hand-control.png') })
       await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
       await application.evaluate((_electron, pane) => (globalThis as any).remoteLayoutRuntime.execute({ method: 'eval', args: { pane, expression: '1', agentId: 'viewport-gesture-test' } }), client.paneId)
