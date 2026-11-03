@@ -226,6 +226,21 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         let area = await content(client.paneId).evaluate(element => ({ width: element.clientWidth, height: element.clientHeight })), bounds = await native()
         return bounds.clip.width === area.width && bounds.clip.height === area.height
       }).toBe(true)
+      await chrome.evaluate(() => {
+        let trace: unknown[] = (globalThis as any).gutterTrace = []
+        for (let type of ['pointerdown', 'pointerup', 'pointermove', 'gotpointercapture', 'lostpointercapture', 'blur', 'focus']) window.addEventListener(type, event => {
+          let e = event as PointerEvent
+          trace.push({ type, id: e.pointerId, alt: e.altKey, meta: e.metaKey, button: e.button, x: e.clientX, y: e.clientY, target: (e.target as HTMLElement)?.outerHTML?.slice(0, 200) })
+        }, true)
+      })
+      await application.evaluate(({ webContents }) => {
+        let trace: unknown[] = (globalThis as any).nativeGutterTrace = []
+        for (let contents of webContents.getAllWebContents()) {
+          contents.on('before-mouse-event', (_event, mouse) => trace.push({ id: contents.id, url: contents.getURL(), mouse }))
+          contents.on('focus', () => trace.push({ id: contents.id, focus: true }))
+          contents.on('blur', () => trace.push({ id: contents.id, blur: true }))
+        }
+      })
       let gutter = (await content(client.paneId).boundingBox())!
       let resetPan = async () => {
         await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
@@ -282,6 +297,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await rpc('agent.input-lock.override', { pane: client.paneId, enabled: true })
     } catch (error) {
       await fs.writeFile(info.outputPath('chrome-wheels.json'), JSON.stringify(await chrome.evaluate(() => (globalThis as any).viewportWheels ?? [])))
+      await fs.writeFile(info.outputPath('gutter-events.json'), JSON.stringify({ dom: await chrome.evaluate(() => (globalThis as any).gutterTrace), native: await application.evaluate(() => (globalThis as any).nativeGutterTrace) }))
       if (process.platform === 'darwin') await fs.writeFile(info.outputPath('native-tree.txt'), await application.evaluate(() => (globalThis as any).remoteLayoutTree()))
       let reported = await application.evaluate(({ BaseWindow }) => ({ bounds: (globalThis as any).viewportBounds, windows: BaseWindow.getAllWindows().map(window => ({ visible: window.isVisible(), focused: window.isFocused(), minimized: window.isMinimized(), bounds: window.getBounds() })) }))
       let details = { native: await native(), reported, state: await state(), scroll: await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop, width: element.clientWidth, height: element.clientHeight })) }

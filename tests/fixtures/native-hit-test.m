@@ -63,6 +63,7 @@ static napi_value mouse(napi_env env, napi_callback_info info) {
   CGEventType type = phase == 1 ? kCGEventLeftMouseDown : phase == 2 ? kCGEventLeftMouseDragged : phase == 3 ? kCGEventLeftMouseUp : kCGEventMouseMoved;
   CGEventRef event = CGEventCreateMouseEvent(NULL, type, location, kCGMouseButtonLeft);
   CGEventSetFlags(event, modifier == 1 ? kCGEventFlagMaskAlternate : modifier == 2 ? kCGEventFlagMaskCommand : 0);
+  CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
   CGEventPost(kCGHIDEventTap, event); CFRelease(event);
   napi_get_undefined(env, &result); return result;
 }
