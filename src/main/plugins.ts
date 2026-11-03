@@ -49,7 +49,7 @@ export let createPlugins = (options: Options) => {
   let { socketPath, directory: socketDirectory } = createPluginSocket()
   let connections = new Set<net.Socket>()
   let list = (): PluginInfo[] => [...definitions.values()].map(({ manifest, error, bundled }): PluginInfo => ({ bundled: !!bundled, id: manifest.id, name: manifest.name, category: manifest.category, description: manifest.description, version: manifest.version, enabled: settings[manifest.id]?.enabled === true, hooks: settings[manifest.id]?.hooks === true, hasHooks: manifest.hooks.length > 0, error, actions: manifest.actions.map(({ id, title, description, group }) => ({ id, title, description, ...(group ? { group } : {}) })), proxyProviders: manifest.proxyProviders, bookmark: manifest.bookmark })).concat(discoveryErrors)
-  let publicRuns = () => [...runs.values()].reverse().map(run => ({ ...run.public }))
+  let publicRuns = () => [...runs.values()].reverse().map(run => ({ ...run.public, ...(run.overlay && run.context.paneId ? { overlayPaneId: run.context.paneId } : {}) }))
   let prompt = (clientId: string) => [...runs.values()].find(run => run.context.clientId === clientId && run.pending)?.pending?.prompt
   let kill = (run: Run) => {
     if (!run.child?.pid) return
@@ -277,7 +277,12 @@ export let createPlugins = (options: Options) => {
   }
   let overlay = (paneId: string) => {
     let run = [...runs.values()].reverse().find(run => run.context.paneId === paneId && run.overlay)
-    return run?.overlay ? { runId: run.public.id, paneId, content: run.overlay, ended: !live(run), error: run.public.error } : undefined
+    return run?.overlay ? { runId: run.public.id, paneId, content: { ...run.overlay, copies: run.overlay.copies?.map(({ id, label }) => ({ id, label })) }, ended: !live(run), error: run.public.error } : undefined
+  }
+  let copyOverlay = (id: string, copyId: string) => {
+    let copy = runs.get(id)?.overlay?.copies?.find(copy => copy.id === copyId)
+    if (!copy?.text) throw new Error('Payload is unavailable for this post')
+    return copy.text
   }
   let overlayInput = (id: string, controlId: string, value: unknown) => {
     let run = runs.get(id), control = run?.overlay?.controls.find(control => control.id === controlId)
@@ -366,5 +371,5 @@ export let createPlugins = (options: Options) => {
       return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
     } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
   })
-  return { ready, list, bookmarks, runs: publicRuns, overlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  return { ready, list, bookmarks, runs: publicRuns, overlay, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }

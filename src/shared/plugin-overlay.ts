@@ -1,12 +1,14 @@
 export type PluginOverlayControl = { id: string; label: string; kind: 'button' | 'toggle' | 'choice' | 'text'; value?: string | boolean; choices?: string[]; disabled?: boolean }
-export type PluginOverlayContent = { title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[] }
+export type PluginOverlayContent = { title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
 export type PluginOverlayBounds = { x: number; y: number; width: number; height: number; collapsed?: boolean }
 export type PluginOverlayState = { runId: string; paneId: string; content: PluginOverlayContent; bounds: PluginOverlayBounds; ended: boolean; error?: string }
 export type PluginOverlayInput = { id: string; value?: string | boolean }
 let text = (value: unknown, maximum: number) => { if (typeof value !== 'string' || value.length > maximum) throw new Error('Invalid overlay text'); return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '') }
 let array = (value: unknown, maximum: number) => { if (!Array.isArray(value) || value.length > maximum) throw new Error('Invalid overlay list'); return value }
 export let parsePluginOverlay = (value: Record<string, unknown>): PluginOverlayContent => {
-  if (JSON.stringify(value).length > 32768) throw new Error('Overlay exceeds 32 KB')
+  let { copies: rawCopies, ...layout } = value
+  if (JSON.stringify(value).length > 900000) throw new Error('Overlay payload exceeds 900 KB')
+  if (JSON.stringify(layout).length > 32768) throw new Error('Overlay exceeds 32 KB')
   let controls = array(value.controls ?? [], 16).map((control): PluginOverlayControl => {
     if (!control || !['button','toggle','choice','text'].includes(control.kind) || !/^[a-zA-Z0-9._-]{1,64}$/.test(control.id)) throw new Error('Invalid overlay control')
     let choices = control.kind === 'choice' ? array(control.choices, 16).map(choice => text(choice, 80)) : undefined
@@ -15,7 +17,12 @@ export let parsePluginOverlay = (value: Record<string, unknown>): PluginOverlayC
     return result
   })
   if (new Set(controls.map(control => control.id)).size !== controls.length) throw new Error('Duplicate overlay control')
-  return { title: text(value.title, 100), subtitle: text(value.subtitle ?? '', 180), status: text(value.status ?? '', 180), metrics: text(value.metrics ?? '', 300), controls,
+  let copies = array(rawCopies ?? [], 2).map(copy => {
+    if (!copy || !/^[a-zA-Z0-9._-]{1,64}$/.test(copy.id)) throw new Error('Invalid overlay copy')
+    return { id: copy.id, label: text(copy.label, 80), text: text(copy.text, 300000) }
+  })
+  if (new Set(copies.map(copy => copy.id)).size !== copies.length) throw new Error('Duplicate overlay copy')
+  return { copies, title: text(value.title, 100), subtitle: text(value.subtitle ?? '', 180), status: text(value.status ?? '', 180), metrics: text(value.metrics ?? '', 300), controls,
     nodes: array(value.nodes ?? [], 8).map(node => { if (!node || !['cyan','green','neutral'].includes(node.tone)) throw new Error('Invalid overlay node'); return { title: text(node.title, 80), lines: array(node.lines, 12).map(line => text(line, 800)), tone: node.tone } }),
     details: array(value.details ?? [], 8).map(detail => ({ title: text(detail.title, 80), text: text(detail.text, 12000) })),
   }

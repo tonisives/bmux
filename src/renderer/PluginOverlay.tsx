@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, KeyboardEvent, PointerEvent } from 'react'
+import type { ChangeEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
 import type { Bridge, PublicState } from '../shared/types'
 import type { PluginOverlayControl, PluginOverlayState } from '../shared/plugin-overlay'
 import css from './PluginOverlay.module.css'
@@ -32,20 +32,31 @@ let useOverlay = () => { let value = useContext(OverlayContext); if (!value) thr
 let bridge = (window as unknown as { bmux: Bridge }).bmux
 let OverlayHeader = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;update:(event:PointerEvent)=>void;end:()=>void }) => {
   let { overlay, command } = useOverlay()
+  let close = () => void command('plugin.overlay.close')
+  let configure = () => void command('plugin.overlay.configure')
+  let title = overlay.ended ? overlay.error || overlay.content.status.startsWith('Browsing stopped') ? 'Browsing stopped' : 'Session complete' : overlay.content.title
   let collapse = () => void command('plugin.overlay.bounds', { ...overlay.bounds, collapsed: !overlay.bounds.collapsed })
-  return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}><div><strong>{overlay.content.title}</strong><span>{overlay.content.subtitle}</span></div><button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Collapse page overlay'} onClick={collapse}>{overlay.bounds.collapsed ? '+' : '−'}</button></header>
+  return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}><div><strong>{title}</strong><span>{overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span></div><nav aria-label="Overlay controls">{overlay.ended && <button onClick={configure}>New session</button>}<button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Collapse page overlay'} onClick={collapse}>{overlay.bounds.collapsed ? '+' : '−'}</button><button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button></nav></header>
 }
 let OverlayBody = ({ error }: { error:string }) => {
   let { overlay } = useOverlay()
   return <div className={css.body}>
     <p className={css.status} role="status">{overlay.ended ? overlay.error || overlay.content.status || 'Session ended' : overlay.content.status}</p>
     <p className={css.metrics}>{overlay.content.metrics}</p>
-    <div className={css.nodes}>{overlay.content.nodes.map((node, index) => <OverlayNode key={index} node={node} />)}</div>
+    <div className={css.nodes}>{overlay.content.nodes.map((node, index) => <OverlayNode key={index} node={node} copyable={index === overlay.content.nodes.length - 1} />)}</div>
     <OverlayDetails />
     {error && <p className={css.error} role="alert">{error}</p>}
   </div>
 }
-let OverlayNode = ({ node }: { node:PluginOverlayState['content']['nodes'][number] }) => <section data-tone={node.tone}><h2>{node.title}</h2>{node.lines.map((line, index) => <p key={index}>{line}</p>)}</section>
+let OverlayNode = ({ node, copyable }: { node:PluginOverlayState['content']['nodes'][number]; copyable:boolean }) => {
+  let { overlay, command } = useOverlay(), [copied, setCopied] = useState('')
+  let copy = async (event: MouseEvent<HTMLButtonElement>) => {
+    let id = event.currentTarget.dataset.copy!
+    let result = await command('plugin.overlay.copy', { copy: id }) as { copied?: boolean } | undefined
+    if (result?.copied) { setCopied(id); setTimeout(() => setCopied(''), 2000) }
+  }
+  return <section data-tone={node.tone}><h2>{node.title}</h2>{node.lines.map((line, index) => <p key={index}>{line}</p>)}{copyable && <div className={css.copies}>{overlay.content.copies?.map(item => <button key={item.id} data-copy={item.id} onClick={copy}>{copied === item.id ? 'Copied' : item.label}</button>)}</div>}</section>
+}
 let OverlayButtons = () => {
   let { overlay, command, busy, input } = useOverlay(), [returnToSetup, setReturnToSetup] = useState(false)
   useEffect(() => { setReturnToSetup(false) }, [overlay.runId])

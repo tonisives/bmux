@@ -42,7 +42,7 @@ if (action === 'pick') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
 } else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
 } else if (action === 'overlay') {
- host('overlay.update',{title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'1 Post',lines:['A software demo'],tone:'cyan'},{title:'2 Input',lines:['Caption and post metadata'],tone:'cyan'},{title:'3 Decision',lines:['Match: software'],tone:'neutral'},{title:'4 Action',lines:['Watch for 10 seconds'],tone:'green'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'Profile',text:'Interested in computers'}]});
+ host('overlay.update',{copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'1 Post',lines:['A software demo'],tone:'cyan'},{title:'2 Input',lines:['Caption and post metadata'],tone:'cyan'},{title:'3 Decision',lines:['Match: software'],tone:'neutral'},{title:'4 Action',lines:['Watch for 10 seconds'],tone:'green'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false}],details:[{title:'Profile',text:'Interested in computers'}]});
  while(true){let inputs=host('overlay.events');if(inputs.some(input=>input.id==='start')){host('result',{started:true});break}await new Promise(resolve=>setTimeout(resolve,100))}
 } else if (action === 'capture') { host('result',host('screenshot',{fullPage:false,encoding:'base64',format:'jpeg',quality:60,maxDimension:768})); }
 `
@@ -280,6 +280,18 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await expect(observer.getByRole('complementary', { name: 'Page overlay', exact: true })).toBeVisible()
   await expect(observer.getByRole('status')).toHaveText('Waiting for Start')
   await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
+  expect((await state()).pluginOverlay.content.copies.every((copy: any) => copy.text === undefined)).toBe(true)
+  await observer.getByRole('button', { name: 'Copy sent payload', exact: true }).click()
+  let copied = await application.evaluate(({ clipboard }) => clipboard.readText())
+  expect(JSON.parse(copied)).toEqual({ image: 'x'.repeat(18000), caption: 'fixture' })
+  await observer.getByRole('button', { name: 'Copy AI payload', exact: true }).click()
+  expect(JSON.parse(await application.evaluate(({ clipboard }) => clipboard.readText()))).toEqual({ answers: [{ name: 'watch', choice: 'watch' }], usage: { input_tokens: 41 } })
+  await observer.getByRole('button', { name: 'Close overlay', exact: true }).click()
+  let visible = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).some((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()))
+  await expect.poll(visible).toBe(false)
+  expect((await rpc('plugin.runs')).find((run: any) => run.id === id).status).toBe('running')
+  await chrome.evaluate(id => (window as any).bmux.command({ method: 'plugin.overlay.show', args: { id } }), id)
+  await expect.poll(visible).toBe(true)
   await observer.getByText('Details and settings', { exact: true }).click()
   await expect(observer.getByRole('checkbox', { name: 'Skip ads' })).not.toBeChecked()
   let before = (await state()).pluginOverlay.bounds
@@ -310,6 +322,10 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay.png') })
   await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
   await completed(id)
+  await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
+  await expect(observer.getByRole('button', { name: 'New session', exact: true })).toBeVisible()
+  await expect(observer.getByRole('button', { name: 'Expand page overlay', exact: true })).toBeVisible()
+  await observer.getByRole('button', { name: 'Expand page overlay', exact: true }).click()
   await expect(observer.getByRole('button', { name: 'Choose session settings', exact: true })).toBeVisible()
   let page = application.context().pages().find(page => page.url().startsWith(url))!
   expect(await page.evaluate(() => typeof (window as any).bmux)).toBe('undefined')

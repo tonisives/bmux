@@ -19,3 +19,11 @@ test('overlay stays inside its pane after resize, drag and collapse', () => {
   expect(fitPluginOverlay({ x: 900, y: 1000, width: 320, height: 500, collapsed: true }, area)).toEqual({ x: 610, y: 632, width: 320, height: 500, collapsed: true })
   expect(fitPluginOverlay(undefined, { x: 0, y: 0, width: 180, height: 150 })).toEqual({ x: 0, y: 0, width: 180, height: 150, collapsed: false })
 })
+
+
+test('full payload copies are separate from the compact overlay text limits', () => {
+  let text = JSON.stringify({ image: 'x'.repeat(20000), caption: 'AI demo' })
+  expect(parsePluginOverlay({ ...content, copies: [{ id: 'request', label: 'Copy sent payload', text }] }).copies?.[0].text).toBe(text)
+  expect(() => parsePluginOverlay({ ...content, copies: [{ id: 'request', label: 'Copy', text: 'x'.repeat(300001) }] })).toThrow()
+  expect(() => parsePluginOverlay({ ...content, copies: [{ id: 'request', label: 'Copy', text }, { id: 'request', label: 'Copy', text }] })).toThrow()
+})

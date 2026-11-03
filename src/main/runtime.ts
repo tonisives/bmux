@@ -481,12 +481,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let settingsReady = readSettings()
 
   let pluginOverlayBounds = new Map<string, PluginOverlayBounds>()
+  let dismissedPluginOverlays = new Set<string>(), pluginOverlayRuns = new Map<string, { id: string; ended: boolean }>()
   let overlayForClient = (clientId: string) => {
     let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
     if (!client?.paneId || !owner || !visiblePaneIds(client).includes(client.paneId)) return
     let value = plugins?.overlay(client.paneId), area = owner.bounds.find(bounds => bounds.paneId === client.paneId)
-    if (!value || !area || area.width < 1 || area.height < 1) return
+    if (!value || !area || area.width < 1 || area.height < 1 || dismissedPluginOverlays.has(clientId + ':' + value.runId)) return
     let key = clientId + ':' + client.paneId, bounds = fitPluginOverlay(pluginOverlayBounds.get(key), area)
+    let previous = pluginOverlayRuns.get(key)
+    if (previous?.id !== value.runId || value.ended && !previous?.ended) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended }, area)
+    pluginOverlayRuns.set(key, { id: value.runId, ended: value.ended })
     pluginOverlayBounds.set(key, bounds)
     return { ...value, bounds }
   }
@@ -3024,10 +3028,29 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       await pageTools?.reload()
       return pageTools?.list()
     }
+    if (method === 'plugin.overlay.show') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let run = plugins?.runs().find(run => run.id === args.id)
+      if (!run?.overlayPaneId) throw new Error('Page overlay is unavailable')
+      dismissedPluginOverlays.delete(sourceClientId + ':' + run.id)
+      await execute({ method: 'select-pane', args: { client: sourceClientId, pane: run.overlayPaneId, focus: false } })
+      publish(); return null
+    }
     if (method.startsWith('plugin.overlay.')) {
       if (!sourceClientId) throw new Error('Trusted page overlay UI required')
       let current = overlayForClient(sourceClientId), owner = clients.get(sourceClientId)
       if (!current || current.runId !== args.id || !owner) throw new Error('Page overlay no longer belongs to the selected pane')
+      if (method === 'plugin.overlay.close') {
+        dismissedPluginOverlays.add(sourceClientId + ':' + current.runId)
+        refreshPluginOverlay(sourceClientId, owner)
+        if (owner.window.isFocused()) owner.chrome.webContents.focus()
+        publish(); return null
+      }
+      if (method === 'plugin.overlay.copy') {
+        let text = plugins?.copyOverlay(current.runId, required(args, 'copy'))
+        if (text === undefined) throw new Error('Payload unavailable')
+        clipboard.writeText(text); return { copied: true }
+      }
       if (method === 'plugin.overlay.input') return plugins?.overlayInput(current.runId, required(args, 'control'), args.value)
       if (method === 'plugin.overlay.configure') return plugins?.configureOverlay(current.runId)
       if (method === 'plugin.overlay.restart') return plugins?.restartOverlay(current.runId)

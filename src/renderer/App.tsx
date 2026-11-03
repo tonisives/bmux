@@ -1848,11 +1848,12 @@ let PluginConfiguration = ({ compact = false, matches, pluginId, settingsOnly = 
 let PluginActivity = ({ pluginId }: { pluginId?: string }) => {
   let { state, run } = useUI()
   let cancel = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.cancel', { id: event.currentTarget.dataset.id }) }
+  let showOverlay = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.overlay.show', { id: event.currentTarget.dataset.id }) }
   let error = (result: unknown) => result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : ''
   let runs = state.pluginRuns?.filter(item => !pluginId || item.pluginId === pluginId) ?? []
   return <><p>Plugin runs</p>{runs.length ? runs.map(item => <div key={item.id} className={css.row}>{item.title} · {item.status}
     {item.progress && <span className={css.pluginDescription}>{item.progress.percent}% · {item.progress.message}</span>}{(item.error || error(item.result)) && <span role="alert" className={css.pluginDescription}>{error(item.result) || item.error}</span>}
-    {['running', 'queued'].includes(item.status) && <button data-id={item.id} onClick={cancel}>Cancel</button>}</div>) : <p>No plugin runs.</p>}</>
+    {item.overlayPaneId && <button data-id={item.id} onClick={showOverlay}>Show overlay</button>}{['running', 'queued'].includes(item.status) && <button data-id={item.id} onClick={cancel}>Cancel</button>}</div>) : <p>No plugin runs.</p>}</>
 }
 let PluginParameters = () => {
   let { state, run } = useUI()
