@@ -304,7 +304,7 @@ test('automation and permission notices identify agent panes while personal brow
     application = undefined
     let ledgerFile = path.join(directory, 'automation-safety.json')
     let ledger = JSON.parse(await fs.readFile(ledgerFile, 'utf8'))
-    for (let usage of Object.values(ledger) as { startedAt: number; lastUsed: number; limitReachedAt?: number }[]) { usage.startedAt = startedAt; usage.lastUsed = startedAt + 1000; usage.limitReachedAt = startedAt + 10 * 60_000 }
+    for (let usage of Object.values(ledger) as { startedAt: number; lastUsed: number; activeMs: number; limitReachedAt?: number }[]) { usage.startedAt = startedAt; usage.lastUsed = startedAt + 1000; usage.activeMs = 10 * 60_000; usage.limitReachedAt = startedAt + usage.activeMs }
     await fs.writeFile(ledgerFile, JSON.stringify(ledger))
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
