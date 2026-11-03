@@ -684,14 +684,12 @@
 .pluginPresetSection p { margin-top: 6px; }
 .pluginPresetSection .panelTabs { margin-top: 4px; }
 .pluginSettingsHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: var(--settings-row-width); margin-bottom: 12px; }
-.pluginSettingsHeading button { color: #bdc9b4; }
 .pluginSettingsRows { min-width: 0; }
 .pluginParameterField { min-width: 0; max-width: var(--settings-row-width); }
 .pluginParameterField .settingsRow { margin: 0; white-space: normal; }
 .pluginParameterField .settingsRow > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .pluginParameterField .settingsRow select, .pluginParameterField .settingsRow input { box-sizing: border-box; width: 55%; }
 .pluginParameterField small { display: block; color: #8e98a4; margin: 6px 0 12px; overflow-wrap: anywhere; }
-.pluginParameterValue { flex: 0 1 55%; min-width: 120px; text-align: right; overflow-wrap: anywhere; }
 
 .extensionWorkspace > .pluginDetails { display: flex; flex-direction: column; overflow: hidden; }
 .pluginDetails > h2 { margin: 0 0 12px; font-size: inherit; font-weight: 500; }

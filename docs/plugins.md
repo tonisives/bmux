@@ -86,7 +86,7 @@ Authenticated plugin browser operations carry the plugin's own identity. The
 external CLI identity requirements apply to external agents; plugin capability,
 document and automation checks still apply to each browser operation.
 
-Plugin setup uses the same rows, text size and controls as Settings. Edit settings replaces each displayed value with its control in place; Done editing returns to the values.
+Plugin setup uses the same rows, text size and controls as Settings. Settings are directly editable in their rows, with saved values shown in the controls. There is no separate editing mode.
 
 The page overlay has one Details and settings expander with a view selector. Stop
 returns browsing actions to their configuration form. Starting from that form
