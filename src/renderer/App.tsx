@@ -1858,7 +1858,7 @@ let PluginParameters = () => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
   let [values, setValues] = useState<Record<string, unknown>>(request.values ?? {}), [busy, setBusy] = useState(false)
-  let [preset, setPreset] = useState('saved'), [expanded, setExpanded] = useState(!request.presets?.length)
+  let [preset, setPreset] = useState('saved'), [editing, setEditing] = useState(!request.presets?.length)
   let profile = state.model.profiles.find(profile => profile.id === request.profileId)
   let fields = request.fields ?? [], saved = request.savedValues ?? {}
   let change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -1879,41 +1879,36 @@ let PluginParameters = () => {
     try { await run('plugin.respond', { id: request.id, value: values }) } finally { setBusy(false) }
   }
   let cancel = () => { void run('plugin.respond', { id: request.id, cancel: true }) }
-  let labels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', true: 'On', false: 'Off' }
-  let display = (item: typeof fields[number], value: unknown) => item.kind === 'password' ? 'Private' : labels[String(value)] ?? String(value)
+  let labels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', included: 'BMUX subscription', personal: 'Personal OpenAI API key', true: 'On', false: 'Off' }
+  let display = (item: typeof fields[number], value: unknown) => item.kind === 'password' ? 'Private' : value === undefined ? 'Not set' : labels[String(value)] ?? String(value)
   let effective = (item: typeof fields[number]) => values[item.name] ?? saved[item.name] ?? item.default
   let field = (item: typeof fields[number]) => {
     let fallback = saved[item.name] ?? item.default
     let inherited = fallback === undefined ? 'Use plugin default' : `Use saved setting: ${display(item, fallback)}`
-    return <label key={item.name}><span>{item.title}</span>
-      {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={values[item.name] === undefined ? '' : String(values[item.name])} onChange={change} required={item.required}>
+    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name}><label className={css.settingsRow}><span>{item.title}</span>
+      {!editing ? <span className={css.pluginParameterValue}>{display(item, effective(item))}</span> : item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={values[item.name] === undefined ? '' : String(values[item.name])} onChange={change} required={item.required}>
         {!item.required && <option value="">{inherited}</option>}
         {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{display(item, value)}</option>)}
-      </select> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}
+      </select> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}</label>
       {item.description && <small>{item.description}</small>}
       {item.kind === 'text' && fallback !== undefined && <small>{inherited}</small>}
-    </label>
+    </div>
   }
-  let toggleConfiguration = () => setExpanded(value => !value)
-  let summary = <dl className={css.pluginPresetSummary}>{fields.filter(item => item.advanced && effective(item) !== undefined).map(item => <div key={item.name}><dt>{item.title}</dt><dd>{display(item, effective(item))}</dd></div>)}</dl>
-  let sections = (items: typeof fields) => [...new Set(items.map(item => item.section ?? 'Settings'))].map(section => <fieldset key={section} className={css.pluginParameterSection}><legend>{section}</legend><div className={css.pluginParameterFields}>{items.filter(item => (item.section ?? 'Settings') === section).map(field)}</div></fieldset>)
+  let toggleEditing = () => setEditing(value => !value)
+  let sections = [...new Set(fields.map(item => item.section ?? 'Settings'))].map(section => <section key={section} className={css.settingsGroup} role="group" aria-label={section}><h3>{section}</h3>{fields.filter(item => (item.section ?? 'Settings') === section).map(field)}</section>)
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{request.pluginName} · {request.title}</h2>
     <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
       {!!request.presets?.length && <section aria-label="Browsing presets" className={css.pluginPresetSection}>
         <h3>Browsing preset</h3>
-        <div className={css.pluginPresetButtons}><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{request.presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
+        <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{request.presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
         <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? 'Custom settings for this session.' : request.presets.find(item => item.id === preset)?.description}</p>
-        {summary}
       </section>}
-      {sections(fields.filter(item => !item.advanced))}
-      {fields.some(item => item.advanced) && <section className={css.pluginAdvancedSettings}>
-        <button type="button" aria-expanded={expanded} aria-controls="plugin-complete-settings" onClick={toggleConfiguration}>{expanded ? 'Hide full configuration' : 'Extend and configure all settings'}</button>
-        {expanded && <div id="plugin-complete-settings">{sections(fields.filter(item => item.advanced))}</div>}
-      </section>}
+      <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{!!request.presets?.length && <button type="button" aria-pressed={editing} onClick={toggleEditing}>{editing ? 'Done editing' : 'Edit settings'}</button>}</div>
+      <div className={css.pluginSettingsRows} data-editing={editing}>{sections}</div>
     </div>
-    <div className={css.pluginParameterActions}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>
+    <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>
   </form>
 }
 let PluginDialog = () => {
