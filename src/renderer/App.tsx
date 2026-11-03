@@ -131,7 +131,7 @@ export let App = () => {
   }, [accept, run])
   let dismiss = useCallback(() => {
     if (state?.pluginPrompt) {
-      if (state.pluginPrompt.kind === 'form' && state.pluginPrompt.autosave) { window.dispatchEvent(new Event('bmux-plugin-dismiss')); return }
+      if (state.pluginPrompt.kind === 'form' && state.pluginPrompt.autosave) { globalThis.dispatchEvent(new Event('bmux-plugin-dismiss')); return }
       void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
       return
     }
