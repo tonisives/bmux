@@ -1038,8 +1038,25 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let paneFocused = !!owner?.window.isFocused() && contents.isFocused() && live?.contents === contents && live?.parent === owner.window && !overlays.has(client!.id)
     return shortcutMatchesContext(binding, paneFocused, paneFocused ? pageTools?.editing(pane!.id!) : undefined)
   }
+  let syncPageSelection = (contents: WebContents) => {
+    if (automatedContents.has(contents.id)) return
+    let entry = [...tabs].find(([, live]) => live.contents === contents || live.inputLock?.contents === contents)
+    if (!entry || remotePages.get(entry[0])?.attach) return
+    let [paneId, live] = entry
+    if (!live.parent.isFocused()) return
+    let client = model.clients.find(client => clients.get(client.id)?.window === live.parent && visiblePaneIds(client).includes(paneId))
+    if (!client) return
+    focusedClientId = client.id
+    clients.get(client.id)!.pageFocused = true
+    if (client.paneId === paneId) return
+    client.paneId = paneId
+    pointerTarget = undefined
+    raisePane(paneById(model, paneId).window, paneId)
+    save(); void scheduleVisuals()
+  }
   let installKeys = (contents: WebContents) => {
     contents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown') syncPageSelection(contents)
       if (!focusedClientId) return
       if (automatedContents.has(contents.id)) { contents.setIgnoreMenuShortcuts(true); return }
       contents.setIgnoreMenuShortcuts(false)
@@ -1123,6 +1140,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       dispatchShortcut(shortcutAction(entry[1]))
     })
     contents.on('before-mouse-event', (event, mouse) => {
+      if (mouse.type === 'mouseDown') syncPageSelection(contents)
       if (!automatedContents.has(contents.id)) {
         let owner = [...clients].find(([, live]) => [...tabs.values()].some(tab => tab.contents === contents && tab.parent === live.window))
         if (owner && model.clients.find(client => client.id === owner[0])?.readOnly) { event.preventDefault(); return }
@@ -1438,13 +1456,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         if (owner) { owner.chrome.webContents.send('focus-control', 'dismiss') }
       }
     })
-    contents.on('focus', () => {
-      let client = model.clients.find(client => client.id === focusedClientId)
-      if (client && live.parent === clients.get(client.id)?.window && visiblePaneIds(client).includes(pane.id)) {
-        clients.get(client.id)!.pageFocused = true
-        if (client.paneId !== pane.id) { client.paneId = pane.id; raisePane(paneById(model, pane.id).window, pane.id); save(); void scheduleVisuals() }
-      }
-    })
+    contents.on('focus', () => { syncPageSelection(contents) })
     contents.on('did-navigate', (_event, url) => {
       if (!session.private && requestedHistoryUrl && requestedHistoryUrl !== url && /^https?:\/\//.test(requestedHistoryUrl)) {
         let profile = model.profiles.find(profile => profile.id === pane.profileId)!

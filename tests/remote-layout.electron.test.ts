@@ -28,7 +28,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1><div id="horizontal" style="position:absolute;left:20px;top:160px;width:260px;height:80px;overflow:auto"><div style="width:1800px;height:40px">Horizontal content</div></div>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Ctrl+L: pane-right\nbrowser:\n  autoUpdateFilters: false\n')
   let launch = () => electron.launch({ args: [path.join(fixtureDirectory, 'main/remote-layout-main.js')], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') } })
   let application = await launch()
   try {
@@ -176,6 +176,18 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(() => scroller.evaluate(element => element.scrollLeft)).toBe(40)
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
       expect(await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
+      // Native content can retain focus while chrome's selected pane is stale.
+      // Clicking that already-focused view does not emit another focus event.
+      await rpc('select-pane', { client: client.id, pane: client.paneId })
+      await rpc('select-pane', { client: client.id, pane: added.id, focus: false })
+      await expect(chrome.locator(`[data-pane-id="${added.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+      await first.mouse.click(100, 100)
+      await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveAttribute('data-focused-pane', 'true')
+      await rpc('select-pane', { client: client.id, pane: added.id, focus: false })
+      await first.keyboard.press('Control+l')
+      await expect(chrome.locator(`[data-pane-id="${added.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+      await first.mouse.click(100, 100)
+      await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveAttribute('data-focused-pane', 'true')
       let hand = first.getByRole('button', { name: 'Pan viewport', exact: true })
       await expect(hand).toBeVisible()
       for (let modifier of ['Alt', 'Meta']) {
