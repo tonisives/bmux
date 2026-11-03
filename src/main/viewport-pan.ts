@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
 import { viewportPanDelta } from '../shared/viewport-pan'
 
-export type ViewportPanArea = { x: number; y: number; width: number; height: number }
+export type ViewportPanArea = { x: number; y: number; width: number; height: number; zoom?: number; toggled?: boolean }
 
 // Runs in an isolated world on the page and on the agent input shield.
 export let observeViewportPan = (marker: string, area: ViewportPanArea | undefined, delta: typeof viewportPanDelta) => {
@@ -10,18 +10,20 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
   if (scope.bmuxViewportPan) { scope.bmuxViewportPan.update(area); return }
   let host = document.createElement('div')
   host.id = 'bmux-viewport-pan'
-  host.style.cssText = 'all:initial;position:fixed;z-index:2147483647;pointer-events:none'
+  host.popover = 'manual'
+  host.style.cssText = 'all:initial;position:fixed;inset:auto;z-index:2147483647;pointer-events:none'
   let root = host.attachShadow({ mode: 'open' })
   root.innerHTML = `<style>
-    button { position:absolute;right:12px;top:12px;width:32px;height:32px;padding:4px;border:1px solid #666;border-radius:4px;background:#272727;color:white;cursor:pointer;pointer-events:auto }
-    button:hover,button[aria-pressed="true"] { background:#444 }
-    button:active { transform:scale(.98) }
+    button { position:absolute;right:12px;top:12px;box-sizing:border-box;width:32px;height:32px;padding:4px;transform-origin:top right;border:1px solid #666;border-radius:4px;background:#272727;color:white;cursor:pointer;pointer-events:auto }
+    button:hover:not([aria-pressed="true"]) { background:#444 }
+    button[aria-pressed="true"] { background:#c2ceb9;color:#111318;border-color:#c2ceb9;box-shadow:inset 0 0 0 1px #111318 }
+    button:active { filter:brightness(.9) }
     button:focus-visible { outline:2px solid white;outline-offset:2px }
-    svg { width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round }
+    svg { width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round }
     div { position:absolute;inset:0;pointer-events:none;cursor:grab;touch-action:none }
   </style><div></div><button type="button" aria-label="Pan viewport" aria-pressed="false" title="Pan viewport (Alt or Meta + drag; Escape to exit)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a1.5 1.5 0 0 1 3 0v6-8a1.5 1.5 0 0 1 3 0v8-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v6c0 4-3 7-7 7h-1c-2 0-3-1-4-2l-4-5a1.5 1.5 0 0 1 2-2l2 2"/></svg></button>`
   let surface = root.querySelector('div')!, button = root.querySelector('button')!
-  let toggled = false, modifier = false, dragging: { id: number; x: number; y: number } | undefined
+  let toggled = area?.toggled ?? false, modifier = false, dragging: { id: number; x: number; y: number } | undefined
   let report = console.debug.bind(console)
   let render = () => {
     let active = !!area && (toggled || modifier || !!dragging)
@@ -36,22 +38,30 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
   }
   let update = (next: ViewportPanArea | undefined) => {
     area = next
-    if (!area) { toggled = false; modifier = false; end() }
+    if (!area) { modifier = false; end() }
+    else toggled = area.toggled ?? toggled
     if (area) Object.assign(host.style, { left: `${area.x}px`, top: `${area.y}px`, width: `${area.width}px`, height: `${area.height}px` })
+    if (area) {
+      let scale = 1 / (area.zoom ?? 1)
+      Object.assign(button.style, { transform: `scale(${scale})`, right: `${12 * scale}px`, top: `${12 * scale}px` })
+    }
     if (!host.isConnected) document.documentElement.append(host)
     render()
+    if (area && !host.matches?.(':popover-open')) host.showPopover?.()
   }
   scope.bmuxViewportPan = { update }
-  button.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); toggled = !toggled; render() })
+  let setMode = (enabled: boolean) => { toggled = enabled; report(marker + JSON.stringify({ mode: enabled })); render() }
+  button.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); setMode(!toggled) })
   let keys = (event: KeyboardEvent) => {
     modifier = event.altKey || event.metaKey
-    if (event.key === 'Escape' && (toggled || dragging)) { event.preventDefault(); event.stopImmediatePropagation(); toggled = false; modifier = false; end() }
+    if (event.key === 'Escape' && (toggled || dragging)) { event.preventDefault(); event.stopImmediatePropagation(); setMode(false); modifier = false; end() }
     render()
   }
   window.addEventListener('keydown', keys, true)
   window.addEventListener('keyup', keys, true)
+  window.addEventListener('resize', () => report(marker + JSON.stringify({ refresh: true })))
   window.addEventListener('pointermove', event => { modifier = event.altKey || event.metaKey; render() }, true)
-  window.addEventListener('blur', () => { modifier = false; toggled = false; end() })
+  window.addEventListener('blur', () => { modifier = false; end() })
   surface.addEventListener('pointerdown', event => {
     if (!area || !event.isTrusted || event.button !== 0) return
     event.preventDefault(); event.stopPropagation()
@@ -71,12 +81,12 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
   surface.addEventListener('wheel', event => {
     if (!area || !event.isTrusted) return
     event.preventDefault(); event.stopPropagation()
-    report(marker + JSON.stringify(delta(event, area.width, area.height)))
+    report(marker + JSON.stringify(delta(event, area.width * (area.zoom ?? 1), area.height * (area.zoom ?? 1), area.zoom ?? 1)))
   }, { passive: false })
   update(area)
 }
 
-export let createViewportPan = (contents: WebContents, geometry: () => ViewportPanArea | undefined, evaluate: (expression: string) => Promise<unknown>, pan: (x: number, y: number) => void) => {
+export let createViewportPan = (contents: WebContents, geometry: () => ViewportPanArea | undefined, evaluate: (expression: string) => Promise<unknown>, pan: (x: number, y: number) => void, mode?: (enabled: boolean) => void) => {
   let marker = `bmux-viewport-pan:${randomUUID()}`, previous = '', revision = 0, closed = false
   let work = Promise.resolve()
   let refresh = (force = false) => {
@@ -94,7 +104,9 @@ export let createViewportPan = (contents: WebContents, geometry: () => ViewportP
   let message = (details: Electron.Event<Electron.WebContentsConsoleMessageEventParams>) => {
     if (closed || !geometry() || !details.message.startsWith(marker)) return
     try {
-      let { x, y } = JSON.parse(details.message.slice(marker.length))
+      let { x, y, mode: enabled, refresh: requested } = JSON.parse(details.message.slice(marker.length))
+      if (requested === true) { void refresh(true); return }
+      if (typeof enabled === 'boolean') { mode?.(enabled); return }
       if (Number.isFinite(x) && Number.isFinite(y)) pan(x, y)
     } catch { /* Ignore messages outside the viewport gesture. */ }
   }
@@ -104,4 +116,21 @@ export let createViewportPan = (contents: WebContents, geometry: () => ViewportP
   contents.on('did-frame-finish-load', documentReady)
   contents.once('destroyed', () => { closed = true; ++revision })
   return { refresh }
+}
+
+// CDP can install the control before a page's pending requests finish.
+export let viewportPanEvaluator = (contents: WebContents) => {
+  let world: Promise<number> | undefined
+  contents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) world = undefined })
+  return async (expression: string) => {
+    try {
+      if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
+      world ??= contents.debugger.sendCommand('Page.getFrameTree').then(async ({ frameTree }) => {
+        let context = await contents.debugger.sendCommand('Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: 'bmux:viewport-pan' })
+        return context.executionContextId as number
+      })
+      let result = await contents.debugger.sendCommand('Runtime.evaluate', { expression, contextId: await world })
+      if (result.exceptionDetails) throw new Error('Viewport control document changed')
+    } catch (error) { world = undefined; throw error }
+  }
 }

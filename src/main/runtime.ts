@@ -104,7 +104,7 @@ import { createSwipeNavigation } from './swipe-navigation'
 import { createUnloadGuard } from './unload-guard'
 import { recentBackgroundPanes } from './recent-panes'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
-import { createViewportPan } from './viewport-pan'
+import { createViewportPan, viewportPanEvaluator } from './viewport-pan'
 import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
@@ -153,6 +153,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
   let controls = createControlLeases()
   let attention = createAttentionRequests(path.join(dataDirectory,'remote-attention.json'))
+  let viewportPanModes = new Set<string>()
+  let setViewportPanMode = (pane: string, enabled: boolean) => {
+    if (enabled) viewportPanModes.add(pane)
+    else viewportPanModes.delete(pane)
+    void tabs.get(pane)?.pagePan?.refresh()
+    void tabs.get(pane)?.shieldPan?.refresh()
+    publish()
+  }
   let viewportSequence = 0
   let remoteViewports = new Map<string, { width: number; height: number; generation: number }>()
   let remoteSizes = new Map<string, { width: number; height: number; lease: number; previous: Electron.Rectangle }>()
@@ -511,7 +519,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     view.setVisible(true)
     if (owner.window.contentView.children.at(-1) !== view) owner.window.contentView.addChildView(view)
   }
-  let state = (clientId = ''): PublicState => ({ pluginOverlay: overlayForClient(clientId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = ''): PublicState => ({ viewportPanModes: [...viewportPanModes], pluginOverlay: overlayForClient(clientId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -1361,9 +1369,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
     let panArea = (shield = false) => {
-      if (!isLiveTabOpen(live) || !fixedViewport(tabId) || !live.remoteFrame) return undefined
-      let frame = live.remoteFrame.getBounds(), page = live.view.getBounds(), zoom = shield ? 1 : contents.getZoomFactor()
-      return { x: shield ? 0 : Math.max(0, -page.x) / zoom, y: shield ? 0 : Math.max(0, -page.y) / zoom, width: Math.min(frame.width, page.width) / zoom, height: Math.min(frame.height, page.height) / zoom }
+      if (!isLiveTabOpen(live) || !fixedViewport(tabId)) return undefined
+      let page = live.view.getBounds(), frame = live.remoteFrame?.getBounds() ?? page, zoom = shield ? 1 : contents.getZoomFactor()
+      return { x: shield || !live.remoteFrame ? 0 : Math.max(0, -page.x) / zoom, y: shield || !live.remoteFrame ? 0 : Math.max(0, -page.y) / zoom, width: Math.min(frame.width, page.width) / zoom, height: Math.min(frame.height, page.height) / zoom, zoom, toggled: viewportPanModes.has(tabId) }
     }
     let pan = (x: number, y: number) => {
       let owner = [...clients.values()].find(owner => owner.window === live.parent)
@@ -1371,10 +1379,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let target = owner.floats.get(tabId)?.webContents ?? owner.chrome.webContents
       target.send('viewport-scroll', tabId, x, y)
     }
-    live.pagePan = createViewportPan(contents, () => panArea(), expression => contents.executeJavaScriptInIsolatedWorld(1004, [{ code: expression }]), pan)
+    live.pagePan = createViewportPan(contents, () => panArea(), viewportPanEvaluator(contents), pan, enabled => setViewportPanMode(tabId, enabled))
     live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), contents => {
       installKeys(contents)
-      live.shieldPan = createViewportPan(contents, () => panArea(true), expression => contents.executeJavaScript(expression), pan)
+      live.shieldPan = createViewportPan(contents, () => panArea(true), expression => contents.executeJavaScript(expression), pan, enabled => setViewportPanMode(tabId, enabled))
       void live.shieldPan.refresh()
     }, () => {
       let owner = [...clients.values()].find(owner => owner.window === live.parent)
@@ -1839,6 +1847,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     return closing
   }
   let disposeTab = (tabId: string) => {
+    viewportPanModes.delete(tabId)
     previewRefresh.remove(tabId)
     activeAgents.delete(tabId)
     agentInputOverrides.remove(tabId)
@@ -3532,12 +3541,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let window = toggleWindowPin(model, args.window)
       changed(); await visualQueue; return window
     }
+    if (method === 'viewport.pan-mode') {
+      let pane = paneById(model, args.pane).pane
+      setViewportPanMode(pane.id, args.enabled === true && !!fixedViewport(pane.id))
+      return viewportPanModes.has(pane.id)
+    }
     if (method === 'lock-viewport' || method === 'unlock-viewport') {
       let window = resolveWindow(model, args.window)
       let explicit = args.width !== undefined || args.height !== undefined
       let size = explicit ? { width: Number(args.width), height: Number(args.height) } : undefined
       if (size && (!Number.isSafeInteger(size.width) || !Number.isSafeInteger(size.height) || size.width < 1 || size.height < 1 || size.width > 16384 || size.height > 16384)) throw new Error('Provide both --width and --height as integers from 1 to 16384')
-      if (method === 'unlock-viewport') delete window.lockedViewports
+      if (method === 'unlock-viewport') { delete window.lockedViewports; for (let pane of window.panes) viewportPanModes.delete(pane.id) }
       else if (size) window.lockedViewports = Object.fromEntries(window.panes.map(pane => [pane.id, { ...size }]))
       else if (!window.lockedViewports) {
         let client = model.clients.find(client => client.id === (sourceClientId ?? args.client) && client.windowId === window.id)
@@ -4069,7 +4083,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         if (method === 'reload') { clearNavigationError(tabId); guardedNavigation(live, () => contents.reload()); publish(); return { reloading: tabId } }
         if (method === 'back' || method === 'forward') { let history = contents.navigationHistory; if (method === 'back' && history.canGoBack()) guardedNavigation(live, () => history.goBack()); if (method === 'forward' && history.canGoForward()) guardedNavigation(live, () => history.goForward()); return { pane: tabId } }
         if (method === 'devtools') { contents.openDevTools({ mode: 'detach', activate: false }); return { opened: tabId } }
-        if (method === 'zoom') { tab.zoom = Math.max(0.25, Math.min(3, Number(args.factor) || 1)); contents.setZoomFactor(tab.zoom); save(); return { factor: tab.zoom } }
+        if (method === 'zoom') { tab.zoom = Math.max(0.25, Math.min(3, Number(args.factor) || 1)); contents.setZoomFactor(tab.zoom); save(); void scheduleVisuals(); return { factor: tab.zoom } }
         if (method === 'eval') {
           let result = await cdp(tabId, 'Runtime.evaluate', { expression: required(args, 'expression'), awaitPromise: true, returnByValue: true, timeout: 15000 })
           if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text)

@@ -29,7 +29,7 @@ export let FloatingPane = () => {
   let placement = windowState?.floating?.find(item => item.paneId === paneId)
   let fixedSize = windowState?.lockedViewports?.[paneId] ?? state?.remoteSizes?.[paneId]
   let viewport = useFixedViewport(fixedSize)
-  useViewportPan(viewport, paneId, !!fixedSize)
+  useViewportPan(viewport, paneId, !!fixedSize, state?.viewportPanModes?.includes(paneId), state?.clientId)
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args: { client: state?.clientId, pane: paneId, ...args } }) }
     catch (error) { setError(String(error)); return undefined }

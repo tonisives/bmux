@@ -404,4 +404,4 @@ screenshot and inference run while the next input remains queued.
 
 `bmux lock-viewport -t SESSION:WINDOW --width 1512 --height 900` sets every pane in the window to that native viewport size, including when already locked. Without dimensions, the command captures the current sizes. `bmux unlock-viewport -t SESSION:WINDOW` restores automatic sizing. Sizes persist across relaunches.
 
-When a fixed viewport is clipped, use its hand button or hold Alt or Meta and drag to pan the visible area at full scale. Scroll while holding the modifier or in hand mode to pan with a wheel or trackpad. Escape exits hand mode. Normal scrolling, including Shift scrolling, belongs to the website.
+Each fixed viewport has a hand button with a pressed state that stays the same size at every page zoom. Toggle it or hold Alt or Meta and drag to pan the visible area at full scale. Drags can start in the space around a page, including when hand mode is toggled. Scroll while holding the modifier or in hand mode to pan with a wheel or trackpad. Escape exits hand mode. Normal scrolling, including Shift scrolling, belongs to the website.

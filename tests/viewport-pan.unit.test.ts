@@ -8,16 +8,16 @@ let fixture = () => {
     let listeners = new Map<string, (event: any) => void>(), attributes = new Map<string, string>(), captured = new Set<number>()
     return { style: {}, isConnected: false, listeners, attributes, setAttribute: (key: string, value: string) => attributes.set(key, value), addEventListener: (type: string, listener: (event: any) => void) => listeners.set(type, listener), setPointerCapture: (id: number) => captured.add(id), hasPointerCapture: (id: number) => captured.has(id), releasePointerCapture: (id: number) => captured.delete(id) }
   }
-  let host = element(), surface = element(), button = element(), window = element(), reports: string[] = []
+  let host = element(), surface = element(), button = element(), window = element(), reports: string[] = [], modes: boolean[] = []
   let root = { innerHTML: '', querySelector: (selector: string) => selector === 'div' ? surface : button }
-  let context = vm.createContext({ window, document: { createElement: () => Object.assign(host, { attachShadow: () => root }), documentElement: { append: () => { host.isConnected = true } } }, console: { debug: (value: string) => reports.push(value) } })
+  let context = vm.createContext({ window, document: { createElement: () => Object.assign(host, { attachShadow: () => root }), documentElement: { append: () => { host.isConnected = true } } }, console: { debug: (value: string) => { let data = JSON.parse(value.slice(4)); if (typeof data.mode === 'boolean') modes.push(data.mode); else reports.push(value) } } })
   let configure = (area: unknown) => vm.runInContext(`(${observeViewportPan.toString()})('pan:', ${JSON.stringify(area)}, ${viewportPanDelta.toString()})`, context)
   let fire = (target: typeof surface, type: string, properties = {}) => {
     let event = { isTrusted: true, button: 0, pointerId: 1, screenX: 100, screenY: 100, altKey: false, metaKey: false, prevented: false, stopped: false, preventDefault: () => { event.prevented = true }, stopPropagation: () => { event.stopped = true }, stopImmediatePropagation: () => { event.stopped = true }, ...properties }
     target.listeners.get(type)?.(event)
     return event
   }
-  return { host, surface, button, window, reports, configure, fire }
+  return { host, surface, button, window, reports, modes, configure, fire }
 }
 
 test('hand mode, modifier dragging, cancellation and clipping updates preserve page input', () => {
@@ -51,7 +51,15 @@ test('hand mode, modifier dragging, cancellation and clipping updates preserve p
   f.fire(f.button, 'click')
   f.configure(undefined)
   expect(f.host.style).toMatchObject({ display: 'none' })
+  expect(f.button.attributes.get('aria-pressed')).toBe('true')
+  f.configure({ ...area, toggled: false })
   expect(f.button.attributes.get('aria-pressed')).toBe('false')
+  f.fire(f.button, 'click')
+  f.fire(f.window, 'blur')
+  expect(f.button.attributes.get('aria-pressed')).toBe('true')
+  f.fire(f.button, 'click')
+  expect(f.button.attributes.get('aria-pressed')).toBe('false')
+  expect(f.modes.slice(-2)).toEqual([true, false])
 })
 
 test('pan wheels preserve both axes and normalize line and page deltas', () => {
@@ -60,4 +68,15 @@ test('pan wheels preserve both axes and normalize line and page deltas', () => {
   expect(viewportPanDelta({ deltaX: 0, deltaY: 1, deltaMode: 2 }, 320, 200)).toEqual({ x: 0, y: 200 })
   expect(viewportPanDelta({ deltaX: 24, deltaY: 0, deltaMode: 0 }, 320, 200)).toEqual({ x: 24, y: 0 })
   expect(viewportPanDelta({ deltaX: -1, deltaY: 1, deltaMode: 2 }, 320, 200)).toEqual({ x: -320, y: 200 })
+})
+
+test('hand controls counter page zoom and share the authoritative pressed state', () => {
+  let f = fixture()
+  for (let zoom of [.5, 1, 2]) {
+    f.configure({ x: 0, y: 0, width: 320 / zoom, height: 200 / zoom, zoom, toggled: true })
+    expect(f.button.style).toMatchObject({ transform: `scale(${1 / zoom})`, right: `${12 / zoom}px`, top: `${12 / zoom}px` })
+    expect(f.button.attributes.get('aria-pressed')).toBe('true')
+    f.fire(f.surface, 'wheel', { deltaX: 10, deltaY: 20, deltaMode: 0 })
+    expect(JSON.parse(f.reports.pop()!.slice(4))).toEqual({ x: 10 * zoom, y: 20 * zoom })
+  }
 })

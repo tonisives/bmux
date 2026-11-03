@@ -1373,7 +1373,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
   let remoteSize = selectedWindow?.lockedViewports?.[paneId] ?? state.remoteSizes?.[paneId]
-  useViewportPan(ref, paneId, !!remoteSize)
+  useViewportPan(ref, paneId, !!remoteSize, state.viewportPanModes?.includes(paneId), client?.id)
   useLayoutEffect(() => {
     if (!ref.current || !remoteSize) return
     ref.current.style.setProperty('--remote-width', `${remoteSize.width}px`)
