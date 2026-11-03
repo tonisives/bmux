@@ -7,6 +7,7 @@
     return Number(match[1]) * ({ k: 1000, m: 1000000 }[match[2]?.toLowerCase()] ?? 1)
   }
   let titleKey = title => title.normalize('NFKC').toLowerCase().trim().replace(/\s+/g, ' ')
+  let connectionPost = text => /\blet['’]?s\s+#?connect\b(?!\s+(?:to|the|a|an|our|your|my)\b)|\b(?:looking|want|hoping|like)\s+to\s+#?connect\s+with\s+(?:people|folks|others|fellow|founders|builders|developers|creators|indie\s+hackers)\b|\bfollow\s+(?:me\s+)?for\s+(?:a\s+)?follow\b/i.test(text.normalize('NFKC'))
   let linkKey = href => {
     if (!href) return ''
     try {
@@ -32,7 +33,8 @@
     let score = parseCount(node.getAttribute('score') ?? node.getAttribute('data-score') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.getAttribute('number') ?? node.querySelector('[data-testid="score"], .search-score, .score.unvoted')?.textContent ?? counterNumber(/\b(?:votes?|points?)\b/i) ?? countText.match(/(-?[\d,.]+\s*[kKmM]?)\s+(?:votes?|points?)\b/i)?.[1])
     let comments = parseCount(node.getAttribute('comment-count') ?? node.getAttribute('data-comments') ?? node.querySelector('[data-testid="comments-count"], .search-comments, a[data-click-id="comments"]')?.textContent ?? counterNumber(/\bcomments?\b/i) ?? countText.match(/([\d,.]+\s*[kKmM]?)\s+comments?\b/i)?.[1])
     let external = node.getAttribute('content-href') || node.querySelector('a.search-link, a[data-testid="outbound-link"], a[data-click-id="body"]')?.getAttribute('href') || ''
-    return { id: postId(node.getAttribute('id') || node.getAttribute('data-fullname')) || postId(permalink), parent: postId(node.getAttribute('crosspost-parent-id') || node.getAttribute('crosspost-parent')), title: titleKey(title), link: linkKey(external), score, comments }
+    let body = node.querySelector('[slot="text-body"], [data-testid="post-text-container"], [data-testid="post-excerpt"], .search-result-body')?.textContent || ''
+    return { id: postId(node.getAttribute('id') || node.getAttribute('data-fullname')) || postId(permalink), parent: postId(node.getAttribute('crosspost-parent-id') || node.getAttribute('crosspost-parent')), title: titleKey(title), link: linkKey(external), score, comments, connection: connectionPost(`${title}\n${body}`) }
   }
   let restore = node => {
     let value = originals.get(node)
@@ -54,7 +56,7 @@
       if (settings.minComments > 0) minimums.push(result.comments === undefined ? undefined : result.comments >= settings.minComments)
       let qualified = !minimums.length || minimums.includes(undefined) || (settings.rule === 'Require either minimum' ? minimums.some(Boolean) : minimums.every(Boolean))
       let duplicate = (settings.duplicatePosts && result.id && ids.has(result.id)) || (settings.duplicateLinks && ((result.link && links.has(result.link)) || (result.parent && ids.has(result.parent)))) || (settings.duplicateTitles && result.title && titles.has(result.title))
-      let hidden = !qualified || duplicate
+      let hidden = !qualified || duplicate || (settings.connectionPosts && result.connection)
       if (hidden) {
         if (!originals.has(node)) originals.set(node, { value: node.style.getPropertyValue('display'), priority: node.style.getPropertyPriority('display') })
         node.style.setProperty('display', 'none', 'important')

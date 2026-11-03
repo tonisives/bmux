@@ -242,3 +242,29 @@ test('Reddit search unit cards filter numeric counters, duplicates and loaded up
   await configure({})
   await expect(page.locator('#sdui_low')).toBeHidden()
 })
+test('Reddit connection posts filter titles and loaded excerpts and restore when disabled', async () => {
+  await configure({})
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search?sdui=1` })
+  let pane = await openBookmark(), page = await pageFor(pane)
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search` })
+  await page.evaluate(html => document.body.insertAdjacentHTML('beforeend', html),
+    searchCard('connect_title', 'connecttitle', 'Let’s #connect', 41, 63) +
+    searchCard('connect_body', 'connectbody', 'Hey founders and builders', 13, 14) +
+    searchCard('connect_technical', 'connecttechnical', "Let's connect to Postgres", 19, 25))
+  await expect(page.locator('#connect_title')).toBeHidden()
+  await expect(page.locator('#connect_body')).toBeVisible()
+  await expect(page.locator('#connect_technical')).toBeVisible()
+  await page.locator('#connect_body').evaluate(node => {
+    let body = document.createElement('div'); body.dataset.testid = 'post-excerpt'
+    body.textContent = "I'm looking to #connect with people interested in dev tools"
+    node.append(body)
+  })
+  await expect(page.locator('#connect_body')).toBeHidden()
+  await configure({ connectionPosts: false })
+  await expect(page.locator('#connect_title')).toBeVisible()
+  await expect(page.locator('#connect_body')).toBeVisible()
+  await configure({})
+  await expect(page.locator('#connect_body')).toBeHidden()
+  await page.locator('#connect_body [data-testid="post-excerpt"]').evaluate(node => { node.textContent = 'Shipping a new developer tool today' })
+  await expect(page.locator('#connect_body')).toBeVisible()
+})

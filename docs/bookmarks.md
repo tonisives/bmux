@@ -85,7 +85,10 @@ bookmark's sliders and choose it under **Add plugin**. The sliders are available
 on bookmarks without query parameters too. The plugin selector is hidden when
 there are no matching enabled plugins left to add. Configure minimum score and comments
 (default 2 each), whether results must meet both or either minimum, and duplicate
-post, link/crosspost, and title filtering. A minimum of 0 disables that threshold.
+post, link/crosspost, and title filtering. **Connection posts** hides networking
+prompts such as “let's #connect”, “looking to connect with people”, and
+“follow for follow” in loaded titles and post excerpts. It starts enabled and can
+be turned off per bookmark. A minimum of 0 disables that threshold.
 Unknown counts remain visible. The first qualifying duplicate stays visible;
 matching titles ignore case and repeated whitespace but preserve punctuation.
 

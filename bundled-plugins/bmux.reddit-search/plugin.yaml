@@ -1,7 +1,7 @@
 schema_version: 1
 id: bmux.reddit-search
 name: Reddit search filter
-version: 1.0.0
+version: 1.1.0
 bookmark:
   matches:
     - 'https://www.reddit.com/search*'
@@ -18,3 +18,4 @@ bookmark:
     - { name: duplicatePosts, title: Duplicate posts, kind: boolean, default: true }
     - { name: duplicateLinks, title: Duplicate links and crossposts, kind: boolean, default: true }
     - { name: duplicateTitles, title: Duplicate titles, kind: boolean, default: true }
+    - { name: connectionPosts, title: Connection posts, kind: boolean, default: true }
