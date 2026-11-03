@@ -12,7 +12,7 @@ import { createPluginSocket, listenSocket } from '../../bin/ipc.mjs'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginParameter, PluginPrompt, PluginRun, PluginSettings } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
-type Run = { overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
+type Run = { saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
@@ -86,15 +86,48 @@ export let createPlugins = (options: Options) => {
       return { id: shortText(item.id, 256), label: shortText(item.label), description: item.description === undefined ? undefined : shortText(item.description) }
     }) : undefined) : undefined
     if (kind === 'pick' && (!items?.length || new Set(items.map(item => item.id)).size !== items.length)) throw new Error('Picker requires unique items')
-    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { fields: run.action.parameters.filter(field => !field.hidden), savedValues: run.savedValues, presets: run.action.presets, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launch: !!run.action.launch_url } : {}) }
+    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { fields: run.action.parameters.filter(field => !field.hidden), autosave: !!run.action.configuration_save_command, savedValues: run.savedValues, presets: run.action.presets, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launch: !!run.action.launch_url } : {}) }
     return new Promise((resolve, reject) => {
       run.pending = { prompt: request, resolve, reject }
       options.changed(); options.show(run.context.clientId!)
     })
   }
+  let configuration = (run: Run, commandLine: string[], values?: Record<string, unknown>) => {
+    let [command, ...args] = commandLine
+    let executable = command.startsWith('.') ? path.resolve(run.definition.directory, command) : command
+    let env: NodeJS.ProcessEnv = { ...process.env, BMUX_PLUGIN_PROFILE_ID: run.context.profileId, BMUX_DATA_DIR: options.dataDirectory }
+    delete env.ELECTRON_RUN_AS_NODE
+    delete env.BW_SESSION; delete env.BMUX_VAULT_PASSWORD
+    delete env.BMUX_PLUGIN_SOCKET; delete env.BMUX_PLUGIN_TOKEN; delete env.BMUX_PLUGIN_RUN_ID
+    if (run.definition.bundled && command === 'node') { executable = process.execPath; env.ELECTRON_RUN_AS_NODE = '1' }
+    return new Promise<string>((resolve, reject) => {
+      let child = execFile(executable, args, { cwd: run.definition.directory, env, signal: run.controller.signal, timeout: 5000, maxBuffer: 65536, encoding: 'utf8', windowsHide: true }, (error, stdout) => error ? reject(new Error(values ? 'Could not save plugin settings' : 'Could not read plugin settings')) : resolve(stdout))
+      child.stdin?.on('error', () => undefined)
+      child.stdin?.end(values ? JSON.stringify(values) : undefined)
+    })
+  }
+  let saveSettings = (run: Run, values: unknown) => {
+    let request = run.pending!.prompt, patch = record(values)
+    if (request.kind !== 'form' || !run.action.configuration_save_command) throw new Error('Settings saving is unavailable')
+    for (let [name, value] of Object.entries(patch)) {
+      let field = request.fields?.find(field => field.name === name && !field.hidden && field.kind !== 'password')
+      if (!field || value === undefined) throw new Error('Unknown saved setting')
+      validateParameter(field, value)
+    }
+    let save = async () => {
+      if (!live(run) || run.pending?.prompt.id !== request.id) throw new Error('Plugin prompt is unavailable')
+      await configuration(run, run.action.configuration_save_command!, patch)
+      run.savedValues = { ...run.savedValues, ...patch } as Record<string, string | boolean>
+      return { saved: true }
+    }
+    let saving = (run.saving ?? Promise.resolve()).catch(() => undefined).then(save)
+    run.saving = saving
+    return saving
+  }
   let respond = (clientId: string, args: Record<string, unknown>) => {
     let run = [...runs.values()].find(run => run.pending?.prompt.id === args.id)
     if (!run?.pending || run.context.clientId !== clientId || !options.interactive(run.context)) throw new Error('Plugin prompt is unavailable')
+    if (args.save === true) return saveSettings(run, args.value)
     if (args.cancel === true) { finish(run, 'cancelled'); return null }
     let { prompt: request, resolve } = run.pending, value = args.value
     if (request.kind === 'form') {
@@ -196,14 +229,7 @@ export let createPlugins = (options: Options) => {
       let fields = run.action.parameters.filter(field => !field.hidden)
       let form = run.interactive && (fields.length > 1 || !!run.action.launch_url)
       if (form && run.action.configuration_command) {
-        let [command, ...args] = run.action.configuration_command
-        let executable = command.startsWith('.') ? path.resolve(run.definition.directory, command) : command
-        let env: NodeJS.ProcessEnv = { ...process.env, BMUX_PLUGIN_PROFILE_ID: run.context.profileId, BMUX_DATA_DIR: options.dataDirectory }
-        delete env.ELECTRON_RUN_AS_NODE
-        delete env.BW_SESSION; delete env.BMUX_VAULT_PASSWORD
-        delete env.BMUX_PLUGIN_SOCKET; delete env.BMUX_PLUGIN_TOKEN; delete env.BMUX_PLUGIN_RUN_ID
-        if (run.definition.bundled && command === 'node') { executable = process.execPath; env.ELECTRON_RUN_AS_NODE = '1' }
-        let output = await new Promise<string>((resolve, reject) => execFile(executable, args, { cwd: run.definition.directory, env, signal: run.controller.signal, timeout: 5000, maxBuffer: 65536, encoding: 'utf8', windowsHide: true }, (error, stdout) => error ? reject(new Error('Could not read plugin settings')) : resolve(stdout)))
+        let output = await configuration(run, run.action.configuration_command)
         let saved = record(JSON.parse(output)), values: Record<string, string | boolean> = {}
         for (let [name, value] of Object.entries(saved)) {
           let field = fields.find(field => field.name === name && field.kind !== 'password')

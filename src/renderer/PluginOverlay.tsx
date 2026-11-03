@@ -6,7 +6,7 @@ import css from './PluginOverlay.module.css'
 
 export let PluginOverlay = () => {
   let [state, setState] = useState<PublicState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [returnToSetup, setReturnToSetup] = useState(false)
-  let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];resize:boolean} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
+  let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];edge:string} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
   useEffect(() => { void bridge.state().then(setState); return bridge.subscribe(setState) }, [])
   let overlay = state?.pluginOverlay
   let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await bridge.command({ method, args: { ...args, id: overlay?.runId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
@@ -17,17 +17,31 @@ export let PluginOverlay = () => {
     if (overlay?.ended && returnToSetup) { setReturnToSetup(false); void command('plugin.overlay.configure') }
   }, [overlay?.ended, returnToSetup, command])
   let move = async () => { if (sending.current) return; sending.current = true; try { while (queued.current) { let bounds = queued.current; queued.current = undefined; await command('plugin.overlay.bounds', bounds) } } finally { sending.current = false } }
-  let begin = (event: PointerEvent, resize = false) => { if (!overlay || (event.target as HTMLElement).closest('button,input,select,textarea')) return; event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.screenX, y: event.screenY, bounds: overlay.bounds, resize }; event.preventDefault() }
-  let update = (event: PointerEvent) => { let start = drag.current; if (!start) return; let dx = event.screenX - start.x, dy = event.screenY - start.y; queued.current = start.resize ? { ...start.bounds, width: start.bounds.width + dx, height: start.bounds.height + dy } : { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy }; void move() }
+  let begin = (event: PointerEvent, edge = 'move') => { if (!overlay || (event.target as HTMLElement).closest('button,input,select,textarea')) return; event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.screenX, y: event.screenY, bounds: overlay.bounds, edge }; event.preventDefault() }
+  let update = (event: PointerEvent) => {
+    let start = drag.current; if (!start) return
+    let dx = event.screenX - start.x, dy = event.screenY - start.y
+    let left = start.edge.includes('left'), resize = start.edge !== 'move'
+    let width = Math.max(280, start.bounds.width + (left ? -dx : dx))
+    queued.current = resize ? { ...start.bounds, x: left ? start.bounds.x + start.bounds.width - width : start.bounds.x, width, height: start.edge.startsWith('bottom') ? start.bounds.height + dy : start.bounds.height } : { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy }
+    void move()
+  }
   let end = () => { drag.current = undefined }
-  let beginResize = (event: PointerEvent) => begin(event, true)
-  let resizeKey = (event: KeyboardEvent) => { if (!overlay || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return; event.preventDefault(); void command('plugin.overlay.bounds', { ...overlay.bounds, width: overlay.bounds.width + (event.key === 'ArrowRight' ? 24 : event.key === 'ArrowLeft' ? -24 : 0), height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) }) }
+  let beginResize = (event: PointerEvent<HTMLDivElement>) => begin(event, event.currentTarget.dataset.edge!)
+  let resizeKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!overlay || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return
+    event.preventDefault()
+    let dx = event.key === 'ArrowRight' ? 24 : event.key === 'ArrowLeft' ? -24 : 0
+    let left = event.currentTarget.dataset.edge?.includes('left')
+    let width = Math.max(280, overlay.bounds.width + (left ? -dx : dx))
+    void command('plugin.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + overlay.bounds.width - width : overlay.bounds.x, width, height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) })
+  }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
   return <OverlayContext.Provider value={{ overlay, command, input, busy, stop }}><aside className={css.panel} aria-label="Page overlay">
     <OverlayHeader begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && <OverlayBody error={error} />}
     {!overlay.bounds.collapsed && <OverlayButtons />}
-    {!overlay.bounds.collapsed && <div className={css.resize} role="slider" tabIndex={0} aria-label="Resize page overlay" aria-valuenow={overlay.bounds.width} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey}>◢</div>}
+    {!overlay.bounds.collapsed && ['left','right','bottom-left','bottom-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label={edge === 'bottom-right' ? 'Resize page overlay' : 'Resize page overlay from ' + edge.replace('-', ' ')} aria-valuenow={overlay.bounds.width} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
   </aside></OverlayContext.Provider>
 }
 

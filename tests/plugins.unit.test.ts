@@ -331,3 +331,31 @@ test('new-window setup survives source video navigation while document-bound pro
   bound.plugins.invalidate('original')
   expect((await done(bound.plugins, original)).status).toBe('cancelled')
 })
+
+test('form edits save privately before cancellation and reject hidden fields and passwords', async () => {
+  let { plugins, context, directory } = fixture('', {
+    configuration_command: [process.execPath, '-e', 'console.log(JSON.stringify({name:"Before",ads:false}))'],
+    configuration_save_command: [process.execPath, '-e', 'let input="";process.stdin.on("data",chunk=>input+=chunk);process.stdin.on("end",()=>require("fs").writeFileSync("saved.json",JSON.stringify({profile:process.env.BMUX_PLUGIN_PROFILE_ID,token:!!process.env.BMUX_PLUGIN_TOKEN,values:JSON.parse(input)})))'],
+    parameters: [{name:'name',title:'Persona',kind:'text',multiline:true},{name:'ads',title:'Skip ads',kind:'boolean'},{name:'session',title:'Session',kind:'text',hidden:true},{name:'password',title:'Password',kind:'password'}],
+  })
+  let { id } = plugins.run('test/run', {...context,profileId:'profile-save'}, {}, true)
+  await vi.waitFor(() => expect(plugins.prompt('client')?.kind).toBe('form'))
+  let prompt = plugins.prompt('client')!
+  expect(prompt.autosave).toBe(true)
+  expect(() => plugins.respond('wrong-client',{id:prompt.id,save:true,value:{name:'Wrong'}})).toThrow()
+  for(let value of [{session:'hidden'},{password:'private'},{unknown:'unknown'},{ads:'yes'}]) expect(() => plugins.respond('client',{id:prompt.id,save:true,value})).toThrow()
+  await plugins.respond('client',{id:prompt.id,save:true,value:{name:'A developer\nInterested in AI',ads:true}})
+  expect(JSON.parse(fs.readFileSync(path.join(directory,'plugins/test/saved.json'),'utf8'))).toEqual({profile:'profile-save',token:false,values:{name:'A developer\nInterested in AI',ads:true}})
+  expect(JSON.stringify(plugins.runs())).not.toContain('Interested in AI')
+  plugins.respond('client',{id:prompt.id,cancel:true})
+  expect((await done(plugins,id)).status).toBe('cancelled')
+})
+
+test('configuration save failures preserve the open form and can be retried', async () => {
+  let { plugins, context } = fixture('',{configuration_command:[process.execPath,'-e','console.log("{}")'],configuration_save_command:[process.execPath,'-e','process.exit(1)'],parameters:[{name:'one',title:'One',kind:'text'},{name:'two',title:'Two',kind:'text'}]})
+  plugins.run('test/run',context,{},true)
+  await vi.waitFor(() => expect(plugins.prompt('client')?.kind).toBe('form'))
+  let prompt = plugins.prompt('client')!
+  await expect(plugins.respond('client',{id:prompt.id,save:true,value:{one:'changed'}})).rejects.toThrow('Could not save plugin settings')
+  expect(plugins.prompt('client')?.id).toBe(prompt.id)
+})

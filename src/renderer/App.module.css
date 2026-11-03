@@ -688,7 +688,8 @@
 .pluginParameterField { min-width: 0; max-width: var(--settings-row-width); }
 .pluginParameterField .settingsRow { margin: 0; white-space: normal; }
 .pluginParameterField .settingsRow > span:first-child { min-width: 0; overflow-wrap: anywhere; }
-.pluginParameterField .settingsRow select, .pluginParameterField .settingsRow input { box-sizing: border-box; width: 55%; }
+.pluginParameterField .settingsRow select, .pluginParameterField .settingsRow input, .pluginParameterField .settingsRow textarea { box-sizing: border-box; width: 55%; }
+.pluginParameterField textarea { min-height: 80px; resize: vertical; font: inherit; color: inherit; background: #20242d; border: 1px solid #444b59; padding: 8px; }
 .pluginParameterField small { display: block; color: #8e98a4; margin: 6px 0 12px; overflow-wrap: anywhere; }
 
 .extensionWorkspace > .pluginDetails { display: flex; flex-direction: column; overflow: hidden; }

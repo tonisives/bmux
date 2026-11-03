@@ -78,9 +78,13 @@ that prints one JSON object mapping parameter names to their effective values.
 BMUX passes the active profile in `BMUX_PLUGIN_PROFILE_ID`. This command runs
 before an interactive form, with a five second limit, and receives no plugin
 host token. Only declared visible non-password fields are accepted. It must
-only read configuration and must never print credentials. The form labels each
-inherited value as `Use saved setting: VALUE`; omitted values still use the
-plugin's saved configuration at launch. CLI invocations skip this reader.
+only read configuration and must never print credentials. The form displays the effective values directly. CLI invocations skip this reader.
+
+An optional `configuration_save_command` receives a JSON patch on stdin when
+settings change. BMUX debounces edits, serializes writes and waits for saving
+before Start or Cancel. Save errors stay in the form. This command has the same
+profile, timeout and credential restrictions as the reader. Hidden fields and
+passwords cannot be persisted. Text parameters can set `multiline: true`.
 
 Authenticated plugin browser operations carry the plugin's own identity. The
 external CLI identity requirements apply to external agents; plugin capability,
