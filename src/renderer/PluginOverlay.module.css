@@ -27,7 +27,8 @@
 .panel pre { font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; color: #8e98a4; }
 .field { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .field textarea { width: 100%; min-height: 80px; resize: vertical; }
-.field input { accent-color: #a7b69c; }
+.field[data-kind="toggle"] { flex-wrap: nowrap; }
+.field input[type="checkbox"] { width: auto; flex: 0 0 auto; margin: 0; accent-color: #a7b69c; }
 .resize { flex-shrink: 0; align-self: flex-end; cursor: nwse-resize; touch-action: none; user-select: none; padding: 0 4px; color: #8e98a4; }
 .error { color: #e6a69c; }
 .empty { padding: 16px; color: #c0c6ce; background: #191d23; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }

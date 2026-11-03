@@ -300,7 +300,10 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await chrome.evaluate(id => (window as any).bmux.command({ method: 'plugin.overlay.show', args: { id } }), id)
   await expect.poll(visible).toBe(true)
   await observer.getByText('Details and settings', { exact: true }).click()
-  await expect(observer.getByRole('checkbox', { name: 'Skip ads' })).not.toBeChecked()
+  let skipAds = observer.getByRole('checkbox', { name: 'Skip ads' })
+  await expect(skipAds).not.toBeChecked()
+  let checkboxBounds = await skipAds.boundingBox(), labelBounds = await observer.getByText('Skip ads', { exact: true }).boundingBox()
+  expect(Math.abs(checkboxBounds!.y + checkboxBounds!.height / 2 - labelBounds!.y - labelBounds!.height / 2)).toBeLessThan(2)
   let before = (await state()).pluginOverlay.bounds
   await observer.getByRole('slider', { name: 'Resize page overlay' }).focus()
   await observer.keyboard.press('ArrowLeft')
