@@ -79,10 +79,13 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let limits = automationProfileLimits(options.settings(), profileId)
     return (value.limitReachedAt ?? value.lastUsed) + limits.cooldownMinutes * 60_000
   }
-  let activeTime = (value: Usage) => (value.activeMs ?? 0) + (value.pendingSession ? 0 : Math.min(3000, Math.max(0, now() - value.lastUsed)))
-  let overLimit = (value: Usage) => value.limitReachedAt !== undefined || activeTime(value) >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
-  let touch = (value: Usage) => { value.activeMs = activeTime(value); value.lastUsed = now() }
-  let reachedLimit = (value: Usage) => !value.pendingSession && (value.limitReachedAt !== undefined || (value.activeMs ?? 0) >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000)
+  let activeTime = (value: Usage) => (value.activeMs ?? 0) + (value.pendingSession || value.limitReachedAt !== undefined ? 0 : Math.min(3000, Math.max(0, now() - value.lastUsed)))
+  let overLimit = (value: Usage) => activeTime(value) >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
+  let touch = (value: Usage) => {
+    value.activeMs = activeTime(value); value.lastUsed = now()
+    if (value.activeMs < automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000) delete value.limitReachedAt
+  }
+  let reachedLimit = (value: Usage) => !value.pendingSession && (value.activeMs ?? 0) >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
   let rested = (value: Usage) => value.pendingSession || now() >= retryAt(value.profileId, value) || !reachedLimit(value) && now() - value.lastUsed >= automationProfileLimits(options.settings(), value.profileId).cooldownMinutes * 60_000
   let assertAvailable = (profileId: string, paneId?: string, url?: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
@@ -91,7 +94,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning && automationWarningEnabled(options.settings(), profileId, item.warningHost!, now(), paneId))
     if (warning) throw safetyError(`Automation paused: ${warning.warning} on ${warning.warningHost}. Open the UI alert or Profile > Bot to resolve, resume, or exclude this website`)
     if (value && overLimit(value) && !rested(value)) {
-      if (!reachedLimit(value)) { value.limitReachedAt = value.lastUsed + Math.max(0, automationProfileLimits(options.settings(), profileId).maxSessionMinutes * 60_000 - (value.activeMs ?? 0)); persist() }
+      if (!reachedLimit(value)) { value.limitReachedAt = value.lastUsed + Math.max(0, automationProfileLimits(options.settings(), profileId).maxSessionMinutes * 60_000 - (value.activeMs ?? 0)); value.activeMs = activeTime({ ...value, limitReachedAt: undefined }); persist() }
       else options.changed?.()
       throw safetyError(`Automation session limit reached; retry after ${new Date(retryAt(profileId, value)).toISOString()}. Open the UI alert or Profile > Bot to reset the session`)
     }
@@ -175,7 +178,8 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let key = usageKey(profileId, url), value = usage[key]
     if (!value || rested(value)) value = { profileId, siteHost: automationWebsiteHost(url)!, startedAt: now(), lastUsed: now(), activeMs: 0 }
     touch(value)
-    usage[key] = { ...value, actors: actorsFor(value, actor, url) }
+    let burst = bursts.get(key)
+    usage[key] = { ...value, ...(burst ? { burstStartedAt: burst.startedAt, burstCount: burst.count } : {}), actors: actorsFor(value, actor, url) }
     persist()
   }
   let after = (profileId: string, paneId: string, url: string) => {

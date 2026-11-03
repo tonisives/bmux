@@ -496,7 +496,7 @@ test('profile limits validate, inherit old defaults, and isolate pacing and cool
   await next.before('other', instagram)
   expect(next.status().profiles.find(item => item.profileId === 'other')!.retryAfter).toBeNull()
   settings.profileLimits.bot.maxSessionMinutes = 4
-  expect(() => next.assertAvailable('bot', undefined, 'https://example.com/')).not.toThrow()
+  expect(() => next.assertAvailable('bot', undefined, 'https://www.instagram.com/')).not.toThrow()
   settings.profileLimits.bot.maxSessionMinutes = 2
   advance(3 * 60_000)
   await next.before('bot', instagram)
@@ -687,4 +687,17 @@ test('failed retries preserve the persisted active-session break deadline', asyn
   advance(19 * 60_000)
   await expect(restart().before('bot', instagram)).rejects.toThrow('00:30:00.000Z')
   expect(fs.readFileSync(file, 'utf8')).toBe(saved)
+})
+
+
+test('committed navigation preserves the burst allowance across restarts', async () => {
+  let { policy, restart, sleeps } = fixture()
+  let url = 'https://www.instagram.com/', actor = { paneId: '%1' }
+  let blank = async () => ({ url: 'about:blank' })
+  for (let i = 0; i < 4; i++) {
+    await policy.before('bot', blank, url, true, actor, false)
+    policy.complete('bot', actor, url)
+    policy = restart()
+  }
+  expect(sleeps).toEqual([334, 334, 3000])
 })
