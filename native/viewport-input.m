@@ -15,7 +15,8 @@
 @implementation BmuxInputRegion
 @end
 static NSMutableDictionary<NSNumber *, BmuxInputRegion *> *regions;
-static id scroll_monitor;
+static id input_monitor;
+static __weak NSView *drag_target;
 static char region_key;
 static NSView *hit_test(NSView *page, SEL selector, NSPoint point) {
   BmuxInputRegion *region = objc_getAssociatedObject(page, &region_key);
@@ -87,23 +88,40 @@ static napi_value clear(napi_env env, napi_callback_info info) {
 }
 static void cleanup(void *data) {
   (void)data;
-  if (scroll_monitor) [NSEvent removeMonitor:scroll_monitor];
-  scroll_monitor = nil;
+  if (input_monitor) [NSEvent removeMonitor:input_monitor];
+  input_monitor = nil; drag_target = nil;
   for (NSNumber *key in regions.allKeys) restore(key);
 }
 static napi_value initialize(napi_env env, napi_value exports) {
   regions = [NSMutableDictionary dictionary]; napi_add_env_cleanup_hook(env, cleanup, NULL);
-  scroll_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event) {
+  NSEventMask mask = NSEventMaskScrollWheel | NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged | NSEventMaskMouseMoved;
+  input_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+    NSView *captured = drag_target;
+    if (captured && captured.window == event.window) {
+      if (event.type == NSEventTypeLeftMouseDragged) { [captured mouseDragged:event]; return nil; }
+      if (event.type == NSEventTypeLeftMouseUp) { drag_target = nil; [captured mouseUp:event]; return nil; }
+    }
+    if (event.type == NSEventTypeLeftMouseDown) drag_target = nil;
     for (BmuxInputRegion *region in regions.allValues) {
       NSView *root = region.root, *page = region.page;
       if (!root || !page || event.window != root.window) continue;
       NSPoint point = [root convertPoint:event.locationInWindow fromView:nil];
       if (!NSPointInRect(point, region.rect) || NSPointInRect([root convertPoint:point toView:page], page.bounds)) continue;
       // The compositor's clipping View claims these margins in Views hit testing,
-      // but has no native renderer to receive wheel input. Deliver it to chrome.
+      // but has no native renderer. Deliver margin input to chrome and keep a
+      // margin-started drag there when it crosses over the native page.
       NSView *chrome = find_page(root, root, root.bounds);
       NSView *target = [chrome hitTest:[root convertPoint:point toView:chrome.superview]];
-      if (target) { [target scrollWheel:event]; return nil; }
+      if (!target) continue;
+      switch (event.type) {
+        case NSEventTypeScrollWheel: [target scrollWheel:event]; break;
+        case NSEventTypeLeftMouseDown: drag_target = target; [target mouseDown:event]; break;
+        case NSEventTypeLeftMouseUp: [target mouseUp:event]; break;
+        case NSEventTypeLeftMouseDragged: [target mouseDragged:event]; break;
+        case NSEventTypeMouseMoved: [target mouseMoved:event]; break;
+        default: return event;
+      }
+      return nil;
     }
     return event;
   }];

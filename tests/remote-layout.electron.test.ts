@@ -222,6 +222,10 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
       await nativeResize(840, 650)
       await expect.poll(() => content(client.paneId).evaluate(element => element.clientHeight > Number.parseFloat(getComputedStyle(element).getPropertyValue('--remote-height')) + 40)).toBe(true)
+      await expect.poll(async () => {
+        let area = await content(client.paneId).evaluate(element => ({ width: element.clientWidth, height: element.clientHeight })), bounds = await native()
+        return bounds.clip.width === area.width && bounds.clip.height === area.height
+      }).toBe(true)
       let gutter = (await content(client.paneId).boundingBox())!
       let resetPan = async () => {
         await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
@@ -233,10 +237,22 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
           await expect(hand).toHaveAttribute('aria-pressed', 'true')
           await expect.poll(async () => (await state()).viewportPanModes).toContain(client.paneId)
         } else await chrome.keyboard.down(modifier)
-        await chrome.mouse.move(gutter.x + 180, gutter.y + gutter.height - 24)
-        await chrome.mouse.down()
-        await chrome.mouse.move(gutter.x + 140, gutter.y + gutter.height - 24)
-        await chrome.mouse.up()
+        let start = { x: gutter.x + 180, y: gutter.y + gutter.height - 24 }
+        let finish = { x: gutter.x + 140, y: gutter.y + gutter.height / 2 }
+        if (process.platform === 'darwin') {
+          let input = (phase: number, point: { x: number; y: number }) => application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { ...point, phase, modifier: modifier === 'Alt' ? 1 : modifier === 'Meta' ? 2 : 0 })
+          await input(0, start)
+          await input(1, start)
+          await expect.poll(() => chrome.locator(`[data-pane-id="${client.paneId}"]`).evaluate(element => element.hasPointerCapture(1)), { message: `${modifier} gutter drag captures the pointer` }).toBe(true)
+          await input(2, finish)
+          await expect.poll(() => content(client.paneId).evaluate(element => element.scrollLeft), { message: `${modifier} native gutter drag pans across the page` }).toBe(40)
+          await input(3, finish)
+        } else {
+          await chrome.mouse.move(start.x, start.y)
+          await chrome.mouse.down()
+          await chrome.mouse.move(finish.x, finish.y)
+          await chrome.mouse.up()
+        }
         if (modifier !== 'toggle') await chrome.keyboard.up(modifier)
         await expect.poll(() => content(client.paneId).evaluate(element => element.scrollLeft)).toBe(40)
         expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
