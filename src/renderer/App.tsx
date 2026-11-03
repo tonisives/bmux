@@ -1891,7 +1891,6 @@ let PluginParameters = () => {
         {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{display(item, value)}</option>)}
       </select> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}</label>
       {item.description && <small>{item.description}</small>}
-      {item.kind === 'text' && fallback !== undefined && <small>{inherited}</small>}
     </div>
   }
   let toggleEditing = () => setEditing(value => !value)
