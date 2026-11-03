@@ -47,7 +47,7 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'reopen-closed', description: 'Reopen the most recently closed pane or window', action: 'reopen-closed' },
   { command: 'rename-window', usage: 'rename-window -n NAME', description: 'Rename the current window', action: 'rename-window', control: 'rename-window' },
   { command: 'toggle-window-pin', description: 'Pin or unpin the current window', action: 'toggle-window-pin' },
-  { command: 'lock-viewport', usage: 'lock-viewport [-t WINDOW]', description: 'Keep pane viewport sizes fixed when clients or windows resize' },
+  { command: 'lock-viewport', usage: 'lock-viewport [-t WINDOW] [--width W --height H]', description: 'Keep pane viewport sizes fixed when clients or windows resize' },
   { command: 'unlock-viewport', usage: 'unlock-viewport [-t WINDOW]', description: 'Let pane viewports resize with the window again' },
   { command: 'lock-window', description: 'Prevent closing this window and its session', action: 'lock-window' },
   { command: 'unlock-window', description: 'Allow closing this window again', action: 'unlock-window' },

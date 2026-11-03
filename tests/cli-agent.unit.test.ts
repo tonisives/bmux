@@ -29,6 +29,7 @@ test('agent identifiers reach browser, creation, RPC and movement commands witho
     expect(await invoke(['--agent-id', '%42', 'navigate', '-t', '%3', 'http://fixture.test/'])).toEqual({ method: 'navigate', args: { pane: '%3', url: 'http://fixture.test/', agentId: '%42' } })
     expect(await invoke(['dom', '-t', '%3', '--agent-id', '%42', '--agent-name=Research agent', '--agent-purpose', 'Compare browser features'])).toMatchObject({ args: { pane: '%3', agentId: '%42', agentName: 'Research agent', agentPurpose: 'Compare browser features' } })
     expect(await invoke(['dom', '-t', '%3', '--agent-type', 'tmux', '--agent-data', '{"sessionId":"$1","windowId":"@2","paneId":"%42"}'])).toMatchObject({ args: { agentType: 'tmux', agentData: { sessionId: '$1', windowId: '@2', paneId: '%42' } } })
+    expect(await invoke(['lock-viewport', '-t', 'work:3', '--width', '1512', '--height', '900'])).toEqual({ method: 'lock-viewport', args: { window: 'work:3', width: '1512', height: '900' } })
     expect(await invoke(['new-window', '-t', 'work', '--agent-id=worker'])).toEqual({ method: 'new-window', args: { session: 'work', agentId: 'worker' } })
     expect(await invoke(['kill-session', '-t', 'work notes', '--confirm'])).toEqual({ method: 'kill-session', args: { session: 'work notes', confirm: true } })
     expect(await invoke(['kill-session', '--session', '$2'])).toEqual({ method: 'kill-session', args: { session: '$2' } })

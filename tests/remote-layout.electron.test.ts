@@ -153,7 +153,8 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         await scroll(false)
         await nativeResize(840, 650)
         await expect.poll(() => content(client.paneId).evaluate(element => element.clientHeight > Number.parseFloat(getComputedStyle(element).getPropertyValue('--remote-height')) + 40)).toBe(true)
-        await scroll(true)
+        // Shift over the gutter keeps ordinary browser overflow scrolling.
+        // Hand gestures over the actual page are covered below.
         await nativeResize(840, 360)
         await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
       }
@@ -175,6 +176,30 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(() => scroller.evaluate(element => element.scrollLeft)).toBe(40)
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
       expect(await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
+      let hand = first.getByRole('button', { name: 'Pan viewport', exact: true })
+      await expect(hand).toBeVisible()
+      for (let modifier of ['Alt', 'Meta']) {
+        await first.keyboard.down(modifier)
+        await first.mouse.move(120, 120)
+        await first.mouse.down()
+        await first.mouse.move(80, 80)
+        await first.mouse.up()
+        await first.keyboard.up(modifier)
+        await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 40, y: 40 })
+        expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+        await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
+        await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
+      }
+      await hand.click()
+      await expect(hand).toHaveAttribute('aria-pressed', 'true')
+      await first.mouse.move(100, 100)
+      await first.mouse.wheel(20, 30)
+      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 20, y: 30 })
+      await first.keyboard.press('Escape')
+      await expect(hand).toHaveAttribute('aria-pressed', 'false')
+      await first.screenshot({ path: info.outputPath('viewport-hand-control.png') })
+      await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
+      await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
       await application.evaluate((_electron, pane) => (globalThis as any).remoteLayoutRuntime.execute({ method: 'eval', args: { pane, expression: '1', agentId: 'viewport-gesture-test' } }), client.paneId)
       await expect.poll(async () => (await state()).lockedAgentPanes).toContain(client.paneId)
       let shield: Page | undefined
@@ -184,9 +209,9 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       }).toBe(true)
       await expect(shield!.getByRole('status')).toBeVisible()
       await shield!.mouse.move(100, 100)
-      await shield!.keyboard.down('Shift')
+      await shield!.keyboard.down('Alt')
       try { await shield!.mouse.wheel(20, 30) }
-      finally { await shield!.keyboard.up('Shift') }
+      finally { await shield!.keyboard.up('Alt') }
       await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 20, y: 30 })
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -20, y: -30 })
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
@@ -234,8 +259,12 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await otherChrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
     await prompt.fill('lock-viewport'); await prompt.press('Enter')
     await expect.poll(async () => Object.keys((await windowState()).lockedViewports ?? {}).length).toBe(3)
+    expect((await windowState()).lockedViewports[client.paneId]).toEqual(unlockedSize)
+    for (let args of [{ width: 1512 }, { width: 0, height: 900 }, { width: 1512.5, height: 900 }, { width: 20000, height: 900 }]) await expect(rpc('lock-viewport', { window: client.windowId, ...args })).rejects.toThrow('Provide both')
+    await rpc('lock-viewport', { window: client.windowId, width: '1512', height: '900' })
+    await expect.poll(async () => Object.values((await windowState()).lockedViewports).every((size: any) => size.width === 1512 && size.height === 900)).toBe(true)
     let saved = (await windowState()).lockedViewports
-    expect(saved[client.paneId]).toEqual(unlockedSize)
+    expect(saved[client.paneId]).toEqual({ width: 1512, height: 900 })
     await rpc('break-pane', { client: other.id, pane: client.paneId, floating: true })
     let floating: Page | undefined
     await expect.poll(async () => {

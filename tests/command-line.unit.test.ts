@@ -43,6 +43,7 @@ it('resolves current targets, numeric indices, and confirmation flags', () => {
     expect(parseCommandLine(method, current)).toMatchObject({ method, args: { window: window.id } })
     expect(parseCommandLine(`${method} -t 2`, current)).toMatchObject({ method, args: { window: secondWindow.id } })
   }
+  expect(parseCommandLine('lock-viewport -t 2 --width 1512 --height 900', current)).toMatchObject({ method: 'lock-viewport', args: { window: secondWindow.id, width: '1512', height: '900' } })
   expect(parseCommandLine('split-window -v --profile bot', current)).toMatchObject({ args: { pane: window.panes[0].id, axis: 'vertical', profile: 'bot' } })
   expect(parseCommandLine('pane-left', current)).toEqual({ method: 'select-pane-direction', args: { client: 'client', direction: 'left' } })
   expect(parseCommandLine('toggle-pane-zoom', current)).toEqual({ method: 'toggle-pane-zoom', args: { client: 'client' } })

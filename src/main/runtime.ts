@@ -108,7 +108,7 @@ import { createViewportPan } from './viewport-pan'
 import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
-type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; pagePan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { pluginOverlay?: WebContentsView; window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
@@ -1342,16 +1342,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     contents.on('render-process-gone', () => { invalidate() })
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
-    let panEnabled = () => isLiveTabOpen(live) && !!fixedViewport(tabId)
+    let panArea = (shield = false) => {
+      if (!isLiveTabOpen(live) || !fixedViewport(tabId) || !live.remoteFrame) return undefined
+      let frame = live.remoteFrame.getBounds(), page = live.view.getBounds(), zoom = shield ? 1 : contents.getZoomFactor()
+      return { x: shield ? 0 : Math.max(0, -page.x) / zoom, y: shield ? 0 : Math.max(0, -page.y) / zoom, width: Math.min(frame.width, page.width) / zoom, height: Math.min(frame.height, page.height) / zoom }
+    }
     let pan = (x: number, y: number) => {
       let owner = [...clients.values()].find(owner => owner.window === live.parent)
       if (!owner || !live.remoteFrame || automatedContents.has(contents.id)) return
       let target = owner.floats.get(tabId)?.webContents ?? owner.chrome.webContents
       target.send('viewport-scroll', tabId, x, y)
     }
+    live.pagePan = createViewportPan(contents, () => panArea(), expression => contents.executeJavaScriptInIsolatedWorld(1004, [{ code: expression }]), pan)
     live.inputLock = createAgentInputLock(view, () => ({ window: live.parent, bounds: pageRoot(live).getBounds() }), contents => {
       installKeys(contents)
-      live.shieldPan = createViewportPan(contents, panEnabled, expression => contents.executeJavaScript(expression), pan)
+      live.shieldPan = createViewportPan(contents, () => panArea(true), expression => contents.executeJavaScript(expression), pan)
       void live.shieldPan.refresh()
     }, () => {
       let owner = [...clients.values()].find(owner => owner.window === live.parent)
@@ -2068,7 +2073,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         capturedViewport = true
       }
       let fixedSize = fixedViewport(tabId)
-      void live.shieldPan?.refresh()
       if (!fixedSize) removeRemoteFrame(live)
       // Remote viewer contents belong to the app session, outside profile extensions.
       if (!remotePages.get(tabId)?.attach) extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), live.contents, live.parent, client?.paneId === pane.id && pane.id === tabId)
@@ -2126,6 +2130,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         live.view.setBounds({ x: (fits ? Math.round(area.x) : 0) + Math.max(0, Math.round((width - fixedSize.width) / 2)) - Math.round(scrollX), y: (fits ? Math.round(area.y) : 0) + Math.max(0, Math.round((height - fixedSize.height) / 2)) - Math.round(scrollY), width: fixedSize.width, height: fixedSize.height })
       }
       live.inputLock?.refresh()
+      void live.pagePan?.refresh()
+      void live.shieldPan?.refresh()
     }
     if (capturedViewport) save()
     for (let candidate of model.clients) {
@@ -3516,7 +3522,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (method === 'lock-viewport' || method === 'unlock-viewport') {
       let window = resolveWindow(model, args.window)
+      let explicit = args.width !== undefined || args.height !== undefined
+      let size = explicit ? { width: Number(args.width), height: Number(args.height) } : undefined
+      if (size && (!Number.isSafeInteger(size.width) || !Number.isSafeInteger(size.height) || size.width < 1 || size.height < 1 || size.width > 16384 || size.height > 16384)) throw new Error('Provide both --width and --height as integers from 1 to 16384')
       if (method === 'unlock-viewport') delete window.lockedViewports
+      else if (size) window.lockedViewports = Object.fromEntries(window.panes.map(pane => [pane.id, { ...size }]))
       else if (!window.lockedViewports) {
         let client = model.clients.find(client => client.id === (sourceClientId ?? args.client) && client.windowId === window.id)
         let owner = client && clients.get(client.id)

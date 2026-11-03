@@ -399,3 +399,9 @@ remain queued; use them for playback changes, scrolling and other mutations.
 Native key and mouse releases acknowledge delivery immediately while keeping the
 input action's domain lock through its full cooldown. This lets an observation,
 screenshot and inference run while the next input remains queued.
+
+### Fixed viewport sizes
+
+`bmux lock-viewport -t SESSION:WINDOW --width 1512 --height 900` sets every pane in the window to that native viewport size, including when already locked. Without dimensions, the command captures the current sizes. `bmux unlock-viewport -t SESSION:WINDOW` restores automatic sizing. Sizes persist across relaunches.
+
+When a fixed viewport is clipped, use its hand button or hold Alt or Meta and drag to pan the visible area at full scale. Scroll while holding the modifier or in hand mode to pan with a wheel or trackpad. Escape exits hand mode. Normal scrolling, including Shift scrolling, belongs to the website.
