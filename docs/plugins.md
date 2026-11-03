@@ -86,7 +86,7 @@ Authenticated plugin browser operations carry the plugin's own identity. The
 external CLI identity requirements apply to external agents; plugin capability,
 document and automation checks still apply to each browser operation.
 
-The observer has one Details and settings expander with a view selector. Stop
+The page overlay has one Details and settings expander with a view selector. Stop
 returns browsing actions to their configuration form. Starting from that form
 is the only start step; completed runs offer Choose session settings.
 

@@ -7,11 +7,13 @@ import { pathToFileURL } from 'node:url'
 
 let run = async (command, args) => (await promisify(execFile)(command, args, { timeout: 5000, maxBuffer: 1024 * 1024 })).stdout
 let sessionDirectory = cwd => path.basename(cwd) || cwd
+// tmux drops soft hyphens when storing a terminal title.
+let terminalName = name => name?.replace(/\u00ad/g, '')
 let paneName = title => title.split(' | ').at(-2)?.replace(/^[\u2800-\u28ff]\s*/, '').trim()
 
 export let findAgentPane = (panes, processes, pid, thread) => {
   if (thread) {
-    let matches = panes.filter(pane => !pane.dead && pane.command === 'codex' && paneName(pane.title) === thread.name && pane.title.split(' | ').at(-1)?.trim() === sessionDirectory(thread.cwd))
+    let matches = panes.filter(pane => !pane.dead && pane.command === 'codex' && terminalName(paneName(pane.title)) === terminalName(thread.name) && pane.title.split(' | ').at(-1)?.trim() === sessionDirectory(thread.cwd))
     if (matches.length !== 1) throw new Error('Cannot identify a unique tmux pane for this agent thread; keep its terminal session name visible')
     return matches[0]
   }

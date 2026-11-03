@@ -95,3 +95,18 @@ test('thread lookup ignores offline saved names and rejects conflicting live pan
     await expect(resolveTmuxAgent({ env, execute: async () => list().replace(publishing.title, 'Other thread | movies') })).rejects.toThrow('unique tmux pane')
   } finally { database.close(); await fs.rm(directory, { recursive: true, force: true }) }
 })
+
+
+test('terminal lookup and focus tolerate soft hyphens removed by tmux without accepting ambiguous titles', async () => {
+  let saved = { ...thread, name: 'Refresh server-price-\u00ad=\u00ad' }
+  let title = 'Refresh server-price-= | movies'
+  let pane = { ...publishing, title }
+  let execute = async () => [pane.sessionId, pane.windowId, pane.paneId, pane.panePid, pane.command, pane.title, pane.cwd, pane.clientTty, pane.sessionName, pane.windowIndex, '0'].join('\t')
+  let threadForId = async () => saved
+  let env = { TMUX: '/tmp/agent-tmux,123,5', CODEX_THREAD_ID: saved.id }
+  expect(await resolveTmuxAgent({ env, execute, threadForId })).toEqual(context)
+  expect(await focusTmuxPane(context.agentData, context.agentOrigin, { execute, threadForId })).toBe(pane.paneId)
+  expect(findAgentPane([{ ...pane, title: 'Refresh server-price-\u00ad=\u00ad | movies' }], [], 999, { ...saved, name: 'Refresh server-price-=' })).toMatchObject({ paneId: pane.paneId })
+  expect(() => findAgentPane([pane, { ...pane, paneId: '%71', title: 'Refresh server-price-\u00ad= | movies' }], [], 999, saved)).toThrow('unique')
+  expect(() => findAgentPane([{ ...pane, title: 'Refresh server-price-other | movies' }], [], 999, saved)).toThrow('unique')
+})

@@ -985,7 +985,8 @@ test('session visit times use age colors in tree and recent views', async () => 
   let visitedAt = (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === created.id).lastVisitedAt
   await chrome.evaluate(() => { (window as any).bmuxTestDateNow = Date.now })
   try {
-    for (let [age, color] of [[0, 'rgb(167, 200, 141)'], [3600000, 'rgb(229, 192, 123)'], [86400000, 'rgb(232, 139, 139)']] as const) {
+    // Sample inside each range; exact boundaries are covered by pane-activity unit tests.
+    for (let [age, color] of [[1800000, 'rgb(167, 200, 141)'], [7200000, 'rgb(229, 192, 123)'], [172800000, 'rgb(232, 139, 139)']] as const) {
       await chrome.evaluate(now => { Date.now = () => now; localStorage.removeItem('session-sort-recent') }, visitedAt + age)
       await open('sessions')
       let group = chrome.getByRole('group', { name: 'Choose session', exact: true })
