@@ -25,7 +25,11 @@ test.afterAll(async () => { if (fixtureDirectory) await fs.rm(fixtureDirectory, 
 
 test('viewport lock keeps split pages fixed across resizing, client handoff and relaunch', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-viewport-lock-'))
-  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1><div id="horizontal" style="position:absolute;left:20px;top:160px;width:260px;height:80px;overflow:auto"><div style="width:1800px;height:40px">Horizontal content</div></div>') })
+  let pendingImages = new Set<http.ServerResponse>()
+  let server = http.createServer((request, response) => {
+    if (request.url === '/pending-image') { pendingImages.add(response); response.on('close', () => pendingImages.delete(response)); return }
+    response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1><div id="horizontal" style="position:absolute;left:20px;top:160px;width:260px;height:80px;overflow:auto"><div style="width:1800px;height:40px">Horizontal content</div></div>' + (request.url === '/pending' ? '<img src="/pending-image">' : ''))
+  })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Ctrl+L: pane-right\nbrowser:\n  autoUpdateFilters: false\n')
@@ -323,9 +327,14 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await button.click()
       await expect(button).toHaveAttribute('aria-pressed', 'false')
     }
-    await otherChrome.screenshot({ path: info.outputPath('viewport-controls-mixed-zoom.png') })
+    await otherChrome.screenshot({ path: info.outputPath('viewport-controls-zoom.png') })
     for (let pane of [client.paneId, added.id, third.id]) await rpc('zoom', { tab: pane, factor: 1 })
     await expect.poll(() => size(first)).toEqual({ width: 1512, height: 900 })
+    await thirdPage.goto(`${url}pending`, { waitUntil: 'domcontentloaded' })
+    await expect.poll(() => pendingImages.size).toBeGreaterThan(0)
+    await expect(thirdPage.getByRole('button', { name: 'Pan viewport', exact: true })).toBeVisible()
+    expect(await thirdPage.evaluate(() => document.readyState)).toBe('interactive')
+    for (let response of pendingImages) response.end()
     let saved = (await windowState()).lockedViewports
     expect(saved[client.paneId]).toEqual({ width: 1512, height: 900 })
     await rpc('break-pane', { client: other.id, pane: client.paneId, floating: true })
@@ -362,6 +371,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect.poll(() => size(first)).toEqual(saved[client.paneId])
   } finally {
     await closeTestApplication(application)
+    server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
