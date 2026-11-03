@@ -1,3 +1,12 @@
+# Session age color boundaries
+
+The full Check on `49dff00` showed the visit-color fixture rendering "23h ago"
+at its exact one-day clock offset. A slightly newer published visit timestamp
+keeps that row in the today range. The GUI fixture now samples thirty minutes,
+two hours and two days, retaining the color assertions in both tree and recent
+views. Unit tests continue checking the exact one-hour and one-day boundaries.
+Repeat the session visit color case in focused CI.
+
 # Prompt feed observations
 
 GP captures took 64–98 ms and most API answers arrived within a second, but the
