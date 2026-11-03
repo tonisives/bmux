@@ -130,11 +130,7 @@ export let App = () => {
     setBookmarkDestination(control === 'bookmark' ? destination ?? null : null); setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {
-    if (state?.pluginPrompt) {
-      if (state.pluginPrompt.kind === 'form' && state.pluginPrompt.autosave) { globalThis.dispatchEvent(new Event('bmux-plugin-dismiss')); return }
-      void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
-      return
-    }
+    if (state?.pluginPrompt) return dismissPluginPrompt(state.pluginPrompt)
     setPanelHistory([]); setControl(null); setHistoryPopup(null); setMessage('')
   }, [state?.pluginPrompt])
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
@@ -1855,6 +1851,10 @@ let PluginActivity = ({ pluginId }: { pluginId?: string }) => {
   return <><p>Plugin runs</p>{runs.length ? runs.map(item => <div key={item.id} className={css.row}>{item.title} · {item.status}
     {item.progress && <span className={css.pluginDescription}>{item.progress.percent}% · {item.progress.message}</span>}{(item.error || error(item.result)) && <span role="alert" className={css.pluginDescription}>{error(item.result) || item.error}</span>}
     {item.overlayPaneId && <button data-id={item.id} onClick={showOverlay}>Show overlay</button>}{['running', 'queued'].includes(item.status) && <button data-id={item.id} onClick={cancel}>Cancel</button>}</div>) : <p>No plugin runs.</p>}</>
+}
+let dismissPluginPrompt = (request: NonNullable<PublicState['pluginPrompt']>) => {
+  if (request.kind === 'form' && request.autosave) globalThis.dispatchEvent(new Event('bmux-plugin-dismiss'))
+  else void bridge.command({ method: 'plugin.respond', args: { id: request.id, cancel: true } }).catch(() => undefined)
 }
 let PluginParameters = () => {
   let { state, run } = useUI()
