@@ -25,7 +25,7 @@ export let commandTokens = (line: string, partial = false): { value: string; sta
 export let tokenize = (line: string): string[] => commandTokens(line).map(word => word.value)
 
 export let COMMAND_ALIASES: Record<string, string> = {
-  attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', movew: 'move-window', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', rotatew: 'rotate-window', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapp: 'swap-pane', swapw: 'swap-window',
+  attach: 'attach-session', breakp: 'break-pane', joinp: 'join-pane', killp: 'kill-pane', killw: 'kill-window', movep: 'move-pane', movew: 'move-window', new: 'new-session', neww: 'new-window', next: 'next-window', prev: 'previous-window', rename: 'rename-session', renamew: 'rename-window', resizep: 'resize-pane', rotatew: 'rotate-window', selectp: 'select-pane', selectw: 'select-window', splitw: 'split-window', swapp: 'swap-pane', swapw: 'swap-window', switchc: 'switch-client',
 }
 
 let moveDestination = (state: PublicState, currentSessionId: string, target: unknown) => {
@@ -71,7 +71,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   name = normalizeKeyAction(name)
   let tmuxPaneMove = name === 'movep' || name === 'joinp' || (['move-pane', 'join-pane'].includes(name) && !words.some(word => /^--(pane|window|destination|x|y)(=|$)/.test(word)))
   let shortBreak = name === 'breakp'
-  name = COMMAND_ALIASES[name] ?? name
+  name = name === 'session' ? 'switch-client' : COMMAND_ALIASES[name] ?? name
   let client = state.model.clients.find(client => client.id === state.clientId)
   if (!client) throw new Error('Client is detached')
   let session = state.model.sessions.find(session => session.id === client.sessionId)!
@@ -79,18 +79,26 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   let pane = window.panes.find(pane => pane.id === client.paneId)
   let positional: string[] = []
   let options: Record<string, unknown> = {}
+  let switching = name === 'switch-client'
   let movement = ['move-pane', 'join-pane', 'break-pane', 'swap-pane', 'rotate-window', 'move-window', 'swap-window'].includes(name)
-  let aliases: Record<string, string> = { t: 'target', s: movement ? 'source' : 'name', n: 'name', c: 'client', W: 'floating', ...(movement ? { d: 'background', b: 'before', a: 'after', U: 'up', D: 'down', Z: 'keepZoom', r: 'renumber' } : {}) }
+  let aliases: Record<string, string> = { t: 'target', s: movement ? 'source' : 'name', n: 'name', c: 'client', W: 'floating', ...(switching ? { E: 'ignoreEnvironment', l: 'last', n: 'next', p: 'previous', r: 'readOnly', Z: 'keepZoom', T: 'keyTable', O: 'sortOrder' } : {}), ...(movement ? { d: 'background', b: 'before', a: 'after', U: 'up', D: 'down', Z: 'keepZoom', r: 'renumber' } : {}) }
   while (words.length) {
     let word = words.shift()!
     if (word === '--') { positional.push(...words); break }
+    if (switching && /^-[^-].+/.test(word) && !word.includes('=')) {
+      let flag = word[1], rest = word.slice(2)
+      if ('ElnprZ'.includes(flag)) words.unshift(`-${rest}`)
+      else if ('ctTO'.includes(flag)) words.unshift(rest)
+      else throw new Error(`Unsupported option for ${name}: -${flag}`)
+      word = `-${flag}`
+    }
     if (word === '-h' || word === '-v') { options.axis = word === '-h' ? 'horizontal' : 'vertical'; continue }
     if (!word.startsWith('-')) { positional.push(word); continue }
     if (movement && /^-[bdhvWUDZar]{2,}$/.test(word)) { words.unshift(...word.slice(1).split('').map(flag => `-${flag}`)); continue }
     if (movement && /^-[tsnc].+/.test(word) && !word.includes('=')) { words.unshift(word.slice(2)); word = word.slice(0, 2) }
     let [raw, ...rest] = word.replace(/^-+/, '').split('=')
     let key = aliases[raw] ?? raw
-    let boolean = ['confirm', 'background', 'floating', 'private', ...(movement ? ['before', 'after', 'up', 'down', 'keepZoom', 'renumber'] : [])].includes(key)
+    let boolean = ['confirm', 'background', 'floating', 'private', ...(movement ? ['before', 'after', 'up', 'down', 'keepZoom', 'renumber'] : []), ...(switching ? ['ignoreEnvironment', 'last', 'next', 'previous', 'readOnly', 'keepZoom'] : [])].includes(key)
     let value: unknown = rest.length ? rest.join('=') : boolean ? true : words.shift()
     if (value === undefined) throw new Error(`Missing value for ${word}`)
     if (boolean && typeof value === 'string' && ['true', 'false'].includes(value)) value = value === 'true'
@@ -153,7 +161,13 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'split') name = 'split-window'
   if (name === 'new-session') return { method: name, args: { ...current, ...options, name: options.name ?? positional[0] } }
   if (name === 'kill-session') return { method: name, args: { ...current, ...options, session: target ?? options.session ?? client.sessionId } }
-  if (name === 'switch-client' || name === 'attach-session') return { method: name, args: { ...current, ...options, session: target ?? positional[0] ?? client.sessionId } }
+  if (switching) {
+    let supported = ['client', 'ignoreEnvironment', 'last', 'next', 'previous', 'readOnly', 'keepZoom', 'keyTable', 'sortOrder']
+    for (let key of Object.keys(options)) if (!supported.includes(key)) throw new Error(`Unsupported option for ${name}: --${key}`)
+    if (positional.length > 1) throw new Error('switch-client accepts one target')
+    return { method: name, args: { ...current, ...options, ...(target !== undefined || positional.length ? { session: target ?? positional[0] } : {}) } }
+  }
+  if (name === 'attach-session') return { method: name, args: { ...current, ...options, session: target ?? positional[0] ?? client.sessionId } }
   if (name === 'new-window') return { method: name, args: { ...current, session: client.sessionId, ...options, ...(positional.length ? { name: positional[0] } : {}) } }
   if (name === 'reopen-closed' || name === 'reopen-closed-tab') return { method: 'reopen-closed', args: current }
   if (name === 'renumber-windows') return { method: name, args: { session: target ?? options.session ?? client.sessionId } }

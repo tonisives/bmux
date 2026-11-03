@@ -67,6 +67,8 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'select-window', usage: 'select-window -t INDEX', description: 'Select a window by index', action: 'select-window', control: 'select-window' },
   { command: 'select-window -t ', usage: 'select-window -t INDEX', description: 'Switch to a window by index or ID', complete: true },
   { command: 'new-session', usage: 'new-session [-s NAME] [--profile PROFILE] [--private]', description: 'Create a session' },
+  { command: 'switchc -t ', usage: 'switchc [-ElnprZ] [-c CLIENT] [-O name|size|creation|activity] [-t SESSION|WINDOW.PANE|%ID] [-T TABLE]', description: 'Switch this client to a session, window or pane', complete: true },
+  { command: 'switch-client -t ', usage: 'switch-client [-ElnprZ] [-c CLIENT] [-t TARGET] [-T TABLE]', description: 'Switch this client to a session, window or pane', complete: true },
   { command: 'session ', usage: 'session NAME', description: 'Switch this client to a session', complete: true },
   { command: 'rename-session', usage: 'rename-session -n NAME', description: 'Rename the current session', action: 'rename-session', control: 'rename-session' },
   { command: 'kill-session ', usage: 'kill-session [-t SESSION] --confirm', description: 'Close a session and all its windows after explicit confirmation', complete: true },

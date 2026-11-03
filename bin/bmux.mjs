@@ -22,6 +22,7 @@ Import:   import-brave [--source BRAVE_USER_DATA_DIRECTORY]
 Sessions: new-session -s NAME [--profile PROFILE] | list-sessions | rename-session -t SESSION -n NAME
           kill-session -t SESSION --confirm
 Clients:  attach-session -t SESSION | list-clients | detach-client -c CLIENT | activate-client -c CLIENT
+          switchc [-ElnprZ] [-c CLIENT] [-O name|size|creation|activity] [-t TARGET] [-T TABLE]
           switch-client -c CLIENT -t SESSION | select-window -c CLIENT -t WINDOW
 Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t SESSION
           rename-window -t WINDOW -n NAME | kill-window -t WINDOW [--confirm]
@@ -95,7 +96,7 @@ let parse = () => {
   let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
   let explicit = new Set()
   let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-type': 'agentType', '--agent-data': 'agentData' }
-  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'no-start', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
+  let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'no-start', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z', 'E', 'l', 'n', 'p', 'r'])
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break
     let flag = argv[index].split('=')[0], key = flags[flag]
@@ -119,9 +120,9 @@ let parseCommand = () => {
   let target = targetIndex >= 0 ? argv[targetIndex + 1] : argv.find(item => /^(?:-t|--target)=/.test(item))?.split('=').slice(1).join('=')
   let movement = ['movep', 'joinp', 'breakp', 'break-pane', 'swapp', 'swap-pane', 'rotatew', 'rotate-window', 'swapw', 'swap-window', 'movew', 'move-window', 'renumber-windows'].includes(argv[0])
     || ['move-pane', 'join-pane'].includes(argv[0]) && !argv.some(item => /^--(?:pane|window|destination|x|y)(?:=|$)/.test(item)) && (argv.some(item => /^(?:-s|--source)(?:=|$)/.test(item)) || !target || !/^(?:%\d+|pane_.+)$/.test(target))
-  if (movement) {
+  if (movement || ['switchc', 'switch-client'].includes(argv[0])) {
     let clientIndex = argv.findIndex(item => ['-c', '--client'].includes(item))
-    let client = clientIndex >= 0 ? argv[clientIndex + 1] : argv.find(item => /^(?:-c|--client)=/.test(item))?.split('=').slice(1).join('=')
+    let client = clientIndex >= 0 ? argv[clientIndex + 1] : argv.find(item => /^(?:-c|--client)=/.test(item))?.split('=').slice(1).join('=') ?? argv.find(item => /^-c[^=]/.test(item))?.slice(2)
     return { method: 'command-line', args: { line: argv.map(item => JSON.stringify(item)).join(' '), ...(client ? { client } : {}) } }
   }
   let command = argv.shift()

@@ -34,6 +34,7 @@ test('agent identifiers reach browser, creation, RPC and movement commands witho
     expect(await invoke(['kill-session', '--session', '$2'])).toEqual({ method: 'kill-session', args: { session: '$2' } })
     expect(await invoke(['rpc', 'dom', '{"pane":"%3"}', '--agent-id', '%42'])).toEqual({ method: 'dom', args: { pane: '%3', agentId: '%42' } })
     expect(await invoke(['movew', '-c', 'client', '-t', '2', '--agent-id', '%42'])).toMatchObject({ method: 'command-line', args: { client: 'client', agentId: '%42' } })
+    for (let command of ['switchc', 'switch-client']) expect(await invoke([command, '-c', 'client', '-Zt%3', '--agent-id', '%42'])).toEqual({ method: 'command-line', args: { client: 'client', line: `\"${command}\" \"-c\" \"client\" \"-Zt%3\"`, agentId: '%42' } })
     expect(await invoke(['dom', '-t', '%3'], '%42')).toEqual({ method: 'dom', args: { pane: '%3', agentId: '%42' } })
     expect(await invoke(['dom', '-t', '%3', '--agent-id', 'explicit'], '%42')).toMatchObject({ args: { agentId: 'explicit' } })
     expect(await invoke(['eval', '-t', '%3', '--', '--agent-id'])).toEqual({ method: 'eval', args: { pane: '%3', expression: '--agent-id' } })

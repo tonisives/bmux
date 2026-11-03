@@ -290,3 +290,7 @@ string values remain valid, and `null` disables a binding. Prefix bindings keep
 their existing behavior. Contexts appear alongside bindings in shortcut help.
 
 Window numbers stay with their windows when reordered, pinned, or closed. Numeric selection shortcuts and command targets use these numbers. Prefix then `E` renumbers the current session in its displayed order, starting at 1. The command finder accepts `renumber-windows`; the tmux-style command is `move-window -r` (or `movew -r -t SESSION:`). Moving to an index still uses the destination position in the list.
+
+Use `switchc -t %29` in the command prompt to select a pane across sessions.
+See [switch-client](switch-client.md) for session cycling, zoom, read-only mode
+and one-key tables.

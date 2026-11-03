@@ -25,12 +25,13 @@ import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, p
 import { bookmarksPath, readModel, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
+import { switchClient } from './switch-client'
 import { parseCommandLine } from '../shared/command-line'
 import { resolvePaneTarget, selectedPane } from '../shared/command-target'
 import { checkSessionTransfer, insertionIndex, moveWindow, reorderSession, rotatePanes, swapPanes, swapWindows, toggleWindowPin } from './movement'
 import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
-import { DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, prefixAction, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
+import { readOnlyAction, DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, prefixAction, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
 import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
 import { createVirtualMouse } from './virtual-mouse'
@@ -938,6 +939,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let client = model.clients.find(client => client.id === focusedClientId)
     if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
     if (model.sessions.find(session => session.id === client.sessionId)?.remote && remoteWorkspaceShortcut(action)) return
+    if (client.readOnly && !readOnlyAction(action)) return
     let focused = clients.get(client.id)!
     let invoke = (command: Command) => { void execute(command, client.id).catch(reportError) }
     let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
@@ -1047,6 +1049,30 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (doubleTap.update(input, clickSettings.enabled && selectedContents === contents ? clickSettings.doubleTapModifier : null)) { event.preventDefault(); void activateClickMode().catch(reportError); return }
       if (pendingModifierShortcut && (pendingModifierShortcut.clientId !== focusedClientId || pendingModifierShortcut.contentsId !== contents.id)) pendingModifierShortcut = undefined
       let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
+      let client = model.clients.find(client => client.id === focusedClientId)!
+      if (client.keyTable && input.type === 'keyDown' && !['Shift', 'Control', 'Meta', 'Alt', 'CapsLock'].includes(input.key)) {
+        let table = client.keyTable
+        client.keyTable = undefined
+        let action = table === 'prefix' ? prefixAction(keyboard.prefixBindings, input) : prefixAction(keyboard.keyTables?.[table] ?? {}, input)
+        event.preventDefault()
+        if (action) dispatchShortcut(action)
+        return
+      }
+      if (client.readOnly && contents !== focused.chrome.webContents && ![...focused.floats.values()].some(frame => frame.webContents === contents)) {
+        // Preserve only the prefix and switching/detach bindings on page content.
+        event.preventDefault(); contents.setIgnoreMenuShortcuts(true)
+        if (input.type !== 'keyDown') return
+        if (matchesBinding(keyboard.prefix, input)) { dispatchShortcut('prefix'); return }
+        if (Date.now() < prefixUntil) {
+          prefixUntil = 0
+          let action = prefixAction(keyboard.prefixBindings, input)
+          if (action && readOnlyAction(action)) dispatchShortcut(action)
+          return
+        }
+        let entry = Object.entries(keyboard.shortcuts).find(([key]) => matchesBinding(key, input))
+        if (entry && readOnlyAction(shortcutAction(entry[1]))) dispatchShortcut(shortcutAction(entry[1]))
+        return
+      }
       // Native Tab traversal remains available in dialogs and command prompts.
       if (input.key === 'Tab' && contents === focused.chrome.webContents && overlays.has(focusedClientId)) return
       let modifierKey = ['ShiftLeft', 'ShiftRight'].includes(input.code)
@@ -1093,6 +1119,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       dispatchShortcut(shortcutAction(entry[1]))
     })
     contents.on('before-mouse-event', (event, mouse) => {
+      if (!automatedContents.has(contents.id)) {
+        let owner = [...clients].find(([, live]) => [...tabs.values()].some(tab => tab.contents === contents && tab.parent === live.window))
+        if (owner && model.clients.find(client => client.id === owner[0])?.readOnly) { event.preventDefault(); return }
+      }
       if (mouse.type === 'mouseDown' || mouse.type === 'mouseWheel') {
         let client = [...clients].find(([, live]) => live.window.isFocused() && (live.chrome.webContents === contents || [...live.floats.values()].some(frame => frame.webContents === contents) || [...tabs.values()].some(tab => tab.contents === contents && tab.parent === live.window)))
         if (client) clickMode.cancelClient(client[0])
@@ -2458,6 +2488,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
 
   let execute = async (command: Command, sourceClientId?: string): Promise<unknown> => {
+    if (sourceClientId && model.clients.find(client => client.id === sourceClientId)?.readOnly && !['switch-client', 'command-line', 'detach-client'].includes(command.method)) throw new Error('Client is read-only; use switchc -r to enable input')
     let creation = ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(command.method)
     if (!sourceClientId && !remoteActor.getStore() && (agentCommands.has(command.method) || command.method === 'automation.acquire' || creation)) {
       let required = !creation || command.args?.url !== undefined
@@ -3386,11 +3417,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, capture: { error: frameCaptureError() ?? null, panes: [...tabs].filter(([, live]) => !live.disposed && !live.contents.isDestroyed()).map(([pane, live]) => ({ pane, contentsId: live.contents.id, crashed: live.contents.isCrashed(), bounds: live.view.getBounds() })) }, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), filePickers: filePickers.snapshot(), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
-      let client = resolve(model.clients, args.client, 'Client')
-      let session = resolve(model.sessions, args.session, 'Session')
-      let windowId = client.sessionId === session.id ? client.windowId : client.windowHistory?.find(id => session.windows.some(window => window.id === id))
-      let window = session.windows.find(window => window.id === windowId) ?? session.windows[0]
-      selectClientWindow(client, session, window)
+      let client = switchClient(model, { ...args, client: args.client ?? sourceClientId ?? focusedClientId ?? model.clients[0]?.id }, configuration?.keyboard ?? DEFAULT_KEYBOARD)
+      if (client.id === focusedClientId) { prefixUntil = 0; pendingSequence = undefined; pendingModifierShortcut = undefined }
+      if (!model.sessions.find(session => session.id === client.sessionId)?.remote && args.keyTable === undefined) disconnectRemoteWorkspace(client.id)
+      let window = paneById(model, client.paneId!).window
+      if (client.paneId) raisePane(window, client.paneId)
       changed(); await visualQueue; return client
     }
     if (method === 'list-windows') return resolve(model.sessions, args.session, 'Session').windows

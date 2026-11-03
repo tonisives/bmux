@@ -3,7 +3,7 @@ export let shortcutAction = (binding: Shortcut) => typeof binding === 'string' ?
 export let shortcutWhen = (binding: Shortcut) => typeof binding === 'string' ? 'always' : binding.when ?? 'always'
 export let shortcutMatchesContext = (binding: Shortcut, paneFocused: boolean, editing: boolean | undefined) => shortcutWhen(binding) === 'always' || (paneFocused && editing === false)
 export let shortcutLabel = (key: string, binding: Shortcut) => shortcutWhen(binding) === 'always' ? key : `${key} (pane, outside text fields)`
-export type KeyboardConfig = { prefix: string; prefixTimeoutMs: number; shortcuts: Record<string, Shortcut>; sequences: Record<string, Shortcut>; prefixBindings: Record<string, string> }
+export type KeyboardConfig = { prefix: string; prefixTimeoutMs: number; shortcuts: Record<string, Shortcut>; sequences: Record<string, Shortcut>; prefixBindings: Record<string, string>; keyTables?: Record<string, Record<string, string>> }
 export let DEFAULT_KEYBOARD: KeyboardConfig = {
   prefix: 'Ctrl+B', prefixTimeoutMs: 1600,
   shortcuts: {
@@ -57,4 +57,7 @@ export let prefixAction = (bindings: Record<string, string>, input: KeyInput) =>
 }
 
 // Keep older config files working without exposing superseded tab actions.
+export let switchClientAction = (action: string) => /^(?:switch-client|switchc)(?:\s|$)/.test(action)
+export let readOnlyAction = (action: string) => ['prefix', 'command', 'detach', 'detach-client', 'close-system-window', 'next-session', 'previous-session'].includes(action) || switchClientAction(action)
+
 export let normalizeKeyAction = (action: string) => ({ 'browser-tools': 'plugins', 'new-tab': 'new-window', 'close-tab': 'close-window', 'next-tab': 'next-window', 'previous-tab': 'previous-window' } as Record<string, string>)[action] ?? action
