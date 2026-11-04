@@ -3,12 +3,12 @@ import type { KeyboardEvent, MouseEvent } from 'react'
 import { usePanelBack } from './PanelHeader'
 import type { PanelBack } from './PanelHeader'
 
-export let usePanelStack = (initial: string | null = null, label = 'Back', origin: PanelBack | null = null) => {
+export let usePanelStack = (initial: string | null = null, label = 'Back', origin: PanelBack | null = null, enabled = true) => {
   let [selected, setSelected] = useState<string | null>(initial)
   let list = useRef<HTMLElement>(null)
   let previous = useRef<string | null>(null)
   let back = useCallback(() => setSelected(null), [])
-  let navigation = useMemo(() => selected ? selected === initial && origin ? origin : { label, run: back, focus: true } : null, [selected, initial, origin, label, back])
+  let navigation = useMemo(() => enabled && selected ? selected === initial && origin ? origin : { label, run: back, focus: true } : null, [enabled, selected, initial, origin, label, back])
   usePanelBack(navigation)
   useEffect(() => {
     if (!selected && previous.current) {

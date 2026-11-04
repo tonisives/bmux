@@ -542,6 +542,7 @@ test('Social Media details launch one settings form and a muted window with the 
   await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(viewport.width)
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(dialog).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Back to plugins', exact: true })).toBeVisible()
   expect((await state()).model.sessions.find((session: any) => session.id === client.sessionId).windows.length).toBe(windows)
   let id = await run('launch')
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible(); await openSettings(dialog)

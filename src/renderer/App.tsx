@@ -1762,7 +1762,7 @@ type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
 let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compact?: boolean; matches?: Set<string>; browsingPrompt?: boolean }) => {
   let { state, run, initialPlugin, panelBack } = useUI()
   let prompt = browsingPrompt && state.pluginPrompt?.kind === 'form' ? state.pluginPrompt : undefined
-  let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null, 'Back to plugins', !compact && initialPlugin ? panelBack : null)
+  let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null, 'Back to plugins', !compact && initialPlugin ? panelBack : null, !prompt)
   let [query, setQuery] = useState(''), [changing, setChanging] = useState<string[]>([])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
   let reload = () => { void run('plugin.reload') }
