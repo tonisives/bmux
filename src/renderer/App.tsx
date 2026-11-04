@@ -174,9 +174,9 @@ export let App = () => {
     <BrowserStatus collapsedAlerts={alertsCollapsed ? agentAlerts : []} expandAlerts={() => setAlertsCollapsed(false)} />
     {notices.length > 0 && <Notifications notices={notices} collapseAlerts={collapseAlerts} />}
     {(panel === 'sessions' || sessionsBehind) && <Panel key="sessions" type="sessions" inactive={sessionsBehind} hidden={!!state.pluginPrompt} />}
-    {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt && !(['plugins', 'extensions'].includes(panel!) && state.pluginPrompt.kind === 'form')} />}
+    {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt && !((panel === 'plugins' || panel === 'extensions') && state.pluginPrompt.kind === 'form')} />}
     {sessionsBehind && panel && <SecondaryPanel type={panel} closeToSessions={closeToSessions} hidden={!!state.pluginPrompt} />}
-    {state.pluginPrompt && !(['plugins', 'extensions'].includes(panel!) && !sessionsBehind && state.pluginPrompt.kind === 'form') && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
+    {state.pluginPrompt && !((panel === 'plugins' || panel === 'extensions') && !sessionsBehind && state.pluginPrompt.kind === 'form') && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
 }
@@ -1490,7 +1490,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
   useEffect(() => { if (!hidden && !['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type, hidden])
   if (type === 'adblock-popup' || type === 'dark-mode-popup') return <PluginQuickSettings hidden={hidden} back={panelBack} feature={type === 'adblock-popup' ? 'adblock' : 'dark-mode'} />
   let cycleTabs = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (sessionPicker && detailBack) return
+    if (sessionPicker && detailBack || state.pluginPrompt?.kind === 'form') return
     if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
     let target = event.target as HTMLElement
     if (target.closest('form[aria-label="Cursor and timing"]') && !target.closest('[role="tablist"]')) return
@@ -1790,7 +1790,7 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
   </div>
-  return <div className={css.extensionWorkspace} data-details-open={!!details} data-browsing-settings={!!prompt} onKeyDown={stack.keys}>
+  return <div className={css.extensionWorkspace} data-details-open={!!details} data-browsing-settings={!!prompt} onKeyDown={prompt ? undefined : stack.keys}>
     <section aria-label="Plugin list" className={css.extensionList} ref={stack.list} tabIndex={-1}>
     <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact && !prompt} />
     <h2>Built-in</h2>

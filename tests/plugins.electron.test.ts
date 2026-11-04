@@ -607,6 +607,9 @@ test('browsing profiles switch saved settings in place without starting a window
   await dialog.locator(':scope > header').getByRole('button', { name: 'Back to browsing', exact: true }).click()
   await expect(selector).toHaveValue('default')
   expect((await state()).pluginPrompt.runId).toBe(id)
+  await expect(dialog.getByLabel('AI source')).toHaveValue('included')
+  await dialog.getByRole('button', { name: 'Saved settings', exact: true }).click()
+  await expect(dialog.getByLabel('AI source')).toHaveValue('included')
   let edit = dialog.getByRole('button', { name: 'Edit browsing profile', exact: true })
   let selectionBounds = (await selector.boundingBox())!, editBounds = (await edit.boundingBox())!
   expect(editBounds.x).toBeGreaterThanOrEqual(selectionBounds.x + selectionBounds.width)
