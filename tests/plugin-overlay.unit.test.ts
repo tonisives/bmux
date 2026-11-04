@@ -35,3 +35,12 @@ test('settings buttons link only to an existing editable control', () => {
   expect(() => parsePluginOverlay({ ...content, controls: [{ ...button, setting: 'configure' }] })).toThrow()
   expect(() => parsePluginOverlay({ ...content, controls: [{ ...content.controls[0], setting: 'mode' }] })).toThrow()
 })
+
+
+test('overlay errors bound diagnostic text and reference existing recovery buttons', () => {
+  let controls = [...content.controls, { id: 'resume', label: 'Resume', kind: 'button' }]
+  let error = { title: 'AI request failed', message: 'OpenAI rate limit reached', diagnostic: 'HTTP 429 · slow_down', controls: ['resume'] }
+  expect(parsePluginOverlay({ ...content, controls, error }).error).toEqual(error)
+  expect(() => parsePluginOverlay({ ...content, controls, error: { ...error, message: 'x'.repeat(1001) } })).toThrow()
+  expect(() => parsePluginOverlay({ ...content, controls, error: { ...error, controls: ['missing'] } })).toThrow('Unknown overlay recovery control')
+})

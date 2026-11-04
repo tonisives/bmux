@@ -1,5 +1,6 @@
 export type PluginOverlayControl = { id: string; label: string; kind: 'button' | 'toggle' | 'choice' | 'text'; value?: string | boolean; choices?: string[]; disabled?: boolean; setting?: string }
-export type PluginOverlayContent = { title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
+export type PluginOverlayError = { title: string; message: string; diagnostic?: string; controls?: string[] }
+export type PluginOverlayContent = { error?: PluginOverlayError; title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
 export type PluginOverlayBounds = { x: number; y: number; width: number; height: number; collapsed?: boolean }
 export type PluginOverlayState = { runId: string; paneId: string; content: PluginOverlayContent; bounds: PluginOverlayBounds; ended: boolean; error?: string }
 export type PluginOverlayInput = { id: string; value?: string | boolean }
@@ -24,7 +25,9 @@ export let parsePluginOverlay = (value: Record<string, unknown>): PluginOverlayC
     return { id: copy.id, label: text(copy.label, 80), text: text(copy.text, 300000) }
   })
   if (new Set(copies.map(copy => copy.id)).size !== copies.length) throw new Error('Duplicate overlay copy')
-  return { copies, title: text(value.title, 100), subtitle: text(value.subtitle ?? '', 180), status: text(value.status ?? '', 180), metrics: text(value.metrics ?? '', 300), controls,
+  let error = value.error === undefined ? undefined : value.error as Record<string, unknown>
+  let failure = error ? { title: text(error.title, 100), message: text(error.message, 1000), ...(error.diagnostic === undefined ? {} : { diagnostic: text(error.diagnostic, 2000) }), controls: array(error.controls ?? [], 4).map(id => { let name = text(id, 64); if (!controls.some(control => control.id === name && control.kind === 'button')) throw new Error('Unknown overlay recovery control'); return name }) } : undefined
+  return { ...(failure ? { error: failure } : {}), copies, title: text(value.title, 100), subtitle: text(value.subtitle ?? '', 180), status: text(value.status ?? '', 180), metrics: text(value.metrics ?? '', 300), controls,
     nodes: array(value.nodes ?? [], 8).map(node => { if (!node || !['cyan','green','neutral'].includes(node.tone)) throw new Error('Invalid overlay node'); return { title: text(node.title, 80), lines: array(node.lines, 12).map(line => text(line, 800)), tone: node.tone } }),
     details: array(value.details ?? [], 8).map(detail => ({ title: text(detail.title, 80), text: text(detail.text, 12000) })),
   }

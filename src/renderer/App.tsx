@@ -174,7 +174,7 @@ export let App = () => {
     {(panel === 'sessions' || sessionsBehind) && <Panel key="sessions" type="sessions" inactive={sessionsBehind} hidden={!!state.pluginPrompt} />}
     {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}
     {sessionsBehind && panel && <SecondaryPanel type={panel} closeToSessions={closeToSessions} hidden={!!state.pluginPrompt} />}
-    {state.pluginPrompt && <Panel key={state.pluginPrompt.id} type="plugin-dialog" />}
+    {state.pluginPrompt && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
 }
@@ -1518,7 +1518,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {sessionPicker && navigation && !closeToParent && <div className={css.sessionNavigation} data-session-navigation><BackButton back={navigation} /></div>}
       {type === 'help' && <HelpContent />}
       {type === 'plugins' && <PluginList />}
-      {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
+      {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} />}
       {type === 'site-info' && <SiteInformation />}
       {type === 'agent-info' && <AgentInformation />}
       {type === 'anti-bot-settings' && <GeneralBotSettings />}
@@ -1858,7 +1858,7 @@ let dismissPluginPrompt = (request: NonNullable<PublicState['pluginPrompt']>) =>
   if (request.kind === 'form' && request.autosave) globalThis.dispatchEvent(new Event('bmux-plugin-dismiss'))
   else void bridge.command({ method: 'plugin.respond', args: { id: request.id, cancel: true } }).catch(() => undefined)
 }
-let PluginParameters = () => {
+let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values }), [busy, setBusy] = useState(false)
@@ -1910,6 +1910,7 @@ let PluginParameters = () => {
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (busy) return
+    if (editingProfile) { await flush().catch(() => undefined); return }
     setBusy(true)
     try { await flush(); await run('plugin.respond', { id: request.id, value: values }) } catch { /* Save error remains beside the settings. */ } finally { setBusy(false) }
   }
@@ -1932,21 +1933,26 @@ let PluginParameters = () => {
       {item.description && <small>{item.description}</small>}
     </div>
   }
-  let sections = [...new Set(fields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Settings' || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{fields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
+  let editProfile = () => setEditingProfile(true)
+  let backToBrowsing = async () => { try { await flush(); setEditingProfile(false) } catch { /* Keep unsaved fields available. */ } }
+  let profileFields = request.profiles ? fields.filter(item => item.section === 'Persona') : []
+  let visibleFields = fields.filter(item => !profileFields.includes(item))
+  let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Settings' || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
   return <form className={css.pluginParameters} onSubmit={submit}>
-    <h2>{request.pluginName} · {request.title}</h2>
+    <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
     <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
-      {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
+      {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
+      {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {!!request.presets?.length && <section aria-label="Browsing presets" className={css.pluginPresetSection}>
         <h3>Browsing preset</h3>
         <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{request.presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
         <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? request.autosave ? 'Changes save automatically for this profile and platform.' : 'Custom settings for this session.' : request.presets.find(item => item.id === preset)?.description}</p>
       </section>}
-      <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div>{saveError && <p role="alert" className={css.error}>{saveError}</p>}
-      <div className={css.pluginSettingsRows}>{sections}</div>
+      <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div></>}
+      {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
-    <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>
+    <div className={css.settingsFooter}>{editingProfile ? <button type="button" onClick={backToBrowsing} disabled={busy}>Back to browsing</button> : <><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></>}</div>
   </form>
 }
 let PluginDialog = () => {
@@ -1970,7 +1976,9 @@ let PluginDialog = () => {
     event.preventDefault()
     if (items.length) setIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length)
   }
-  if (request.kind === 'form') return <PluginParameters key={request.id} />
+  let [editingProfile, setEditingProfile] = useState(false)
+  useEffect(() => { setEditingProfile(false) }, [request.runId])
+  if (request.kind === 'form') return <PluginParameters key={request.id} editingProfile={editingProfile} setEditingProfile={setEditingProfile} />
   return <><p>{request.pluginName}</p>{request.kind === 'confirm' ? <><p>{request.title}</p><button autoFocus onClick={yes}>Yes</button><button onClick={no}>No</button></> : <form onSubmit={submit}>
     {request.kind === 'pick' ? <SearchInput ref={ref} aria-label={request.title} value={value} onChange={change} onKeyDown={keys} /> : <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.required} /></label>}
     {request.kind === 'pick' ? items.map((item, position) => <button key={item.id} type="button" className={css.listRow} data-id={item.id} data-active={position === index} disabled={busy} onClick={pick}>{item.label}{item.description && <span className={css.pluginDescription}>{item.description}</span>}</button>) : <button type="submit" disabled={busy}>Continue</button>}
