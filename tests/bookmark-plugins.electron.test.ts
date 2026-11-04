@@ -23,12 +23,16 @@ let launch = async () => {
   await rpc('activate-client', { client })
 }
 let pageFor = async (pane: string): Promise<Page> => {
-  let url = (await state()).model.sessions.flatMap((item: any) => item.windows).flatMap((item: any) => item.panes).find((item: any) => item.id === pane).url
-  await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
-  let pages = application.context().pages().filter(page => page.url() === url)
-  let page = pages.at(-1)!
-  await expect(page.locator('h1')).toHaveText('Search fixture')
-  return page
+  let found: Page | undefined
+  await expect.poll(async () => {
+    await rpc('cdp', { tab: pane, method: 'Runtime.evaluate', params: { expression: `globalThis.__bmuxFixturePane = ${JSON.stringify(pane)}` } })
+    for (let page of application.context().pages()) {
+      if (await page.evaluate(id => (globalThis as any).__bmuxFixturePane === id, pane).catch(() => false)) { found = page; return true }
+    }
+    return false
+  }).toBe(true)
+  await expect(found!.locator('h1')).toHaveText('Search fixture')
+  return found!
 }
 let overlayEval = async (pane: string, expression: string) => {
   let frame = await rpc('cdp', { tab: pane, method: 'Page.getFrameTree' })
@@ -285,6 +289,8 @@ test('bookmark filters show hidden post counts, reasons, links and empty and dis
   await expect.poll(() => hiddenCount(pane)).toBe('2 hidden')
   let window = (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.panes.some((item: any) => item.id === pane))
   await rpc('select-window', { window: window.id, client }); await rpc('activate-client', { client })
+  await expect(chrome.locator(`[data-pane-id="${pane}"]`)).toHaveAttribute('data-focused-pane', 'true')
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await overlayEval(pane, `(() => { globalThis.__bmuxBookmarkOverlay.querySelector('[data-hidden-overview]').open = false; return true })()`)
   let point = await overlayEval(pane, `(() => { let rect = globalThis.__bmuxBookmarkOverlay.querySelector('[data-hidden-overview] > summary').getBoundingClientRect(); return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 } })()`)
   await page.mouse.click(point.x, point.y)
