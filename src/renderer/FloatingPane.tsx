@@ -13,6 +13,8 @@ import { NavigationFailure } from './NavigationFailure'
 import { captureAddressPointer, useAddressSelection } from './useAddressSelection'
 import { RemotePaneControls } from './RemotePaneControls'
 import { useViewportPan } from './useViewportPan'
+import { useViewportCanvas } from './useViewportCanvas'
+import { viewportPanScroll } from '../shared/viewport-pan'
 
 export let FloatingPane = () => {
   let [state, setState] = useState<PublicState | null>(null)
@@ -93,7 +95,7 @@ export let FloatingPane = () => {
       {remote ? <RemotePaneControls remote={remote} paneId={paneId} focused={client?.paneId === paneId} run={run} onError={setError} /> : <CloseButton label="Close floating pane" onClick={close} />}
     </form>
     <div className={css.content} onMouseDown={focusPage} onContextMenu={menu}>
-      <div ref={viewport} className={`${css.viewport} ${fixedSize ? css.fixedViewport : ''}`} data-remote-viewport={fixedSize ? true : undefined}>
+      <div ref={viewport} className={`${css.viewport} ${fixedSize ? css.fixedViewport : ''}`} data-remote-viewport={fixedSize ? true : undefined} data-native-page={state?.nativePagePanes?.includes(paneId) || undefined}>
         <div className={fixedSize ? css.canvas : css.page}>
           {error || (tab && state?.crashes[tab.id]) ? <NavigationFailure error={error || state!.crashes[tab!.id]} hint={error ? undefined : state?.navigationProxyHints?.[tab!.id]} reload={reload} /> : tab && state?.snapshots[tab.id] ? <img src={state.snapshots[tab.id].image} alt="Page preview" /> : tab?.url === 'about:blank' && <span>Enter a URL above</span>}
         </div>
@@ -109,14 +111,13 @@ let edges = ['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw']
 
 let useFixedViewport = (size: ViewportSize | undefined) => {
   let viewport = useRef<HTMLDivElement>(null)
+  useViewportCanvas(viewport, size)
   useLayoutEffect(() => {
     let element = viewport.current
     if (!element || !size) { bridge.bounds([]); return }
-    element.style.setProperty('--viewport-width', `${size.width}px`)
-    element.style.setProperty('--viewport-height', `${size.height}px`)
     let publish = () => {
       let rect = element.getBoundingClientRect()
-      bridge.bounds([{ paneId, x: rect.x, y: rect.y, width: element.clientWidth, height: element.clientHeight, scrollX: element.scrollLeft, scrollY: element.scrollTop }])
+      bridge.bounds([{ paneId, x: rect.x, y: rect.y, width: element.clientWidth, height: element.clientHeight, scrollX: viewportPanScroll(element).x, scrollY: viewportPanScroll(element).y }])
     }
     let observer = new ResizeObserver(publish)
     observer.observe(element)

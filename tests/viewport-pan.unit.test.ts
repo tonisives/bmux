@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import vm from 'node:vm'
 import { observeViewportPan } from '../src/main/viewport-pan'
-import { viewportPanDelta, viewportZoomFactor } from '../src/shared/viewport-pan'
+import { viewportPanDelta, viewportZoomFactor, viewportPanMetrics } from '../src/shared/viewport-pan'
 
 let fixture = () => {
   let element = () => {
@@ -92,4 +92,13 @@ test('Alt wheel zooms without panning and clamps the page zoom range', () => {
   expect(viewportZoomFactor(1, 40)).toBeLessThan(1)
   expect(viewportZoomFactor(1, -10000)).toBe(3)
   expect(viewportZoomFactor(1, 10000)).toBe(.25)
+})
+
+test('pan limits let either page edge reach the middle of large and small panes', () => {
+  for (let [page, viewport] of [[1500, 800], [600, 1200], [681, 497], [1231, 1580]]) {
+    let metrics = viewportPanMetrics(page, viewport)
+    expect(metrics.center - metrics.min).toBe(Math.round(viewport / 2))
+    expect(metrics.center - metrics.max + page).toBe(viewport - Math.round(viewport / 2))
+    expect(metrics.origin).toBeGreaterThanOrEqual(0)
+  }
 })

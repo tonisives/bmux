@@ -178,8 +178,9 @@
 .profileRouteIcon { display: block; width: 15px; height: 15px; flex: 0 0 15px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .profileRouteIconVerified { color: #a7c88d; }
 .content { flex: 1; min-width: 0; min-height: 1px; position: relative; background: #111318; overflow: hidden; }
-.remoteViewport { display: flex; overflow: auto; }
-.remoteCanvas { position: relative; overflow: hidden; flex: none; width: var(--remote-width); height: var(--remote-height); margin: auto; }
+.remoteViewport { overflow: auto; }
+.remoteCanvas { box-sizing: content-box; position: relative; overflow: hidden; width: var(--remote-width); height: var(--remote-height); padding: var(--pan-inset-y, 0px) var(--pan-inset-x, 0px); }
+.content[data-native-page] .preview { visibility: hidden; }
 .preview { width: 100%; height: 100%; object-fit: contain; object-position: top left; background: #111318; }
 .deviceFrame { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
 .deviceFrameImage { position: absolute; top: 50%; left: 50%; user-select: none; }
