@@ -1,4 +1,4 @@
-(settings) => {
+(settings, report = () => {}) => {
   let parseCount = value => {
     if (value === null || value === undefined) return undefined
     let text = String(value).trim().replace(/,/g, '')
@@ -19,7 +19,7 @@
     } catch { return '' }
   }
   let postId = value => String(value ?? '').match(/(?:t3_|\/comments\/)([a-z0-9]+)/i)?.[1]?.toLowerCase() ?? ''
-  let originals = new Map(), timer, closed = false
+  let originals = new Map(), hits = new Map(), keys = new WeakMap(), sequence = 0, page = location.href, timer, closed = false
   let roots = () => {
     let nodes = [...document.querySelectorAll('shreddit-post, [data-testid="search-post-unit"], [data-testid="search-post"], [data-testid="post-container"], .search-result-link')]
     return nodes.filter(node => !nodes.some(other => other !== node && other.contains(node)))
@@ -34,7 +34,7 @@
     let comments = parseCount(node.getAttribute('comment-count') ?? node.getAttribute('data-comments') ?? node.querySelector('[data-testid="comments-count"], .search-comments, a[data-click-id="comments"]')?.textContent ?? counterNumber(/\bcomments?\b/i) ?? countText.match(/([\d,.]+\s*[kKmM]?)\s+comments?\b/i)?.[1])
     let external = node.getAttribute('content-href') || node.querySelector('a.search-link, a[data-testid="outbound-link"], a[data-click-id="body"]')?.getAttribute('href') || ''
     let body = node.querySelector('[slot="text-body"], [data-testid="post-text-container"], [data-testid="post-excerpt"], .search-result-body')?.textContent || ''
-    return { id: postId(node.getAttribute('id') || node.getAttribute('data-fullname')) || postId(permalink), parent: postId(node.getAttribute('crosspost-parent-id') || node.getAttribute('crosspost-parent')), title: titleKey(title), link: linkKey(external), score, comments, connection: connectionPost(`${title}\n${body}`) }
+    return { id: postId(node.getAttribute('id') || node.getAttribute('data-fullname')) || postId(permalink), parent: postId(node.getAttribute('crosspost-parent-id') || node.getAttribute('crosspost-parent')), title: titleKey(title), displayTitle: title.trim().slice(0, 500), url: permalink ? new URL(permalink, location.href).href : '', link: linkKey(external), score, comments, connection: connectionPost(`${title}\n${body}`) }
   }
   let restore = node => {
     let value = originals.get(node)
@@ -46,31 +46,46 @@
   let apply = () => {
     if (closed) return
     observer.disconnect()
+    if (page !== location.href) { hits.clear(); page = location.href }
     let url = new URL(location.href)
     let search = /^(?:\/r\/[^/]+)?\/search\/?$/.test(url.pathname) && (!url.searchParams.has('type') || ['link', 'posts'].includes(url.searchParams.get('type')))
     let nodes = search ? roots() : [], current = new Set(nodes), ids = new Set(), links = new Set(), titles = new Set()
+    if (!search) hits.clear()
     for (let node of originals.keys()) if (!current.has(node)) restore(node)
     for (let node of nodes) {
       let result = read(node), minimums = []
       if (settings.minScore > 0) minimums.push(result.score === undefined ? undefined : result.score >= settings.minScore)
       if (settings.minComments > 0) minimums.push(result.comments === undefined ? undefined : result.comments >= settings.minComments)
       let qualified = !minimums.length || minimums.includes(undefined) || (settings.rule === 'Require either minimum' ? minimums.some(Boolean) : minimums.every(Boolean))
-      let duplicate = (settings.duplicatePosts && result.id && ids.has(result.id)) || (settings.duplicateLinks && ((result.link && links.has(result.link)) || (result.parent && ids.has(result.parent)))) || (settings.duplicateTitles && result.title && titles.has(result.title))
-      let hidden = !qualified || duplicate || (settings.connectionPosts && result.connection)
+      let reasons = []
+      if (!qualified) {
+        if (minimums.length && settings.minScore > 0 && result.score < settings.minScore) reasons.push(`Score ${result.score} below ${settings.minScore}`)
+        if (minimums.length && settings.minComments > 0 && result.comments < settings.minComments) reasons.push(`Comments ${result.comments} below ${settings.minComments}`)
+      }
+      if (settings.duplicatePosts && result.id && ids.has(result.id)) reasons.push('Duplicate post')
+      if (settings.duplicateLinks && ((result.link && links.has(result.link)) || (result.parent && ids.has(result.parent)))) reasons.push('Duplicate link or crosspost')
+      if (settings.duplicateTitles && result.title && titles.has(result.title)) reasons.push('Duplicate title')
+      if (settings.connectionPosts && result.connection) reasons.push('Connection post')
+      let hidden = reasons.length > 0
+      if (!keys.has(node)) keys.set(node, String(++sequence))
+      let key = keys.get(node)
       if (hidden) {
         if (!originals.has(node)) originals.set(node, { value: node.style.getPropertyValue('display'), priority: node.style.getPropertyPriority('display') })
         node.style.setProperty('display', 'none', 'important')
+        hits.set(key, { key, title: result.displayTitle || 'Untitled post', url: result.url, reasons })
       } else {
         restore(node)
+        hits.delete(key)
         if (result.id) ids.add(result.id)
         if (settings.duplicateLinks && result.parent) ids.add(result.parent)
         if (result.link) links.add(result.link)
         if (result.title) titles.add(result.title)
       }
     }
+    report([...hits.values()])
     observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['score', 'data-score', 'comment-count', 'data-comments', 'number', 'data-testid', 'aria-label', 'post-title', 'href', 'content-href', 'crosspost-parent-id', 'crosspost-parent', 'id', 'data-fullname', 'permalink'] })
   }
   let observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(apply, 50) })
   apply()
-  return () => { closed = true; clearTimeout(timer); observer.disconnect(); for (let node of originals.keys()) restore(node) }
+  return () => { closed = true; clearTimeout(timer); observer.disconnect(); for (let node of originals.keys()) restore(node); report([]) }
 }

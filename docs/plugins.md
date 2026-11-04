@@ -301,7 +301,12 @@ Controls support `number`, `boolean`, `text`, and `choice`. Each requires a
 JavaScript file must be inside the plugin directory and at most 256 KiB.
 
 The file contains a JavaScript function expression receiving validated settings
-and returning a synchronous cleanup function:
+and returning a synchronous cleanup function. An optional second argument reports
+hidden posts to the floating page overview. Call it after filtering with an array
+of `{ key, title, url, reasons }` objects; `reasons` is an array of short strings.
+Keep post keys stable, retain matches removed by infinite scrolling, and report
+an empty array on cleanup or when the search changes. Reporting stays in the
+page's isolated world.
 
 ```js
 (settings) => {
