@@ -39,3 +39,9 @@
 
 .error { color: #e6a69c; }
 .empty { padding: 16px; color: #c0c6ce; background: #191d23; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.failure { display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+.failure h2 { color: #e6a69c; font: inherit; margin: 0 0 8px; }
+.failure p { margin: 8px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.diagnostic { color: #8e98a4; font-size: 11px; }
+.recoverySettings { border-top: 1px solid #363c45; padding-top: 8px; }

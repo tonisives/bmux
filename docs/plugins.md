@@ -403,3 +403,11 @@ them should return the original flat settings object in that case.
 Form sections are collapsible. An overlay button can set `setting` to the ID of
 an editable overlay control to open Session settings and focus that control,
 without submitting a browser action.
+
+Named profiles have a compact selector and an Edit button. Creation, naming and
+Persona fields appear in a separate editor. Back to browsing flushes edits.
+
+An overlay can supply `error: {title, message, diagnostic?, controls?: string[]}`.
+BMUX replaces post cards, metrics and details with the error and only the named
+recovery buttons. A recovery button with `setting` opens its editable control
+inside this view. Recovery IDs must refer to existing button controls.

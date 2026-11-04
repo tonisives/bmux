@@ -43,11 +43,13 @@ if (action === 'pick') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
 } else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
 } else if (action === 'overlay') {
- let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI limit settings',kind:'button',setting:'ads'}],details:[{title:'Profile',text:'Interested in computers'}]};host('overlay.update',content);
+ let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'fail',label:'Trigger AI error',kind:'button'},{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI limit settings',kind:'button',setting:'ads'}],details:[{title:'Profile',text:'Interested in computers'}]};host('overlay.update',content);
  while(true){
   let inputs=host('overlay.events');
   if(inputs.some(input=>input.id==='finish')){host('overlay.update',{...content,status:'Session complete'});host('result',{started:true});break}
+  if(inputs.some(input=>input.id==='fail')){content={...content,error:{title:'BMUX rejected the AI query',message:'Use up to eight bounded questions. No OpenAI request was sent.',diagnostic:'Stage: request · HTTP 400 · req-fixture',controls:['resume','settings','finish']},controls:[{id:'resume',label:'Resume session',kind:'button'},{id:'finish',label:'Finish fixture',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI settings',kind:'button',setting:'ads'}]};host('overlay.update',content)}
   for(let input of inputs)if(['start','pause','resume'].includes(input.id)){
+   delete content.error;
    let paused=input.id==='pause';content={...content,status:paused?'Paused':'Browsing',controls:[{id:paused?'resume':'pause',label:paused?'Resume session':'Pause session',kind:'button'},{id:'finish',label:'Finish fixture',kind:'button'}]};host('overlay.update',content)
   }
   await new Promise(resolve=>setTimeout(resolve,100))
@@ -577,12 +579,15 @@ test('browsing profiles switch saved settings in place without starting a window
   let id = await run('profiles'), dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
   let selector = dialog.getByRole('combobox', { name: 'Browsing profile', exact: true })
   await expect(selector).toHaveValue('default')
+  await expect(dialog.getByRole('button', { name: 'New profile', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Edit browsing profile', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toHaveCount(0)
   await dialog.getByRole('button', { name: 'New profile', exact: true }).click()
   await dialog.getByLabel('Profile template', { exact: true }).selectOption('research')
   await dialog.getByRole('button', { name: 'Create profile', exact: true }).click()
   await expect(selector).toHaveValue('profile-1')
-  await expect(dialog.getByRole('group', { name: 'Persona', exact: true })).not.toHaveAttribute('open')
-  await openSettings(dialog)
+  await expect(dialog.getByRole('group', { name: 'Profile settings', exact: true })).toBeVisible()
   await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveValue('AI research')
   await dialog.getByRole('textbox', { name: 'Persona', exact: true }).fill('Research experiments')
   await selector.selectOption('default')
@@ -597,10 +602,40 @@ test('browsing profiles switch saved settings in place without starting a window
   await expect(selector.locator('option:checked')).toHaveText('Technical research')
   await chrome.screenshot({ path: path.resolve('artifacts/browsing-profiles.png') })
   expect((await state()).model.sessions.flatMap((session: any) => session.windows).length).toBe(windows)
+  await dialog.getByRole('button', { name: 'Back to browsing', exact: true }).click()
+  await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveCount(0)
+  await chrome.screenshot({ path: path.resolve('artifacts/browsing-profile-selector.png') })
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await completed(id,'cancelled')
   id = await run('profiles'); await expect(selector.locator('option:checked')).toHaveText('Technical research')
+  await dialog.getByRole('button', { name: 'Edit browsing profile', exact: true }).click()
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(selector).toHaveValue('default'); await expect(selector.getByRole('option')).toHaveCount(1)
   await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Back to browsing', exact: true }).click()
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await completed(id,'cancelled')
+})
+
+
+test('overlay errors replace post details with a clear recovery view', async () => {
+  let id = await run('overlay')
+  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
+  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  await expect(observer.getByRole('button', { name: 'Trigger AI error', exact: true })).toBeVisible()
+  await observer.getByRole('button', { name: 'Collapse page overlay', exact: true }).click()
+  await expect(observer.getByRole('button', { name: 'Expand page overlay', exact: true })).toBeVisible()
+  await rpc('plugin.overlay.input', { id, control: 'fail' })
+  await expect(observer.getByRole('alert')).toContainText('Use up to eight bounded questions')
+  await expect(observer.getByRole('alert')).toContainText('HTTP 400')
+  await expect(observer.getByRole('heading', { name: 'Post', exact: true })).toHaveCount(0)
+  await expect(observer.getByRole('heading', { name: 'AI answer', exact: true })).toHaveCount(0)
+  await expect(observer.getByText('Details and settings', { exact: true })).toHaveCount(0)
+  await expect(observer.getByRole('button', { name: 'Copy sent payload', exact: true })).toHaveCount(0)
+  await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay-error.png') })
+  await observer.getByRole('button', { name: 'AI settings', exact: true }).click()
+  await expect(observer.getByRole('checkbox', { name: 'Skip ads', exact: true })).toBeFocused()
+  await observer.getByRole('button', { name: 'Resume session', exact: true }).click()
+  await expect(observer.getByRole('heading', { name: 'Post', exact: true })).toBeVisible()
+  await expect(observer.getByRole('alert')).toHaveCount(0)
+  await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
+  await completed(id)
 })
