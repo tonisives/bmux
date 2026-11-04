@@ -10,7 +10,7 @@ test('address search selects search for phrases and domains for exact known name
   let model = initialModel()
   model.profiles[0].history = [{ url: 'https://github.com/acme/issues', title: 'GitHub issues', visitedAt: 1 }]
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   try {
     await application.context().route('https://www.google.com/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Search fixture</title><h1>Search fixture</h1>' }))
@@ -21,6 +21,7 @@ test('address search selects search for phrases and domains for exact known name
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = () => chrome.evaluate(() => (window as any).bmux.state())
+    expect((await state()).configError).toBeNull()
     await rpc('activate-client', { client: (await state()).clientId })
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     let options = chrome.getByRole('listbox', { name: 'Address suggestions' }).getByRole('option')
@@ -95,11 +96,12 @@ test('address search shows relative numbers and scrolls with counted j/k navigat
   let model = initialModel()
   model.profiles[0].history = Array.from({ length: 40 }, (_, index) => ({ url: `https://example.test/item/${index}`, title: `Fixture ${index}`, visitedAt: index + 1 }))
   await fs.writeFile(path.join(directory, 'state.json'), JSON.stringify(model))
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'browser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
   let application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    expect(await chrome.evaluate(async () => (await (window as any).bmux.state()).configError)).toBeNull()
     await chrome.evaluate(async () => { let bridge = (window as any).bmux; await bridge.command({ method: 'activate-client', args: { client: (await bridge.state()).clientId } }) })
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
