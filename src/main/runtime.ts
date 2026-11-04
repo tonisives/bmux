@@ -502,7 +502,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let settingsReady = readSettings()
 
   let pluginOverlayBounds = new Map<string, PluginOverlayBounds>()
-  let dismissedPluginOverlays = new Set<string>(), pluginOverlayRuns = new Map<string, { id: string; ended: boolean }>()
+  let dismissedPluginOverlays = new Set<string>(), pluginOverlayRuns = new Map<string, { id: string; ended: boolean; failed: boolean }>()
   let overlayForClient = (clientId: string) => {
     let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
     if (!client?.paneId || !owner || !visiblePaneIds(client).includes(client.paneId)) return
@@ -510,8 +510,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!value || !area || area.width < 1 || area.height < 1 || dismissedPluginOverlays.has(clientId + ':' + value.runId)) return
     let key = clientId + ':' + client.paneId, bounds = fitPluginOverlay(pluginOverlayBounds.get(key), area)
     let previous = pluginOverlayRuns.get(key)
-    if (previous?.id !== value.runId || value.ended && !previous?.ended) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended }, area)
-    pluginOverlayRuns.set(key, { id: value.runId, ended: value.ended })
+    let failed = Boolean(value.error || value.content.error)
+    if (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed }, area)
+    pluginOverlayRuns.set(key, { id: value.runId, ended: value.ended, failed })
     pluginOverlayBounds.set(key, bounds)
     return { ...value, bounds }
   }
