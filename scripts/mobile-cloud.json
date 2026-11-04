@@ -1,0 +1,8 @@
+{
+  "app_dir": "remote-app",
+  "scheme": "bmuxremote",
+  "bundle_id": "cc.bmux.remote",
+  "repository": "tonisives/bmux",
+  "dispatch_branch": "main",
+  "workflow": "Mobile TestFlight"
+}
