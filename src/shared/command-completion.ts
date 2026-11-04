@@ -10,7 +10,7 @@ let quoteTarget = (value: string) => /[\s"'\\]/.test(value) ? `"${value.replace(
 export let commandTargetSuggestions = (line: string, state: PublicState): { query: string; entries: CommandEntry[] } | undefined => {
   let tokens = commandTokens(line, true), name = tokens[0]?.value
   name = COMMAND_ALIASES[name] ?? name
-  if (!['kill-session', 'move-pane', 'join-pane', 'break-pane', 'swap-pane', 'rotate-window', 'move-window', 'swap-window', 'select-pane', 'select-window', 'lock-viewport', 'unlock-viewport'].includes(name)) return
+  if (!['switch-client', 'kill-session', 'move-pane', 'join-pane', 'break-pane', 'swap-pane', 'rotate-window', 'move-window', 'swap-window', 'select-pane', 'select-window', 'lock-viewport', 'unlock-viewport'].includes(name)) return
   let last = tokens.at(-1)!, previous = tokens.at(-2)?.value
   let start = last.start, query = last.value, flag = previous, inline = ''
   if (last.end < line.length) {
@@ -23,6 +23,18 @@ export let commandTargetSuggestions = (line: string, state: PublicState): { quer
     start = line.length; query = ''; flag = last.value; inline = ' '
   }
   if (!['-t', '--target', '--window', '-s', '--source'].includes(flag ?? '')) return
+  if (name === 'switch-client') {
+    if (!['-t', '--target'].includes(flag!)) return
+    let candidates = state.model.sessions.flatMap(session => [
+      { value: session.id, label: session.name, description: 'Session' },
+      ...session.windows.flatMap((window, index) => [
+        { value: `${session.id}:${windowNumber(window, index)}`, label: `${session.name}:${windowNumber(window, index)} ${window.name}`, description: 'Window' },
+        ...paneOrder(window).map((pane, paneIndex) => ({ value: pane, label: `${pane} ${session.name}:${windowNumber(window, index)}.${paneIndex} ${window.name}`, description: 'Pane' })),
+      ]),
+    ])
+    let matches = candidates.map(candidate => ({ candidate, match: fuzzyMatch(query, `${candidate.label} ${candidate.value}`) })).filter(item => item.match).sort((a, b) => b.match!.score - a.match!.score)
+    return { query, entries: matches.map(({ candidate }) => ({ command: line.slice(0, start) + inline + quoteTarget(candidate.value), usage: candidate.label, description: candidate.description, complete: true })) }
+  }
   if (name === 'kill-session') {
     if (!['-t', '--target'].includes(flag!)) return
     let matches = state.model.sessions.map(session => ({ session, match: fuzzyMatch(query, `${session.name} ${session.id}`) }))

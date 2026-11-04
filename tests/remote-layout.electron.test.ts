@@ -25,10 +25,14 @@ test.afterAll(async () => { if (fixtureDirectory) await fs.rm(fixtureDirectory, 
 
 test('viewport lock keeps split pages fixed across resizing, client handoff and relaunch', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-viewport-lock-'))
-  let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1><div id="horizontal" style="position:absolute;left:20px;top:160px;width:260px;height:80px;overflow:auto"><div style="width:1800px;height:40px">Horizontal content</div></div>') })
+  let pendingImages = new Set<http.ServerResponse>()
+  let server = http.createServer((request, response) => {
+    if (request.url === '/pending-image') { pendingImages.add(response); response.on('close', () => pendingImages.delete(response)); return }
+    response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1><div id="horizontal" style="position:absolute;left:20px;top:160px;width:260px;height:80px;overflow:auto"><div style="width:1800px;height:40px">Horizontal content</div></div>' + (request.url === '/pending' ? '<img src="/pending-image">' : ''))
+  })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
-  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
+  await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Ctrl+L: pane-right\nbrowser:\n  autoUpdateFilters: false\n')
   let launch = () => electron.launch({ args: [path.join(fixtureDirectory, 'main/remote-layout-main.js')], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') } })
   let application = await launch()
   try {
@@ -52,6 +56,15 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect(second.getByRole('heading')).toHaveText('Viewport lock')
     let size = (page: typeof first) => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
     let content = (pane: string) => chrome.locator(`[data-content-pane-id="${pane}"]`)
+    let controlPage = async (pane: string) => {
+      let url = `about:blank#bmux-viewport-control-${encodeURIComponent(pane)}`
+      await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
+      return application.context().pages().find(page => page.url() === url)!
+    }
+    let controlBounds = (pane: string) => application.evaluate(({ BaseWindow, WebContentsView }, pane) => {
+      for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if (view instanceof WebContentsView && view.webContents.getURL() === `about:blank#bmux-viewport-control-${encodeURIComponent(pane)}`) return view.getBounds()
+      return null
+    }, pane)
     for (let [pane, page] of [[client.paneId, first], [added.id, second]] as const) await expect.poll(async () => {
       let rect = (await content(pane).boundingBox())!, viewport = await size(page)
       return Math.abs(rect.width - viewport.width) <= 1 && Math.abs(rect.height - viewport.height) <= 1
@@ -153,7 +166,8 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         await scroll(false)
         await nativeResize(840, 650)
         await expect.poll(() => content(client.paneId).evaluate(element => element.clientHeight > Number.parseFloat(getComputedStyle(element).getPropertyValue('--remote-height')) + 40)).toBe(true)
-        await scroll(true)
+        // Shift over the gutter keeps ordinary browser overflow scrolling.
+        // Hand gestures over the actual page are covered below.
         await nativeResize(840, 360)
         await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
       }
@@ -175,6 +189,123 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(() => scroller.evaluate(element => element.scrollLeft)).toBe(40)
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
       expect(await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
+      // Native content can retain focus while chrome's selected pane is stale.
+      // Clicking that already-focused view does not emit another focus event.
+      await rpc('select-pane', { client: client.id, pane: client.paneId })
+      await rpc('select-pane', { client: client.id, pane: added.id, focus: false })
+      await expect(chrome.locator(`[data-pane-id="${added.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+      await first.mouse.click(100, 100)
+      await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveAttribute('data-focused-pane', 'true')
+      await rpc('select-pane', { client: client.id, pane: added.id, focus: false })
+      await first.keyboard.press('Control+l')
+      await expect(chrome.locator(`[data-pane-id="${added.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+      await first.mouse.click(100, 100)
+      await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveAttribute('data-focused-pane', 'true')
+      let handPage = await controlPage(client.paneId)
+      let hand = handPage.getByRole('button', { name: 'Pan viewport', exact: true })
+      await expect(hand).toBeVisible()
+      let anchoredControl = await controlBounds(client.paneId)
+      await hand.hover()
+      let tooltip = application.context().pages().find(page => page.url().endsWith('#tab-tooltip'))!
+      await expect(tooltip.getByText('Pan viewport · Alt/Meta + drag · Alt + scroll to zoom', { exact: true })).toBeVisible()
+      for (let modifier of ['Alt', 'Meta']) {
+        await first.keyboard.down(modifier)
+        await first.mouse.move(120, 120)
+        await first.mouse.down()
+        await first.mouse.move(80, 80)
+        expect(await controlBounds(client.paneId)).toEqual(anchoredControl)
+        await first.mouse.up()
+        await first.keyboard.up(modifier)
+        await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 40, y: 40 })
+        expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+        await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
+        await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
+      }
+      await first.keyboard.down('Alt')
+      await first.mouse.move(100, 100)
+      await first.mouse.wheel(0, 100)
+      await expect.poll(async () => (await state()).model.sessions.flatMap((s: any) => s.windows.flatMap((w: any) => w.panes)).find((p: any) => p.id === client.paneId).zoom).toBeLessThan(1)
+      await first.mouse.wheel(0, -200)
+      await expect.poll(async () => (await state()).model.sessions.flatMap((s: any) => s.windows.flatMap((w: any) => w.panes)).find((p: any) => p.id === client.paneId).zoom).toBeGreaterThan(1)
+      await first.keyboard.up('Alt')
+      await rpc('zoom', { tab: client.paneId, factor: 1 })
+      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 0, y: 0 })
+      await hand.click()
+      await expect(hand).toHaveAttribute('aria-pressed', 'true')
+      await handPage.screenshot({ path: info.outputPath('viewport-hand-pressed.png') })
+      await first.mouse.move(100, 100)
+      await first.mouse.wheel(20, 30)
+      await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 20, y: 30 })
+      await hand.click()
+      await expect(hand).toHaveAttribute('aria-pressed', 'false')
+      await hand.click()
+      await expect(hand).toHaveAttribute('aria-pressed', 'true')
+      await first.keyboard.press('Escape')
+      await expect(hand).toHaveAttribute('aria-pressed', 'false')
+      await chrome.screenshot({ path: info.outputPath('viewport-hand-control.png') })
+      await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
+      await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
+      await nativeResize(840, 650)
+      await expect.poll(() => content(client.paneId).evaluate(element => element.clientHeight > Number.parseFloat(getComputedStyle(element).getPropertyValue('--remote-height')) + 40)).toBe(true)
+      await expect.poll(async () => {
+        let area = await content(client.paneId).evaluate(element => ({ width: element.clientWidth, height: element.clientHeight })), bounds = await native()
+        return bounds.clip.width === area.width && bounds.clip.height === area.height
+      }).toBe(true)
+      await chrome.evaluate(() => {
+        let trace: unknown[] = (globalThis as any).gutterTrace = []
+        for (let type of ['pointerdown', 'pointerup', 'pointermove', 'gotpointercapture', 'lostpointercapture', 'blur', 'focus']) window.addEventListener(type, event => {
+          let e = event as PointerEvent
+          trace.push({ type, id: e.pointerId, alt: e.altKey, meta: e.metaKey, button: e.button, x: e.clientX, y: e.clientY, target: (e.target as HTMLElement)?.outerHTML?.slice(0, 200) })
+        }, true)
+      })
+      await application.evaluate(({ webContents }) => {
+        let trace: unknown[] = (globalThis as any).nativeGutterTrace = []
+        for (let contents of webContents.getAllWebContents()) {
+          contents.on('before-mouse-event', (_event, mouse) => trace.push({ id: contents.id, url: contents.getURL(), mouse }))
+          contents.on('focus', () => trace.push({ id: contents.id, focus: true }))
+          contents.on('blur', () => trace.push({ id: contents.id, blur: true }))
+        }
+      })
+      let gutter = (await content(client.paneId).boundingBox())!
+      let resetPan = async () => {
+        await content(client.paneId).evaluate(element => element.scrollTo(0, 0))
+        await expect.poll(async () => (await native()).page.x).toBe(0)
+      }
+      for (let modifier of ['Alt', 'Meta', 'toggle']) {
+        if (modifier === 'toggle') {
+          await hand.click()
+          await expect(hand).toHaveAttribute('aria-pressed', 'true')
+          await expect.poll(async () => (await state()).viewportPanModes).toContain(client.paneId)
+          await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveCSS('cursor', 'grab')
+        } else await chrome.keyboard.down(modifier)
+        let start = { x: gutter.x + 180, y: gutter.y + gutter.height - 24 }
+        let finish = { x: gutter.x + 140, y: gutter.y + gutter.height / 2 }
+        if (process.platform === 'darwin') {
+          let input = (phase: number, point: { x: number; y: number }) => application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { ...point, phase, modifier: modifier === 'Alt' ? 1 : modifier === 'Meta' ? 2 : 0 })
+          await input(0, start)
+          await input(1, start)
+          try {
+            await expect.poll(() => chrome.locator(`[data-pane-id="${client.paneId}"]`).evaluate(element => { let id = (globalThis as any).gutterTrace?.findLast((event: any) => event.type === 'pointerdown')?.id; return id !== undefined && element.hasPointerCapture(id) }), { message: `${modifier} gutter drag captures the pointer` }).toBe(true)
+            await input(2, finish)
+            await expect.poll(() => content(client.paneId).evaluate(element => element.scrollLeft), { message: `${modifier} native gutter drag pans across the page` }).toBe(40)
+          } finally { await input(3, finish) }
+        } else {
+          await chrome.mouse.move(start.x, start.y)
+          await chrome.mouse.down()
+          await chrome.mouse.move(finish.x, finish.y)
+          await chrome.mouse.up()
+        }
+        if (modifier !== 'toggle') await chrome.keyboard.up(modifier)
+        await expect.poll(() => content(client.paneId).evaluate(element => element.scrollLeft)).toBe(40)
+        expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+        if (modifier === 'toggle') {
+          await expect(hand).toHaveAttribute('aria-pressed', 'true')
+          await chrome.keyboard.press('Escape')
+          await expect(hand).toHaveAttribute('aria-pressed', 'false')
+        }
+        await resetPan()
+      }
+      await nativeResize(840, 360)
       await application.evaluate((_electron, pane) => (globalThis as any).remoteLayoutRuntime.execute({ method: 'eval', args: { pane, expression: '1', agentId: 'viewport-gesture-test' } }), client.paneId)
       await expect.poll(async () => (await state()).lockedAgentPanes).toContain(client.paneId)
       let shield: Page | undefined
@@ -184,15 +315,16 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       }).toBe(true)
       await expect(shield!.getByRole('status')).toBeVisible()
       await shield!.mouse.move(100, 100)
-      await shield!.keyboard.down('Shift')
+      await shield!.keyboard.down('Meta')
       try { await shield!.mouse.wheel(20, 30) }
-      finally { await shield!.keyboard.up('Shift') }
+      finally { await shield!.keyboard.up('Meta') }
       await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop }))).toEqual({ x: 20, y: 30 })
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -20, y: -30 })
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
       await rpc('agent.input-lock.override', { pane: client.paneId, enabled: true })
     } catch (error) {
       await fs.writeFile(info.outputPath('chrome-wheels.json'), JSON.stringify(await chrome.evaluate(() => (globalThis as any).viewportWheels ?? [])))
+      await fs.writeFile(info.outputPath('gutter-events.json'), JSON.stringify({ dom: await chrome.evaluate(() => (globalThis as any).gutterTrace), native: await application.evaluate(() => (globalThis as any).nativeGutterTrace) }))
       if (process.platform === 'darwin') await fs.writeFile(info.outputPath('native-tree.txt'), await application.evaluate(() => (globalThis as any).remoteLayoutTree()))
       let reported = await application.evaluate(({ BaseWindow }) => ({ bounds: (globalThis as any).viewportBounds, windows: BaseWindow.getAllWindows().map(window => ({ visible: window.isVisible(), focused: window.isFocused(), minimized: window.isMinimized(), bounds: window.getBounds() })) }))
       let details = { native: await native(), reported, state: await state(), scroll: await content(client.paneId).evaluate(element => ({ x: element.scrollLeft, y: element.scrollTop, width: element.clientWidth, height: element.clientHeight })) }
@@ -234,8 +366,36 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await otherChrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
     await prompt.fill('lock-viewport'); await prompt.press('Enter')
     await expect.poll(async () => Object.keys((await windowState()).lockedViewports ?? {}).length).toBe(3)
+    expect((await windowState()).lockedViewports[client.paneId]).toEqual(unlockedSize)
+    for (let args of [{ width: 1512 }, { width: 0, height: 900 }, { width: 1512.5, height: 900 }, { width: 20000, height: 900 }]) await expect(rpc('lock-viewport', { window: client.windowId, ...args })).rejects.toThrow('Provide both')
+    await rpc('lock-viewport', { window: client.windowId, width: '1512', height: '900' })
+    await expect.poll(async () => Object.values((await windowState()).lockedViewports).every((size: any) => size.width === 1512 && size.height === 900)).toBe(true)
+    await expect.poll(() => application.context().pages().some(page => page.url() === `${url}third`)).toBe(true)
+    let thirdPage = application.context().pages().find(page => page.url() === `${url}third`)!
+    for (let [pane, page, zoom] of [[client.paneId, first, .5], [added.id, second, 1], [third.id, thirdPage, 2]] as const) {
+      await rpc('zoom', { tab: pane, factor: zoom })
+      let button = (await controlPage(pane)).getByRole('button', { name: 'Pan viewport', exact: true })
+      await expect(button).toBeVisible()
+      await expect.poll(async () => {
+        let rect = (await button.boundingBox())!
+        return { width: Math.round(rect.width), height: Math.round(rect.height) }
+      }).toEqual({ width: 32, height: 32 })
+      await button.click()
+      await expect(button).toHaveAttribute('aria-pressed', 'true')
+      await expect(button).toHaveCSS('background-color', 'rgb(194, 206, 185)')
+      await button.click()
+      await expect(button).toHaveAttribute('aria-pressed', 'false')
+    }
+    await otherChrome.screenshot({ path: info.outputPath('viewport-controls-zoom.png') })
+    for (let pane of [client.paneId, added.id, third.id]) await rpc('zoom', { tab: pane, factor: 1 })
+    await expect.poll(() => size(first)).toEqual({ width: 1512, height: 900 })
+    await thirdPage.goto(`${url}pending`, { waitUntil: 'domcontentloaded' })
+    await expect.poll(() => pendingImages.size).toBeGreaterThan(0)
+    await expect((await controlPage(third.id)).getByRole('button', { name: 'Pan viewport', exact: true })).toBeVisible()
+    expect(await thirdPage.evaluate(() => document.readyState)).toBe('interactive')
+    for (let response of pendingImages) response.end()
     let saved = (await windowState()).lockedViewports
-    expect(saved[client.paneId]).toEqual(unlockedSize)
+    expect(saved[client.paneId]).toEqual({ width: 1512, height: 900 })
     await rpc('break-pane', { client: other.id, pane: client.paneId, floating: true })
     let floating: Page | undefined
     await expect.poll(async () => {
@@ -270,6 +430,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect.poll(() => size(first)).toEqual(saved[client.paneId])
   } finally {
     await closeTestApplication(application)
+    server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

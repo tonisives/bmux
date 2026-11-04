@@ -16,6 +16,10 @@ void app.whenReady().then(async () => {
     native.scroll(BaseWindow.getAllWindows().find(window => window.isVisible())!.getNativeWindowHandle(), point.x, point.y, -3)
     return native.hit(BaseWindow.getAllWindows().find(window => window.isVisible())!.getNativeWindowHandle(), point.x, point.y)
   }
+  ;(globalThis as any).remoteLayoutMouse = (point: { x: number; y: number; phase: number; modifier: number }) => {
+    let native = createRequire(import.meta.url)('../native-hit-test.node')
+    native.mouse(BaseWindow.getFocusedWindow()!.getNativeWindowHandle(), point.x, point.y, point.phase, point.modifier)
+  }
   ;(globalThis as any).remoteLayoutTree = () => createRequire(import.meta.url)('../native-hit-test.node').tree(BaseWindow.getAllWindows().find(window => window.isVisible())!.getNativeWindowHandle())
   ipcMain.handle('state', event => runtime.state(runtime.sourceClient(event.sender.id)))
   ipcMain.handle('command', (event, command) => ['record.list', 'record.status'].includes(command.method) ? [] : runtime.execute(command, runtime.sourceClient(event.sender.id)))

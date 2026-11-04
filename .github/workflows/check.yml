@@ -82,9 +82,9 @@ jobs:
     timeout-minutes: 35
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 3
       matrix:
-        shard: ${{ fromJSON(inputs.test_pattern && '[1]' || '[1,2]') }}
+        shard: ${{ fromJSON(inputs.test_pattern && '[1]' || '[1,2,3]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -97,7 +97,7 @@ jobs:
         run: defaults write com.apple.CrashReporter DialogType none
       - name: Electron tests
         # Split the full suite across disposable desktops with one GUI worker each.
-        # The 371-case suite reached case 257 at the 30-minute deadline.
+        # The 394-case suite exhausted one of two shards before its final cases.
         timeout-minutes: 30
         env:
           TEST_PATTERN: ${{ inputs.test_pattern }}
@@ -112,7 +112,7 @@ jobs:
             esac
             pnpm test:electron --grep "$TEST_PATTERN" --repeat-each "$REPEAT_EACH"
           else
-            pnpm test:electron --shard "$SHARD/2"
+            pnpm test:electron --shard "$SHARD/3"
           fi
       - name: Visual UI check
         if: ${{ inputs.visual_check && matrix.shard == 1 }}

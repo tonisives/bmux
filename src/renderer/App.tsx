@@ -1,4 +1,6 @@
+import { PluginConfigurationProfiles } from './PluginConfigurationProfiles'
 import { remoteWorkspaceShortcut } from '../shared/remote-workspace'
+import { PluginRange } from './PluginRange'
 import { RemotePaneControls } from './RemotePaneControls'
 import { useViewportPan } from './useViewportPan'
 import { PROFILE_COLORS, profileHash, profileColor } from '../shared/profile-color'
@@ -37,7 +39,7 @@ import { Fragment, createContext, useCallback, useContext, useEffect, useId, use
 import { createPortal } from 'react-dom'
 import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
-import type { PluginInfo } from '../shared/plugins'
+import type { PluginInfo, PluginPrompt } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
 import type { RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
@@ -130,10 +132,7 @@ export let App = () => {
     setBookmarkDestination(control === 'bookmark' ? destination ?? null : null); setMessage(''); setControl(control)
   }, [accept, run])
   let dismiss = useCallback(() => {
-    if (state?.pluginPrompt) {
-      void bridge.command({ method: 'plugin.respond', args: { id: state.pluginPrompt.id, cancel: true } }).catch(() => undefined)
-      return
-    }
+    if (state?.pluginPrompt) return dismissPluginPrompt(state.pluginPrompt)
     setPanelHistory([]); setControl(null); setHistoryPopup(null); setMessage('')
   }, [state?.pluginPrompt])
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
@@ -175,7 +174,7 @@ export let App = () => {
     {(panel === 'sessions' || sessionsBehind) && <Panel key="sessions" type="sessions" inactive={sessionsBehind} hidden={!!state.pluginPrompt} />}
     {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}
     {sessionsBehind && panel && <SecondaryPanel type={panel} closeToSessions={closeToSessions} hidden={!!state.pluginPrompt} />}
-    {state.pluginPrompt && <Panel key={state.pluginPrompt.id} type="plugin-dialog" />}
+    {state.pluginPrompt && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
 }
@@ -1376,7 +1375,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
   let remoteSize = selectedWindow?.lockedViewports?.[paneId] ?? state.remoteSizes?.[paneId]
-  useViewportPan(ref, paneId, !!remoteSize)
+  useViewportPan(ref, paneId, !!remoteSize, state.viewportPanModes?.includes(paneId), client?.id)
   useLayoutEffect(() => {
     if (!ref.current || !remoteSize) return
     ref.current.style.setProperty('--remote-width', `${remoteSize.width}px`)
@@ -1519,7 +1518,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {sessionPicker && navigation && !closeToParent && <div className={css.sessionNavigation} data-session-navigation><BackButton back={navigation} /></div>}
       {type === 'help' && <HelpContent />}
       {type === 'plugins' && <PluginList />}
-      {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.id} />}
+      {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} />}
       {type === 'site-info' && <SiteInformation />}
       {type === 'agent-info' && <AgentInformation />}
       {type === 'anti-bot-settings' && <GeneralBotSettings />}
@@ -1848,72 +1847,113 @@ let PluginConfiguration = ({ compact = false, matches, pluginId, settingsOnly = 
 let PluginActivity = ({ pluginId }: { pluginId?: string }) => {
   let { state, run } = useUI()
   let cancel = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.cancel', { id: event.currentTarget.dataset.id }) }
+  let showOverlay = (event: MouseEvent<HTMLButtonElement>) => { void run('plugin.overlay.show', { id: event.currentTarget.dataset.id }) }
   let error = (result: unknown) => result && typeof result === 'object' && 'error' in result && typeof result.error === 'string' ? result.error : ''
   let runs = state.pluginRuns?.filter(item => !pluginId || item.pluginId === pluginId) ?? []
   return <><p>Plugin runs</p>{runs.length ? runs.map(item => <div key={item.id} className={css.row}>{item.title} · {item.status}
     {item.progress && <span className={css.pluginDescription}>{item.progress.percent}% · {item.progress.message}</span>}{(item.error || error(item.result)) && <span role="alert" className={css.pluginDescription}>{error(item.result) || item.error}</span>}
-    {['running', 'queued'].includes(item.status) && <button data-id={item.id} onClick={cancel}>Cancel</button>}</div>) : <p>No plugin runs.</p>}</>
+    {item.overlayPaneId && <button data-id={item.id} onClick={showOverlay}>Show overlay</button>}{['running', 'queued'].includes(item.status) && <button data-id={item.id} onClick={cancel}>Cancel</button>}</div>) : <p>No plugin runs.</p>}</>
 }
-let PluginParameters = () => {
+let dismissPluginPrompt = (request: NonNullable<PublicState['pluginPrompt']>) => {
+  if (request.kind === 'form' && request.autosave) globalThis.dispatchEvent(new Event('bmux-plugin-dismiss'))
+  else void bridge.command({ method: 'plugin.respond', args: { id: request.id, cancel: true } }).catch(() => undefined)
+}
+let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { presets: NonNullable<PluginPrompt['presets']>; preset: string; autosave?: boolean; choosePreset: (event: MouseEvent<HTMLButtonElement>) => void }) => <section aria-label="Browsing presets" className={css.pluginPresetSection}>
+        <h3>Browsing preset</h3>
+        <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
+        <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? autosave ? 'Changes save automatically for this profile and platform.' : 'Custom settings for this session.' : presets.find(item => item.id === preset)?.description}</p>
+      </section>
+let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
-  let [values, setValues] = useState<Record<string, unknown>>(request.values ?? {}), [busy, setBusy] = useState(false)
-  let [preset, setPreset] = useState('saved'), [expanded, setExpanded] = useState(!request.presets?.length)
+  let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values }), [busy, setBusy] = useState(false)
+  let [preset, setPreset] = useState('saved'), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
+  let pending = useRef<Record<string, unknown>>({}), saved = useRef({ ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   let profile = state.model.profiles.find(profile => profile.id === request.profileId)
-  let fields = request.fields ?? [], saved = request.savedValues ?? {}
-  let change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  let fields = request.fields ?? []
+  let flush = () => {
+    clearTimeout(timer.current)
+    let saving = queue.current.catch(() => undefined).then(async () => {
+      while (Object.keys(pending.current).length) {
+        let patch = pending.current; pending.current = {}
+        setSaveStatus('Saving…'); setSaveError('')
+        try {
+          await bridge.command({ method: 'plugin.respond', args: { id: request.id, save: true, value: patch } })
+          Object.assign(saved.current, patch)
+        } catch (error) {
+          pending.current = { ...patch, ...pending.current }
+          setSaveStatus(''); setSaveError(error instanceof Error ? error.message : 'Could not save settings')
+          throw error
+        }
+      }
+      if (request.autosave) setSaveStatus('Saved')
+    })
+    queue.current = saving
+    return saving
+  }
+  useEffect(() => () => { clearTimeout(timer.current) }, [])
+  let save = (patch: Record<string, unknown>) => {
+    if (!request.autosave) return
+    pending.current = { ...pending.current, ...Object.fromEntries(Object.entries(patch).filter(([key, value]) => value !== undefined && fields.some(field => field.name === key && field.kind !== 'password'))) }
+    setSaveStatus('Saving…'); clearTimeout(timer.current)
+    timer.current = setTimeout(() => { void flush().catch(() => undefined) }, 400)
+  }
+  let change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     let { name, value } = event.target
     let field = fields.find(field => field.name === name)
-    setPreset('custom')
-    setValues(current => ({ ...current, [name]: value === '' ? undefined : field?.kind === 'boolean' ? value === 'true' : value }))
+    update(name, field?.kind === 'boolean' ? value === 'true' : value)
+  }
+  let update = (name: string, value: unknown) => {
+    let patch = { [name]: value }
+    setPreset('custom'); setValues(current => ({ ...current, ...patch })); save(patch)
   }
   let choosePreset = (event: MouseEvent<HTMLButtonElement>) => {
     let id = event.currentTarget.dataset.preset!
-    setPreset(id)
-    setValues(id === 'saved' ? {} : { ...request.presets?.find(item => item.id === id)?.values })
+    let patch = id === 'saved' ? { ...saved.current } : { ...request.presets?.find(item => item.id === id)?.values }
+    setPreset(id); if (id === 'saved' && request.autosave) return; setValues(id === 'saved' ? patch : current => ({ ...current, ...patch })); if (id !== 'saved') save(patch)
   }
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (busy) return
+    if (editingProfile) { await flush().catch(() => undefined); return }
     setBusy(true)
-    try { await run('plugin.respond', { id: request.id, value: values }) } finally { setBusy(false) }
+    try { await flush(); await run('plugin.respond', { id: request.id, value: values }) } catch { /* Save error remains beside the settings. */ } finally { setBusy(false) }
   }
-  let cancel = () => { void run('plugin.respond', { id: request.id, cancel: true }) }
-  let labels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', true: 'On', false: 'Off' }
-  let display = (item: typeof fields[number], value: unknown) => item.kind === 'password' ? 'Private' : labels[String(value)] ?? String(value)
-  let effective = (item: typeof fields[number]) => values[item.name] ?? saved[item.name] ?? item.default
+  let cancel = async () => {
+    if (busy) return
+    setBusy(true)
+    try { await flush(); await run('plugin.respond', { id: request.id, cancel: true }) } catch { /* Keep unsaved settings available for correction. */ } finally { setBusy(false) }
+  }
+  useEffect(() => { let dismiss = () => { void cancel() }; window.addEventListener('bmux-plugin-dismiss', dismiss); return () => window.removeEventListener('bmux-plugin-dismiss', dismiss) }, [request.id])
+  let labels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', included: 'BMUX subscription', personal: 'Personal OpenAI API key', true: 'On', false: 'Off' }
+  let display = (item: typeof fields[number], value: unknown) => item.kind === 'password' ? 'Private' : value === undefined ? 'Not set' : labels[String(value)] ?? String(value)
   let field = (item: typeof fields[number]) => {
-    let fallback = saved[item.name] ?? item.default
-    let inherited = fallback === undefined ? 'Use plugin default' : `Use saved setting: ${display(item, fallback)}`
-    return <label key={item.name}><span>{item.title}</span>
+    let fallback = saved.current[item.name] ?? item.default
+    let inherited = fallback === undefined ? 'Not set' : display(item, fallback)
+    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name}>{item.range ? <PluginRange field={item} value={values[item.name] ?? fallback} onChange={update} /> : <label className={css.settingsRow}><span>{item.title}</span>
       {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={values[item.name] === undefined ? '' : String(values[item.name])} onChange={change} required={item.required}>
-        {!item.required && <option value="">{inherited}</option>}
+        {!item.required && values[item.name] === undefined && <option value="">{inherited}</option>}
         {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{display(item, value)}</option>)}
-      </select> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}
+      </select> : item.multiline ? <textarea name={item.name} value={String(values[item.name] ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}</label>}
       {item.description && <small>{item.description}</small>}
-      {item.kind === 'text' && fallback !== undefined && <small>{inherited}</small>}
-    </label>
+    </div>
   }
-  let toggleConfiguration = () => setExpanded(value => !value)
-  let summary = <dl className={css.pluginPresetSummary}>{fields.filter(item => item.advanced && effective(item) !== undefined).map(item => <div key={item.name}><dt>{item.title}</dt><dd>{display(item, effective(item))}</dd></div>)}</dl>
-  let sections = (items: typeof fields) => [...new Set(items.map(item => item.section ?? 'Settings'))].map(section => <fieldset key={section} className={css.pluginParameterSection}><legend>{section}</legend><div className={css.pluginParameterFields}>{items.filter(item => (item.section ?? 'Settings') === section).map(field)}</div></fieldset>)
+  let editProfile = () => setEditingProfile(true)
+  let backToBrowsing = async () => { try { await flush(); setEditingProfile(false) } catch { /* Keep unsaved fields available. */ } }
+  let profileFields = request.profiles ? fields.filter(item => item.section === 'Persona') : []
+  let visibleFields = fields.filter(item => !profileFields.includes(item))
+  let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Settings' || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
   return <form className={css.pluginParameters} onSubmit={submit}>
-    <h2>{request.pluginName} · {request.title}</h2>
+    <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
     <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
-      {!!request.presets?.length && <section aria-label="Browsing presets" className={css.pluginPresetSection}>
-        <h3>Browsing preset</h3>
-        <div className={css.pluginPresetButtons}><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{request.presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
-        <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? 'Custom settings for this session.' : request.presets.find(item => item.id === preset)?.description}</p>
-        {summary}
-      </section>}
-      {sections(fields.filter(item => !item.advanced))}
-      {fields.some(item => item.advanced) && <section className={css.pluginAdvancedSettings}>
-        <button type="button" aria-expanded={expanded} aria-controls="plugin-complete-settings" onClick={toggleConfiguration}>{expanded ? 'Hide full configuration' : 'Extend and configure all settings'}</button>
-        {expanded && <div id="plugin-complete-settings">{sections(fields.filter(item => item.advanced))}</div>}
-      </section>}
+      {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
+      {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
+      {!!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} autosave={request.autosave} choosePreset={choosePreset} />}
+      <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div></>}
+      {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
-    <div className={css.pluginParameterActions}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>
+    <div className={css.settingsFooter}>{editingProfile ? <button type="button" onClick={backToBrowsing} disabled={busy}>Back to browsing</button> : <><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></>}</div>
   </form>
 }
 let PluginDialog = () => {
@@ -1937,7 +1977,9 @@ let PluginDialog = () => {
     event.preventDefault()
     if (items.length) setIndex(index => (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length)
   }
-  if (request.kind === 'form') return <PluginParameters />
+  let [editingProfile, setEditingProfile] = useState(false)
+  useEffect(() => { setEditingProfile(false) }, [request.runId])
+  if (request.kind === 'form') return <PluginParameters key={request.id} editingProfile={editingProfile} setEditingProfile={setEditingProfile} />
   return <><p>{request.pluginName}</p>{request.kind === 'confirm' ? <><p>{request.title}</p><button autoFocus onClick={yes}>Yes</button><button onClick={no}>No</button></> : <form onSubmit={submit}>
     {request.kind === 'pick' ? <SearchInput ref={ref} aria-label={request.title} value={value} onChange={change} onKeyDown={keys} /> : <label>{request.title}<input ref={ref} className={css.pluginInput} type={request.kind === 'password' ? 'password' : 'text'} value={value} onChange={change} onKeyDown={keys} autoComplete="off" spellCheck={false} required={request.required} /></label>}
     {request.kind === 'pick' ? items.map((item, position) => <button key={item.id} type="button" className={css.listRow} data-id={item.id} data-active={position === index} disabled={busy} onClick={pick}>{item.label}{item.description && <span className={css.pluginDescription}>{item.description}</span>}</button>) : <button type="submit" disabled={busy}>Continue</button>}
@@ -2971,9 +3013,9 @@ let AutomationLimitsEditor = ({ profile }: { profile: Profile }) => {
   }
   let limits = automationProfileLimits(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id)
   return <ProfileSection title="Limits"><div className={css.antiBotLimitFields}>
-    <AutomationLimitInput profileId={profile.id} setting="maxSessionMinutes" label="Session limit (minutes)" description="Automation time before a break" value={limits.maxSessionMinutes} maximum={1440} />
+    <AutomationLimitInput profileId={profile.id} setting="maxSessionMinutes" label="Active session limit (minutes)" description="Idle: pause at 3s, reset at 2m" value={limits.maxSessionMinutes} maximum={1440} />
     <AutomationLimitInput profileId={profile.id} setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
-    <AutomationLimitInput profileId={profile.id} setting="socialDelayMs" label="Social site delay (seconds)" description="Wait between social-site actions" value={limits.socialDelayMs} scale={1000} maximum={30} />
+    <AutomationLimitInput profileId={profile.id} setting="socialDelayMs" label="Social site delay (seconds)" description="3 actions in 1s, once per minute" value={limits.socialDelayMs} scale={1000} maximum={30} />
   </div><label className={css.profileControl}><span>Simulate mouse movement<small>Move a virtual pointer between clicks</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Simulate mouse movement" checked={limits.simulateMouseMovement !== false} onChange={toggleMouse} disabled={busy} /></label></ProfileSection>
 }
 

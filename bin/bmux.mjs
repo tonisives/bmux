@@ -22,10 +22,11 @@ Import:   import-brave [--source BRAVE_USER_DATA_DIRECTORY]
 Sessions: new-session -s NAME [--profile PROFILE] | list-sessions | rename-session -t SESSION -n NAME
           kill-session -t SESSION --confirm
 Clients:  attach-session -t SESSION | list-clients | detach-client -c CLIENT | activate-client -c CLIENT
+          switchc [-ElnprZ] [-c CLIENT] [-O name|size|creation|activity] [-t TARGET] [-T TABLE]
           switch-client -c CLIENT -t SESSION | select-window -c CLIENT -t WINDOW
 Windows:  new-window -t SESSION [-n NAME] [--profile PROFILE] | list-windows -t SESSION
           rename-window -t WINDOW -n NAME | kill-window -t WINDOW [--confirm]
-          lock-viewport -t WINDOW | unlock-viewport -t WINDOW
+          lock-viewport -t WINDOW [--width W --height H] | unlock-viewport -t WINDOW
           movew [-c CLIENT] [-s WINDOW] -t [SESSION:]INDEX [-a|-b] [-d]
           swapw [-c CLIENT] [-s WINDOW] -t WINDOW [-d]
 Panes:    split-window -t PANE [-h|-v] [--profile PROFILE] [--url URL]
@@ -103,7 +104,7 @@ let parse = () => {
       let inline = argv[index].includes('='), value = inline ? argv[index].slice(flag.length + 1) : argv[index + 1]
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`)
       info[key] = value; explicit.add(key); argv.splice(index, inline ? 1 : 2); index--
-    } else if (argv[index].startsWith('-') && !argv[index].includes('=') && !switches.has(argv[index].replace(/^-+/, ''))) index++
+    } else if (argv[index].startsWith('-') && !argv[index].includes('=') && !switches.has(argv[index].replace(/^-+/, '')) && !(['switchc', 'switch-client'].includes(argv[0]) && /^-(?:[ElnprZ]+|[ElnprZ]*[ctTO].+)$/.test(argv[index]))) index++
   }
   for (let [key, value] of Object.entries(info)) if (key !== 'agentData' && value !== undefined && (!value.trim() || value.length > (key === 'agentPurpose' ? 1000 : 128) || /[\x00-\x1f\x7f]/.test(value))) throw new Error(`Invalid ${key}`)
   if (info.agentData !== undefined) { info.agentData = JSON.parse(info.agentData); if (!info.agentData || typeof info.agentData !== 'object' || Array.isArray(info.agentData)) throw new Error('agentData must be a JSON object') }
@@ -119,9 +120,9 @@ let parseCommand = () => {
   let target = targetIndex >= 0 ? argv[targetIndex + 1] : argv.find(item => /^(?:-t|--target)=/.test(item))?.split('=').slice(1).join('=')
   let movement = ['movep', 'joinp', 'breakp', 'break-pane', 'swapp', 'swap-pane', 'rotatew', 'rotate-window', 'swapw', 'swap-window', 'movew', 'move-window', 'renumber-windows'].includes(argv[0])
     || ['move-pane', 'join-pane'].includes(argv[0]) && !argv.some(item => /^--(?:pane|window|destination|x|y)(?:=|$)/.test(item)) && (argv.some(item => /^(?:-s|--source)(?:=|$)/.test(item)) || !target || !/^(?:%\d+|pane_.+)$/.test(target))
-  if (movement) {
+  if (movement || ['switchc', 'switch-client'].includes(argv[0])) {
     let clientIndex = argv.findIndex(item => ['-c', '--client'].includes(item))
-    let client = clientIndex >= 0 ? argv[clientIndex + 1] : argv.find(item => /^(?:-c|--client)=/.test(item))?.split('=').slice(1).join('=')
+    let client = clientIndex >= 0 ? argv[clientIndex + 1] : argv.find(item => /^(?:-c|--client)=/.test(item))?.split('=').slice(1).join('=') ?? argv.find(item => /^-c[^=]/.test(item))?.slice(2)
     return { method: 'command-line', args: { line: argv.map(item => JSON.stringify(item)).join(' '), ...(client ? { client } : {}) } }
   }
   let command = argv.shift()

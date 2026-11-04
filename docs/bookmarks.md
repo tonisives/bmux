@@ -85,9 +85,17 @@ bookmark's sliders and choose it under **Add plugin**. The sliders are available
 on bookmarks without query parameters too. The plugin selector is hidden when
 there are no matching enabled plugins left to add. Configure minimum score and comments
 (default 2 each), whether results must meet both or either minimum, and duplicate
-post, link/crosspost, and title filtering. A minimum of 0 disables that threshold.
+post, link/crosspost, and title filtering. **Connection posts** hides networking
+prompts such as “let's #connect”, “looking to connect with people”, and
+“follow for follow” in loaded titles and post excerpts. It starts enabled and can
+be turned off per bookmark. A minimum of 0 disables that threshold.
 Unknown counts remain visible. The first qualifying duplicate stays visible;
 matching titles ignore case and repeated whitespace but preserve punctuation.
+
+For X or Twitter search bookmarks, enable **X search filter** and attach it in
+the bookmark's sliders. Its **Connection posts** toggle uses the same networking
+phrases against post text, including newly loaded results. Both filters start
+globally disabled until enabled in the Plugins panel.
 
 Opening the bookmark attaches its plugins to the new pane. Choosing a bookmark
 from address suggestions attaches them to the current pane instead. Other panes, copied
@@ -97,8 +105,13 @@ filter affects post search results, including infinite scrolling, rather than
 feeds or discussion comments. Filtering uses loaded page data and does not fetch
 additional results.
 
-A compact overlay appears on matching pages with an on/off toggle and
-**Configure** controls for each attached plugin. Changes update the bookmark and
+A floating **N hidden** button appears at the top right of matching pages. Expand
+it to review hidden post titles, links, and filtering reasons, alongside an on/off
+toggle and **Configure** controls for each attached plugin. The count includes
+matches removed from the page by infinite scrolling. It resets on a new search,
+reload, or filter settings change. **0 hidden** means no matches; **Off** and
+**Filter unavailable** identify filters that are disabled or could not run.
+Changes update the bookmark and
 its existing open panes. Turning a filter off restores the results it hid; the
 overlay remains available to turn it back on. Removing an attachment removes its
 overlay too. Missing or globally disabled plugins are shown as unavailable.

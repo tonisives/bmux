@@ -746,3 +746,30 @@ closing the final viewer. Teardown now observes all seven data channels closed,
 closes the viewer's peers, and releases its video sources before destroying the
 native window. Repeat all four cases together; focus, selection, streaming,
 reconnect, and window-removal assertions retain their existing deadlines.
+
+## Scrolled popup before a native swipe
+
+A full Check failed the held-swipe pixel assertion for a new noopener pane. Its
+screenshot still showed the page before scrolling, although scrollY was already
+400. The fixture now verifies the native page background and fixed header before
+beginning the gesture. The held-frame colors, scroll position, fixed header and
+private history-image assertions remain unchanged.
+
+# Bookmark filter overview identity
+
+The overview fixture opens several panes with the same search URL. Finding a
+Playwright page by URL can select another pane and send a summary click to the
+wrong view. The fixture now marks the requested pane through its CDP connection
+and finds the page with that exact marker. Native summary clicks also wait for
+the selected pane and completed layout. Repeat the bookmark filter cases with
+the visual check when changing the overview.
+
+## November 4 full-suite balance
+
+The full Check on `879724a` reached 192 of 197 cases on its first desktop before
+the 30-minute step deadline; its second desktop finished in about twenty minutes.
+Two device-setting busy checks and the combined extension/pointer case failed
+in that run, then all three passed together in focused CI. The shared command
+fixture is being repeated to check for setup history. The full suite now uses
+three shards, retaining one GUI worker per desktop, every test, zero retries,
+and the existing assertion, test and workflow deadlines.

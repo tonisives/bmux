@@ -23,12 +23,16 @@ let launch = async () => {
   await rpc('activate-client', { client })
 }
 let pageFor = async (pane: string): Promise<Page> => {
-  let url = (await state()).model.sessions.flatMap((item: any) => item.windows).flatMap((item: any) => item.panes).find((item: any) => item.id === pane).url
-  await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
-  let pages = application.context().pages().filter(page => page.url() === url)
-  let page = pages.at(-1)!
-  await expect(page.locator('h1')).toHaveText('Search fixture')
-  return page
+  let found: Page | undefined
+  await expect.poll(async () => {
+    await rpc('cdp', { tab: pane, method: 'Runtime.evaluate', params: { expression: `globalThis.__bmuxFixturePane = ${JSON.stringify(pane)}` } })
+    for (let page of application.context().pages()) {
+      if (await page.evaluate(id => (globalThis as any).__bmuxFixturePane === id, pane).catch(() => false)) { found = page; return true }
+    }
+    return false
+  }).toBe(true)
+  await expect(found!.locator('h1')).toHaveText('Search fixture')
+  return found!
 }
 let overlayEval = async (pane: string, expression: string) => {
   let frame = await rpc('cdp', { tab: pane, method: 'Page.getFrameTree' })
@@ -36,6 +40,10 @@ let overlayEval = async (pane: string, expression: string) => {
   let result = await rpc('cdp', { tab: pane, method: 'Runtime.evaluate', params: { expression, contextId: context.executionContextId, returnByValue: true } })
   if (result.exceptionDetails) throw new Error('Overlay fixture evaluation failed')
   return result.result.value
+}
+let hiddenCount = (pane: string) => overlayEval(pane, `globalThis.__bmuxBookmarkOverlay.querySelector('[data-hidden-overview] > summary').textContent`)
+let expandOverview = async (pane: string) => {
+  await overlayEval(pane, `(() => { globalThis.__bmuxBookmarkOverlay.querySelector('[data-hidden-overview]').open = true; return true })()`)
 }
 let configure = (values: Record<string, unknown>, enabled = true) => rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.reddit', enabled, values })
 let openBookmark = async () => (await rpc('bookmark.open', { profile, bookmark, session, client })).panes[0].id as string
@@ -49,7 +57,11 @@ test.beforeAll(async () => {
   let manifest = parse(await fs.readFile('bundled-plugins/bmux.reddit-search/plugin.yaml', 'utf8'))
   manifest.id = 'fixture.reddit'; manifest.bookmark.matches = ['http://127.0.0.1:*/search*', 'http://127.0.0.1:*/r/*/search*']
   await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify(manifest)); await fs.copyFile('bundled-plugins/bmux.reddit-search/filter.js', path.join(folder, 'filter.js'))
-  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { autoUpdateFilters: false }, memory: { lazyRestore: false }, plugins: { 'fixture.reddit': { enabled: true, hooks: false } } }))
+  let xFolder = path.join(directory, 'plugins/fixture.x'); await fs.mkdir(xFolder, { recursive: true })
+  let xManifest = parse(await fs.readFile('bundled-plugins/bmux.x-search/plugin.yaml', 'utf8'))
+  xManifest.id = 'fixture.x'; xManifest.bookmark.matches = ['http://127.0.0.1:*/search*']
+  await fs.writeFile(path.join(xFolder, 'plugin.yaml'), stringify(xManifest)); await fs.copyFile('bundled-plugins/bmux.x-search/filter.js', path.join(xFolder, 'filter.js'))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { autoUpdateFilters: false }, memory: { lazyRestore: false }, plugins: { 'fixture.reddit': { enabled: true, hooks: false }, 'fixture.x': { enabled: false, hooks: false } } }))
   server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'text/html')
     response.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
@@ -143,6 +155,7 @@ test('bookmark plugins remain pane-scoped and the overlay toggles and configures
   let ordinary = await rpc('new-window', { session, client, profile, url: `${base}/search?ordinary=1` }), ordinaryPage = await pageFor(ordinary.panes[0].id)
   await expect(ordinaryPage.locator('#t3_low')).toBeVisible(); await expect(ordinaryPage.locator('[data-bmux-bookmark-plugins]')).toHaveCount(0)
   await rpc('select-window', { window: (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.panes.some((item: any) => item.id === pane)).id, client })
+  await expandOverview(pane)
   let point = await overlayEval(pane, `(() => { let input = globalThis.__bmuxBookmarkOverlay.querySelector('input[type="checkbox"]'), rect = input.getBoundingClientRect(); return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 } })()`)
   await page.mouse.click(point.x, point.y)
   await expect.poll(async () => (await state()).bookmarkPlugins[profile][bookmark][0].enabled).toBe(false)
@@ -241,4 +254,102 @@ test('Reddit search unit cards filter numeric counters, duplicates and loaded up
   for (let id of ['sdui_low', 'sdui_comments', 'sdui_repeat', 'sdui_same_post', 'sdui_appended']) await expect(page.locator(`#${id}`)).toBeVisible()
   await configure({})
   await expect(page.locator('#sdui_low')).toBeHidden()
+})
+test('Reddit connection posts filter titles and loaded excerpts and restore when disabled', async () => {
+  await configure({})
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search?sdui=1` })
+  let pane = await openBookmark(), page = await pageFor(pane)
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search` })
+  await page.evaluate(html => document.body.insertAdjacentHTML('beforeend', html),
+    searchCard('connect_title', 'connecttitle', 'Let’s #connect', 41, 63) +
+    searchCard('connect_body', 'connectbody', 'Hey founders and builders', 13, 14) +
+    searchCard('connect_technical', 'connecttechnical', "Let's connect to Postgres", 19, 25))
+  await expect(page.locator('#connect_title')).toBeHidden()
+  await expect(page.locator('#connect_body')).toBeVisible()
+  await expect(page.locator('#connect_technical')).toBeVisible()
+  await page.locator('#connect_body').evaluate(node => {
+    let body = document.createElement('div'); body.dataset.testid = 'post-excerpt'
+    body.textContent = "I'm looking to #connect with people interested in dev tools"
+    node.append(body)
+  })
+  await expect(page.locator('#connect_body')).toBeHidden()
+  await configure({ connectionPosts: false })
+  await expect(page.locator('#connect_title')).toBeVisible()
+  await expect(page.locator('#connect_body')).toBeVisible()
+  await configure({})
+  await expect(page.locator('#connect_body')).toBeHidden()
+  await page.locator('#connect_body [data-testid="post-excerpt"]').evaluate(node => { node.textContent = 'Shipping a new developer tool today' })
+  await expect(page.locator('#connect_body')).toBeVisible()
+})
+test('bookmark filters show hidden post counts, reasons, links and empty and disabled states', async () => {
+  await configure({})
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search?old=1` })
+  let pane = await openBookmark(), page = await pageFor(pane)
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search` })
+  await expect.poll(() => hiddenCount(pane)).toBe('2 hidden')
+  let window = (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.panes.some((item: any) => item.id === pane))
+  await rpc('select-window', { window: window.id, client }); await rpc('activate-client', { client })
+  await expect(chrome.locator(`[data-pane-id="${pane}"]`)).toHaveAttribute('data-focused-pane', 'true')
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await overlayEval(pane, `(() => { globalThis.__bmuxBookmarkOverlay.querySelector('[data-hidden-overview]').open = false; return true })()`)
+  let point = await overlayEval(pane, `(() => { let rect = globalThis.__bmuxBookmarkOverlay.querySelector('[data-hidden-overview] > summary').getBoundingClientRect(); return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 } })()`)
+  await page.mouse.click(point.x, point.y)
+  await expect.poll(() => overlayEval(pane, `globalThis.__bmuxBookmarkOverlay.querySelectorAll('li').length`)).toBe(2)
+  let report = await overlayEval(pane, `(() => { let root = globalThis.__bmuxBookmarkOverlay; return { text: root.textContent, links: [...root.querySelectorAll('li a')].map(link => link.href), overflow: root.querySelector('section').scrollWidth > root.querySelector('section').clientWidth } })()`)
+  expect(report.text).toContain('Score 1 below 2'); expect(report.text).toContain('Duplicate title')
+  expect(report.links).toContain(`${base}/r/test/comments/low/title`)
+  expect(report.overflow).toBe(false)
+  let bounds = await page.locator('[data-bmux-bookmark-plugins]').boundingBox()
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()?.width ?? await page.evaluate(() => innerWidth))
+  expect(bounds!.y).toBe(12)
+  await fs.mkdir('artifacts', { recursive: true }); await page.screenshot({ path: 'artifacts/reddit-hidden-posts.png' })
+  await page.locator('#t3_low').evaluate(node => node.remove())
+  await expect.poll(() => hiddenCount(pane)).toBe('2 hidden')
+  await configure({}, false)
+  await expect.poll(() => hiddenCount(pane)).toBe('0 hidden · Off')
+  await expect.poll(() => overlayEval(pane, `globalThis.__bmuxBookmarkOverlay.textContent`)).toContain('No posts hidden on this page.')
+  await configure({ minScore: 0, minComments: 0, duplicatePosts: false, duplicateLinks: false, duplicateTitles: false, connectionPosts: false })
+  await expect.poll(() => hiddenCount(pane)).toBe('0 hidden')
+  await configure({})
+})
+test('X search bookmarks filter connection prompts in tweet text and restore results', async () => {
+  await configure({})
+  await rpc('bookmark.update', { profile, bookmark, url: `${base}/search` })
+  await rpc('plugin.enable', { id: 'fixture.x', enabled: true })
+  await rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.x', enabled: true, values: {} })
+  try {
+    let pane = await openBookmark(), page = await pageFor(pane)
+    await page.evaluate(() => {
+      for (let [id, text] of [['x_connect', 'Let’s #connect'], ['x_technical', "Let's connect to Postgres"], ['x_author', 'I shipped a developer tool']]) {
+        let article = document.createElement('article'); article.dataset.testid = 'tweet'; article.id = id
+        let author = document.createElement('div'); author.textContent = "Let's connect"; article.append(author)
+        let body = document.createElement('div'); body.dataset.testid = 'tweetText'; body.textContent = text; article.append(body)
+        document.body.append(article)
+      }
+    })
+    await expect(page.locator('#x_connect')).toBeHidden()
+    await expect(page.locator('#x_technical')).toBeVisible()
+    await expect(page.locator('#x_author')).toBeVisible()
+    await expect.poll(() => hiddenCount(pane)).toBe('3 hidden')
+    await page.locator('#x_author [data-testid="tweetText"]').evaluate(node => { node.textContent = 'Looking to #connect with people interested in dev tools' })
+    await expect(page.locator('#x_author')).toBeHidden()
+    await expect.poll(() => hiddenCount(pane)).toBe('4 hidden')
+    await expandOverview(pane)
+    await expect.poll(() => overlayEval(pane, `globalThis.__bmuxBookmarkOverlay.textContent`)).toContain('Connection post')
+    let window = (await state()).model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.panes.some((item: any) => item.id === pane))
+    await rpc('select-window', { window: window.id, client }); await rpc('activate-client', { client })
+    await fs.mkdir('artifacts', { recursive: true }); await page.screenshot({ path: 'artifacts/x-hidden-posts.png' })
+    await rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.x', enabled: true, values: { connectionPosts: false } })
+    await expect(page.locator('#x_connect')).toBeVisible()
+    await expect(page.locator('#x_author')).toBeVisible()
+    await expect.poll(() => hiddenCount(pane)).toBe('2 hidden')
+    await rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.x', enabled: true, values: {} })
+    await expect(page.locator('#x_connect')).toBeHidden()
+    await rpc('navigate', { tab: pane, url: `${base}/plain` })
+    await page.evaluate(() => { document.body.innerHTML = '<article data-testid="tweet" id="x_home"><div data-testid="tweetText">Let’s #connect</div></article>' })
+    await expect(page.locator('#x_home')).toBeVisible()
+  } finally {
+    await rpc('bookmark.plugins.update', { profile, bookmark, id: 'fixture.x', remove: true })
+    await rpc('plugin.enable', { id: 'fixture.x', enabled: false })
+  }
 })

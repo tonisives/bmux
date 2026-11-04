@@ -1,0 +1,10 @@
+.field { min-width: 0; padding: 8px 0; }
+.heading, .bounds { display: flex; justify-content: space-between; gap: 12px; }
+.heading output { color: #eceef2; font-variant-numeric: tabular-nums; }
+.bounds { color: #aab4bf; font-size: 11px; }
+.track { position: relative; height: 32px; margin: 4px 8px; }
+.track::before { content: ''; position: absolute; inset: 14px 0; background: linear-gradient(to right, #444b59 var(--range-start), #a7b69c var(--range-start), #a7b69c var(--range-end), #444b59 var(--range-end)); border-radius: 2px; }
+.track input { appearance: none; position: absolute; inset: 0; width: 100%; margin: 0; padding: 0; background: transparent; border: 0; pointer-events: none; }
+.track input::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #191d23; background: #a7b69c; pointer-events: auto; cursor: ew-resize; }
+.track input:focus-visible { outline: none; }
+.track input:focus-visible::-webkit-slider-thumb { outline: 2px solid #eceef2; outline-offset: 2px; }

@@ -47,6 +47,30 @@ static napi_value scroll(napi_env env, napi_callback_info info) {
   CFRelease(release);
   napi_get_undefined(env, &result); return result;
 }
+// Post each physical drag phase separately so the test can await pointer capture.
+static napi_value mouse(napi_env env, napi_callback_info info) {
+  size_t count = 5; napi_value args[5], result;
+  napi_get_cb_info(env, info, &count, args, NULL, NULL);
+  void *data = NULL; size_t size = 0;
+  napi_get_buffer_info(env, args[0], &data, &size);
+  NSWindow *window = ((__bridge NSView *)*(void **)data).window;
+  double x = 0, y = 0; int32_t phase = 0, modifier = 0;
+  napi_get_value_double(env, args[1], &x); napi_get_value_double(env, args[2], &y);
+  napi_get_value_int32(env, args[3], &phase); napi_get_value_int32(env, args[4], &modifier);
+  NSPoint point = [window.contentView convertPoint:NSMakePoint(x, window.contentView.isFlipped ? y : window.contentView.bounds.size.height - y) toView:nil];
+  NSPoint screen = [window convertPointToScreen:point];
+  CGPoint location = CGPointMake(screen.x, CGDisplayBounds(CGMainDisplayID()).size.height - screen.y);
+  CGEventType type = phase == 1 ? kCGEventLeftMouseDown : phase == 2 ? kCGEventLeftMouseDragged : phase == 3 ? kCGEventLeftMouseUp : kCGEventMouseMoved;
+  CGEventRef event = CGEventCreateMouseEvent(NULL, type, location, kCGMouseButtonLeft);
+  CGEventSetFlags(event, modifier == 1 ? kCGEventFlagMaskAlternate : modifier == 2 ? kCGEventFlagMaskCommand : 0);
+  CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
+  CGEventPost(kCGHIDEventTap, event); CFRelease(event);
+  if (phase == 3 && modifier) {
+    CGEventRef release = CGEventCreateKeyboardEvent(NULL, modifier == 1 ? 58 : 55, false);
+    CGEventSetFlags(release, 0); CGEventPost(kCGHIDEventTap, release); CFRelease(release);
+  }
+  napi_get_undefined(env, &result); return result;
+}
 static void describe(NSView *view, NSMutableString *text, NSUInteger depth) {
   [text appendFormat:@"%lu %@ %@\n", (unsigned long)depth, NSStringFromClass(object_getClass(view)), NSStringFromRect(view.frame)];
   for (NSView *child in view.subviews) describe(child, text, depth + 1);
@@ -66,8 +90,9 @@ static napi_value initialize(napi_env env, napi_value exports) {
     { "hit", NULL, hit, NULL, NULL, NULL, napi_default, NULL },
     { "scroll", NULL, scroll, NULL, NULL, NULL, napi_default, NULL },
     { "tree", NULL, tree, NULL, NULL, NULL, napi_default, NULL },
+    { "mouse", NULL, mouse, NULL, NULL, NULL, napi_default, NULL },
   };
-  napi_define_properties(env, exports, 3, methods);
+  napi_define_properties(env, exports, 4, methods);
   return exports;
 }
 NAPI_MODULE(native_hit_test, initialize)

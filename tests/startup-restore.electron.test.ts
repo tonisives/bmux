@@ -140,7 +140,7 @@ test('headless background restore opt-in preserves state and wakes only addresse
     await expect(f.rpc('eval', { tab: f.guard.pane.id, expression: 'fetch("/forbidden")' })).rejects.toThrow('Automation paused: challenge on restore.bmux.org')
     expect(f.requests.get('/forbidden') ?? 0).toBe(0)
     expect(f.cookies.get('/guard')).toBe('')
-    expect(JSON.parse(await fs.readFile(safetyFile, 'utf8'))[JSON.stringify(['profile_guard', 'restore.bmux.org'])]).toEqual(Object.values(safety)[0])
+    expect(JSON.parse(await fs.readFile(safetyFile, 'utf8'))[JSON.stringify(['profile_guard', 'restore.bmux.org'])]).toEqual({ ...Object.values(safety)[0], activeMs: 0 })
     expect(await fs.readFile(ledgerFile, 'utf8')).toBe(ledger)
     expect((await f.rpc('state')).model.clients).toEqual([])
   } finally { await f.cleanup() }

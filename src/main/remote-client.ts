@@ -138,8 +138,9 @@ export let createLocalRemote = (directory: string, previewSettings: () => Remote
     if (!activeToken) throw new Error('Sign in to remote')
     let response = await fetch(`${origin}${endpoint}`, { method, headers: { Cookie: `bmux_session=${activeToken}`, Origin: origin, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(25000) })
     if (response.status === 401) { activeToken = undefined; throw new Error('Sign in to remote') }
-    let result = await response.json() as { error?: string }
-    if (!response.ok) throw new Error(result.error || 'Account request unavailable')
+    let result: { error?: string; code?: string }
+    try { result = await response.json() } catch { throw new Error('Account response could not be read (HTTP ' + response.status + ')') }
+    if (!response.ok) throw new Error((result.error || 'Account request unavailable') + ' (HTTP ' + response.status + (result.code ? '; ' + result.code : '') + ')')
     return result
   }
   let sessionPreviews = (hostId: string, sessionId: string, request: RemotePreviewRequest = 'missing') => {

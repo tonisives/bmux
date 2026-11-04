@@ -285,6 +285,13 @@ with profile and pane switches and their On/Off states, then **Limits** and
 when a warning, break, or safety error needs attention. Its action resumes after
 a resolved warning or resets a session to end a break. It lists paused websites
 across the profile, including websites in other panes or closed tabs.
+Session minutes count active time: at most three seconds after each interaction.
+Idle thinking time and slow commands beyond those three seconds do not count.
+After two minutes idle, that website starts a fresh session on its next interaction.
+Triggered breaks keep their configured duration.
+Social sites default to one action every three seconds, with up to three actions
+in one second once per minute. Actions queue per website and profile, so parallel
+commands share the same allowance. Existing custom delays still apply between bursts.
 Session minutes, break minutes, and social site delay are editable for the
 selected profile. Press Enter or leave the field to save. Changes apply
 immediately and preserve existing usage. Existing config values remain the
@@ -314,7 +321,7 @@ automation:
     enabled: true
     maxSessionMinutes: 10
     cooldownMinutes: 20
-    socialDelayMs: 2000
+    socialDelayMs: 3000
     simulateMouseMovement: true
     profiles:
       profile_default: false
@@ -399,3 +406,9 @@ remain queued; use them for playback changes, scrolling and other mutations.
 Native key and mouse releases acknowledge delivery immediately while keeping the
 input action's domain lock through its full cooldown. This lets an observation,
 screenshot and inference run while the next input remains queued.
+
+### Fixed viewport sizes
+
+`bmux lock-viewport -t SESSION:WINDOW --width 1512 --height 900` sets every pane in the window to that native viewport size, including when already locked. Without dimensions, the command captures the current sizes. `bmux unlock-viewport -t SESSION:WINDOW` restores automatic sizing. Sizes persist across relaunches.
+
+Each fixed viewport has a stationary hand button with a pressed state that stays the same size at every page zoom. Hover for its shortcuts. Toggle it or hold Alt or Meta and drag to pan the visible area at full scale. Drags can start in the space around a page, including when hand mode is toggled. Alt scrolling zooms the page in or out. Scroll while holding Meta or in hand mode to pan with a wheel or trackpad. Escape exits hand mode. Normal scrolling, including Shift scrolling, belongs to the website.

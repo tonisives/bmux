@@ -201,7 +201,7 @@
 .panelTabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid #444b59; }
 .panel .panelTabs button { flex: 0 0 auto; padding: 7px 10px; border-radius: 0; color: #aab4bf; border-bottom: 2px solid transparent; }
 .panel .panelTabs button:hover { background: transparent; color: #eceef2; }
-.panel .panelTabs button[aria-selected="true"] { color: #eceef2; border-bottom-color: #a7b69c; }
+.panel .panelTabs button[aria-selected="true"], .panel .panelTabs button[aria-pressed="true"] { color: #eceef2; border-bottom-color: #a7b69c; }
 .panelBody { padding: 12px 20px 20px; }
 .panel button { border: 0; background: transparent; }
 .panel p { color: #8e98a4; }
@@ -675,41 +675,40 @@
 
 .remoteProfile { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.pluginParameters { display: flex; flex: 1; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; overflow: hidden; }
-.pluginParameters h2, .pluginParameters p { margin: 0; }
-.pluginParameterBody { display: grid; flex: 1; align-content: start; gap: 16px; overflow: auto; padding: 4px; min-width: 0; min-height: 0; }
-.pluginParameterSection { margin: 0; padding: 16px; border: 1px solid #444b59; min-width: 0; }
-.pluginParameterSection legend, .pluginPresetSection h3 { font-size: 14px; line-height: 20px; font-weight: 600; padding: 0 4px; }
-.pluginPresetSection h3 { margin: 0; padding: 0; }
-.pluginPresetSection { display: grid; gap: 12px; min-width: 0; }
-.pluginPresetSection p, .pluginParameterFields small { color: #aab4bf; font-size: 12px; line-height: 16px; white-space: normal; overflow-wrap: anywhere; }
-.pluginPresetButtons { display: flex; flex-wrap: wrap; gap: 8px; }
-.panel .pluginPresetButtons button, .panel .pluginAdvancedSettings > button { padding: 8px 12px; border: 1px solid #505a66; white-space: normal; text-align: left; }
-.panel .pluginPresetButtons button[aria-pressed="true"] { background: #bdc9b4; color: #181818; }
-.pluginPresetSummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 0; }
-.pluginPresetSummary > div { min-width: 0; }
-.pluginPresetSummary dt { color: #aab4bf; font-size: 12px; line-height: 16px; white-space: normal; }
-.pluginPresetSummary dd { margin: 0; font-size: 14px; line-height: 20px; white-space: normal; overflow-wrap: anywhere; }
-.pluginAdvancedSettings { display: grid; gap: 12px; }
-.pluginAdvancedSettings > div { display: grid; gap: 16px; }
-.pluginParameterFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 2px; }
-.pluginParameterFields label { display: flex; flex-direction: column; gap: 8px; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
-.pluginParameterFields input, .pluginParameterFields select { width: 100%; box-sizing: border-box; padding: 8px; background: #111318; border: 1px solid #505a66; color: #eceef2; font: inherit; }
-.pluginParameterActions { display: flex; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
-.pluginParameterActions button { padding: 8px 16px; border: 1px solid #505a66; }
-.pluginParameterActions button[type="submit"] { background: #bdc9b4; color: #111318; }
-@media (max-width: 540px) { .pluginParameterFields { grid-template-columns: minmax(0, 1fr); } }
+.pluginParameters { --settings-field-width: 440px; --settings-row-width: 560px; display: flex; flex: 1; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow: hidden; }
+.pluginParameters > h2 { margin: 0; font-size: inherit; font-weight: 500; }
+.pluginParameters p { margin: 0; }
+.pluginParameterBody { flex: 1; overflow: auto; padding: 4px; min-width: 0; min-height: 0; }
+.pluginPresetSection { margin-bottom: 20px; min-width: 0; max-width: var(--settings-row-width); }
+.pluginPresetSection h3, .pluginSettingsHeading h3 { margin: 0; color: #aab4bf; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.pluginPresetSection p { margin-top: 6px; }
+.pluginPresetSection .panelTabs { margin-top: 4px; }
+.pluginSettingsHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: var(--settings-row-width); margin-bottom: 12px; }
+.pluginSettingsRows { min-width: 0; }
+.pluginParameterField { min-width: 0; max-width: var(--settings-row-width); }
+.pluginParameterField .settingsRow { margin: 0; white-space: normal; }
+.pluginParameterField .settingsRow > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.pluginParameterField .settingsRow select, .pluginParameterField .settingsRow input, .pluginParameterField .settingsRow textarea { box-sizing: border-box; width: 55%; }
+.pluginParameterField textarea { min-height: 80px; resize: vertical; font: inherit; color: inherit; background: #20242d; border: 1px solid #444b59; padding: 8px; }
+.pluginParameterField small { display: block; color: #8e98a4; margin: 6px 0 12px; overflow-wrap: anywhere; }
 
 .extensionWorkspace > .pluginDetails { display: flex; flex-direction: column; overflow: hidden; }
-.pluginDetails > h2 { margin: 0 0 12px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.pluginDetails > h2 { margin: 0 0 12px; font-size: inherit; font-weight: 500; }
 .pluginFeaturePanel { flex: 1; min-height: 0; overflow: auto; padding: 16px 4px 4px; }
 .pluginFeaturePanel > p:first-child { margin-top: 0; white-space: normal; overflow-wrap: anywhere; }
 .pluginActionGrid { display: grid; gap: 24px; align-content: start; min-width: 0; }
 .pluginActionRow { display: grid; grid-template-columns: minmax(0, 240px) minmax(0, 1fr); gap: 16px; align-items: start; min-width: 0; }
-.pluginActionRow p { margin: 0; padding: 8px 0; min-width: 0; color: #aab4bf; font-size: 14px; line-height: 20px; white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
-.panel .pluginActionButton { justify-self: start; max-width: 100%; min-width: 0; padding: 8px 12px; border: 1px solid #444b59; background: #272727; color: #eceef2; text-align: left; white-space: normal; overflow-wrap: anywhere; font-size: 14px; line-height: 20px; font-weight: 600; }
-@media (max-width: 540px) { .pluginActionRow { grid-template-columns: minmax(0, 1fr); gap: 4px; } .pluginPresetSummary { grid-template-columns: minmax(0, 1fr); } }
-.panel .pluginActionButton:hover:not(:disabled) { background: #313131; border-color: #83917b; }
+.pluginActionRow p { margin: 0; padding: 4px 0; min-width: 0; color: #8e98a4; white-space: normal; overflow-wrap: anywhere; text-wrap: pretty; }
+.panel .pluginActionButton { justify-self: start; max-width: 100%; min-width: 0; padding: 4px 0; color: #bdc9b4; text-align: left; white-space: normal; overflow-wrap: anywhere; font: inherit; }
+@media (max-width: 540px) { .pluginActionRow { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
+.panel .pluginActionButton:hover:not(:disabled) { color: #eceef2; }
 .panel .pluginActionButton:active:not(:disabled) { transform: translateY(1px); }
 .panel .pluginActionButton:focus-visible { outline: 2px solid #bdc9b4; outline-offset: 2px; }
 .panel .pluginActionButton:disabled { opacity: .45; cursor: not-allowed; }
+
+.pluginSettingsSection { max-width: var(--settings-row-width); }
+.pluginSettingsSection > summary { padding: 8px 0; color: #aab4bf; font-size: 11px; font-weight: 600; text-transform: uppercase; cursor: pointer; }
+.pluginProfiles { max-width: var(--settings-row-width); margin-bottom: 16px; }
+.pluginProfiles p { color: #8e98a4; margin: 8px 0; }
+.pluginProfiles .settingsRow { white-space: normal; }
+.pluginProfiles .settingsRow select, .pluginProfiles .settingsRow input { width: 55%; min-width: 0; box-sizing: border-box; }

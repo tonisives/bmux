@@ -46,6 +46,54 @@ def read_result(path):
     return result
 
 
+def main_is_green(commit):
+    """Only skip an older failure when main has completed successful checks."""
+    runs = json.loads(subprocess.check_output([
+        "gh", "run", "list", "-R", "tonisives/bmux", "--commit", commit,
+        "--limit", "100", "--json", "name,status,conclusion",
+    ], text=True))
+    spec = importlib.util.spec_from_file_location("trigger_ci_repair", SOURCE_ROOT / "scripts/trigger-ci-repair.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    latest = {}
+    for run in runs:
+        if run["name"] in module.WORKFLOWS:
+            latest.setdefault(run["name"], run)
+    return "Check" in latest and all(
+        run["status"] == "completed" and run["conclusion"] == "success"
+        for run in latest.values()
+    )
+
+
+def send_agent_message(directory, result):
+    checkpoint = directory / "session.json"
+    if not checkpoint.exists():
+        return
+    session = str(uuid.UUID(json.loads(checkpoint.read_text())["session_id"]))
+    slug = os.environ.get("CLAWTAB_JOB_SLUG", "bmux/ci-repair")
+    run = os.environ.get("CLAWTAB_RUN_ID", session)
+    failed = result["status"] in {"blocked", "failed", "error"}
+    body = result["explanation"]
+    if result["failed_run_url"]:
+        body += f"\n\n[Failed CI run]({result['failed_run_url']})"
+    for url in result["verification_urls"]:
+        body += f"\n\n[Verification]({url})"
+    request = {
+        "title": f"{slug} agent {'needs attention' if failed else 'finished'}",
+        "body": body, "kind": "failed" if failed else "completed", "template": "update",
+        "source": {"provider": "codex", "session_id": session, "cwd": str(ROOT.parent),
+                   "job_id": slug, "run_id": run, "group": slug.split("/")[0]},
+        "actions": [{"id": "focus", "label": "Open agent", "kind": "focus"},
+                    {"id": "acknowledge", "label": "Got it"}],
+        "dedupe_key": f"ci-repair-agent:{run}:{session}",
+    }
+    try:
+        subprocess.run(["cwt", "message", "send", "--stdin"], input=json.dumps(request),
+                       text=True, stdout=subprocess.DEVNULL, check=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"Could not deliver repair agent message: {error}", file=sys.stderr)
+
+
 def run_agent(smoke, commit, result_dir):
     spec = importlib.util.spec_from_file_location("trigger_ci_repair", SOURCE_ROOT / "scripts/trigger-ci-repair.py")
     module = importlib.util.module_from_spec(spec)
@@ -135,15 +183,23 @@ def main():
             current = subprocess.check_output([
                 "git", "-C", str(ROOT), "rev-parse", "origin/main",
             ], text=True).strip()
-            if current != commit and not (directory / "session.json").exists():
+            if current != commit and not (directory / "session.json").exists() and main_is_green(current):
                 result = {
                     "status": "skipped", "failed_run_url": "", "fix_commit": "", "verification_urls": [],
-                    "explanation": "Main has advanced; the obsolete failure was skipped without launching an agent.",
+                    "explanation": "Current main has successful CI checks; the older failure was skipped without launching an agent.",
                 }
         if result is None:
             if not smoke:
                 write_json(last_repair, {"commit": commit})
-            result = run_agent(smoke, commit, directory)
+            try:
+                result = run_agent(smoke, commit, directory)
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                send_agent_message(directory, {
+                    "status": "blocked", "failed_run_url": "", "fix_commit": "",
+                    "verification_urls": [], "explanation": str(error),
+                })
+                raise
+            send_agent_message(directory, result)
         write_json(completed, result)
     finally:
         lock.rmdir()

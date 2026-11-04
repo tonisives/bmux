@@ -17,6 +17,8 @@ it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   expect(defaultConfig.memory).toEqual({ lazyRestore: true, idleUnloadMinutes: 0, maxLoadedBackgroundPages: 8 })
   expect(defaultConfig.clickMode).toMatchObject({ enabled: true, doubleTapModifier: 'Option', hintCharacters: 'asgjkqwetyuiopzxvbm' })
   expect(defaults.shortcuts['Cmd+R']).toBe('reload')
+  expect(defaults.shortcuts['Cmd+E']).toBe('extensions')
+  expect(defaults.shortcuts['Ctrl+E']).toBe('vim-editor')
   expect(defaults.shortcuts['Cmd+Ctrl+Alt+Shift+W']).toBe('sessions')
   expect(defaults.shortcuts['Cmd+T']).toBe('new-window')
   expect(defaults.shortcuts['Cmd+N']).toBe('new-client')

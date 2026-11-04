@@ -1755,3 +1755,44 @@ test('pane layout shortcuts arrange grids, columns and rows and expand one axis'
     await rpc('select-window', { client: clientId, window: previous.windowId })
   }
 })
+
+
+test('switchc selects panes across sessions, preserves zoom with -Z and supports client modes', async () => {
+  let current = await state(), original = current.model.clients.find((client: any) => client.id === current.clientId)!
+  let target = await rpc('new-session', { name: 'switchc-target' })
+  let window = target.windows[0], first = window.panes[0]
+  let second = await rpc('split-window', { pane: first.id, url })
+  let selection = async () => (await state()).model.clients.find((client: any) => client.id === original.id)
+  let line = (line: string) => rpc('command-line', { client: original.id, line })
+  try {
+    await open(); await prompt().fill(`switchc -t ${second.id}`); await prompt().press('Enter')
+    await expect(prompt()).toHaveCount(0)
+    await expect.poll(selection).toMatchObject({ sessionId: target.id, windowId: window.id, paneId: second.id })
+    await expect(chrome.locator(`[data-pane-id="${second.id}"]`)).toHaveAttribute('data-focused-pane', 'true')
+    await rpc('wait', { pane: second.id, selector: 'h1' })
+    await line('switchc -l')
+    expect(await selection()).toMatchObject({ sessionId: original.sessionId, windowId: original.windowId })
+    await line('switchc -l')
+    await rpc('toggle-pane-zoom', { client: original.id })
+    await line(`switchc -Zt${first.id}`)
+    expect(await selection()).toMatchObject({ paneId: first.id, zoomedPaneId: first.id })
+    await line(`switch-client -t ${second.id}`)
+    expect(await selection()).toMatchObject({ paneId: second.id, zoomedPaneId: null })
+    await line('switchc -T prefix')
+    await rpc('focus-page', { client: original.id })
+    await sendNativeKeys(application, [{ keyCode: ':' }])
+    await expect(prompt()).toBeFocused()
+    await prompt().fill('switchc -Er'); await prompt().press('Enter')
+    await expect.poll(selection).toMatchObject({ readOnly: true, ignoreSize: true })
+    await expect(line('reload')).rejects.toThrow('read-only')
+    await open(); await prompt().fill('switchc -r'); await prompt().press('Enter')
+    await expect.poll(selection).toMatchObject({ readOnly: false, ignoreSize: false })
+    await line('switchc -n -O creation')
+    expect((await selection()).sessionId).not.toBe(target.id)
+  } finally {
+    if ((await selection()).readOnly) await line('switchc -r')
+    await rpc('switch-client', { client: original.id, session: original.sessionId })
+    await rpc('select-window', { client: original.id, window: original.windowId })
+    await rpc('kill-session', { session: target.id, confirm: true })
+  }
+})

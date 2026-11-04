@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { parseDocument, stringify } from 'yaml'
-import { DEFAULT_KEYBOARD, KEY_ACTIONS, normalizeKeyAction, parseBinding } from '../shared/keyboard'
+import { DEFAULT_KEYBOARD, KEY_ACTIONS, normalizeKeyAction, parseBinding, switchClientAction } from '../shared/keyboard'
 import type { KeyboardConfig } from '../shared/keyboard'
 import type { MemorySettings, StatusBarPosition } from '../shared/types'
 import { pluginBinding } from '../shared/plugins'
@@ -91,7 +91,7 @@ export let parseConfig = (text: string): Settings => {
   if (value.vimEditing !== undefined && typeof value.vimEditing !== 'boolean') throw new Error('vimEditing must be true or false')
   if (value.automaticUpdates !== undefined && typeof value.automaticUpdates !== 'boolean') throw new Error('automaticUpdates must be true or false')
   let keyboard = value.keyboard
-  for (let key of Object.keys(keyboard)) if (!['prefix', 'prefixTimeoutMs', 'shortcuts', 'sequences', 'prefixBindings'].includes(key)) throw new Error(`Unknown keyboard setting: ${key}`)
+  for (let key of Object.keys(keyboard)) if (!['prefix', 'prefixTimeoutMs', 'shortcuts', 'sequences', 'prefixBindings', 'keyTables'].includes(key)) throw new Error(`Unknown keyboard setting: ${key}`)
   let result = structuredClone(DEFAULT_KEYBOARD)
   if (keyboard.prefix !== undefined) {
     if (typeof keyboard.prefix !== 'string') throw new Error('keyboard.prefix must be a key combination')
@@ -119,7 +119,7 @@ export let parseConfig = (text: string): Settings => {
       if (object && (Object.keys(object).some(key => !['action', 'when'].includes(key)) || (object.when !== undefined && (typeof object.when !== 'string' || !['always', 'pane-not-editing'].includes(object.when))))) throw new Error(`Invalid shortcut context for ${key}`)
       let name = object ? object.action : action
       if (typeof name === 'string') name = normalizeKeyAction(name)
-      if (typeof name !== 'string' || (!KEY_ACTIONS.has(name) && name !== 'plugins' && !pluginBinding(name))) throw new Error(`Unknown keyboard action for ${key}`)
+      if (typeof name !== 'string' || (!KEY_ACTIONS.has(name) && !switchClientAction(name) && name !== 'plugins' && !pluginBinding(name))) throw new Error(`Unknown keyboard action for ${key}`)
       if (field === 'shortcuts' && object) result.shortcuts[key] = { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined }
       else result[field][key] = name
     }
@@ -133,8 +133,25 @@ export let parseConfig = (text: string): Settings => {
       if (object && (Object.keys(object).some(key => !['action', 'when'].includes(key)) || (object.when !== undefined && (typeof object.when !== 'string' || !['always', 'pane-not-editing'].includes(object.when))))) throw new Error(`Invalid sequence context for ${key}`)
       let name = object ? object.action : action
       if (typeof name === 'string') name = normalizeKeyAction(name)
-      if (typeof name !== 'string' || (!KEY_ACTIONS.has(name) && name !== 'plugins' && !pluginBinding(name))) throw new Error(`Unknown keyboard action for ${key}`)
+      if (typeof name !== 'string' || (!KEY_ACTIONS.has(name) && !switchClientAction(name) && name !== 'plugins' && !pluginBinding(name))) throw new Error(`Unknown keyboard action for ${key}`)
       result.sequences[key] = object ? { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined } : name
+    }
+  }
+  if (keyboard.keyTables !== undefined) {
+    if (!keyboard.keyTables || typeof keyboard.keyTables !== 'object' || Array.isArray(keyboard.keyTables)) throw new Error('keyTables must be a mapping')
+    result.keyTables = {}
+    for (let [table, bindings] of Object.entries(keyboard.keyTables)) {
+      if (!table || ['root', 'prefix', '__proto__', 'constructor', 'prototype'].includes(table)) throw new Error(`Invalid key table: ${table}`)
+      if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)) throw new Error(`Key table '${table}' must be a mapping`)
+      let parsed: Record<string, string> = {}
+      for (let [key, action] of Object.entries(bindings)) {
+        if (key.length !== 1) parseBinding(key)
+        if (action === null) continue
+        let name = typeof action === 'string' ? normalizeKeyAction(action) : undefined
+        if (!name || !KEY_ACTIONS.has(name) && !switchClientAction(name) && !pluginBinding(name)) throw new Error(`Unknown keyboard action for ${table}.${key}`)
+        parsed[key] = name
+      }
+      result.keyTables[table] = parsed
     }
   }
   let plugins: PluginSettings = { 'bmux.forms': { enabled: true, hooks: false }, 'bmux.nordvpn': { enabled: true, hooks: false } }

@@ -15,7 +15,7 @@ test('four panes show independent agent cursors and five-second command labels',
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let server = http.createServer((request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html' })
-    response.end(`<!doctype html><title>Four-pane fixture</title><style>body{margin:0;min-height:6000px;background:linear-gradient(#bbcde3,#7194ba);font:20px system-ui}h1{padding:30px;font-size:24px}button{position:fixed;left:100px;top:120px;width:100px;height:50px}</style><h1>${request.headers.host}</h1><button onclick="this.textContent='Clicked'">Action</button>`)
+    response.end(`<!doctype html><title>Four-pane fixture</title><style>body{margin:0;min-height:6000px;background:linear-gradient(#bbcde3,#7194ba);font:20px system-ui}h1{padding:30px;font-size:24px}button{position:fixed;left:100px;top:120px;width:100px;height:50px}</style><h1>${request.headers.host}</h1><button id="fixture-action" onclick="this.textContent='Clicked'">Action</button>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let port = (server.address() as { port: number }).port
@@ -46,7 +46,7 @@ test('four panes show independent agent cursors and five-second command labels',
     await rpc('select-pane', { pane: panes[0], client: client.id })
     await expect.poll(() => application!.context().pages().filter(page => urls.includes(page.url())).length).toBe(4)
     let pages = urls.map(url => application!.context().pages().find(page => page.url() === url)!)
-    for (let page of pages) await expect(page.locator('button')).toBeVisible()
+    for (let page of pages) await expect(page.locator('#fixture-action')).toBeVisible()
     for (let page of pages) await page.evaluate(() => {
       let attach = Element.prototype.attachShadow
       Element.prototype.attachShadow = function (options) {
@@ -75,7 +75,7 @@ test('four panes show independent agent cursors and five-second command labels',
       await expect(pointer).toHaveCSS('transform', `matrix(1, 0, 0, 1, ${points[index].x}, ${points[index].y})`)
       expect(locks.find(lock => lock.labels.includes(expectedLabels[index]))!.bounds).toEqual(views.find(view => view.url === urls[index])!.bounds)
     }
-    await expect(pages[3].locator('button')).toHaveText('Clicked')
+    await expect(pages[3].locator('#fixture-action')).toHaveText('Clicked')
     expect(await selection()).toMatchObject({ paneId: selectedBefore.paneId, windowId: selectedBefore.windowId })
     expect(await application.evaluate(({ screen }) => screen.getCursorScreenPoint())).toEqual(pointerBefore)
     await fs.mkdir(testInfo.outputDir, { recursive: true })

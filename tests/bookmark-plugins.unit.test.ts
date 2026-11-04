@@ -18,7 +18,7 @@ describe('bookmark plugin contracts', () => {
   test('accepts old manifests and validates defaults, bounds, paths and site matches', () => {
     let manifest = { schema_version: 1, id: 'fixture', name: 'Fixture', version: '1', bookmark: definition }
     expect(parsePluginManifest(stringify({ ...manifest, bookmark: undefined })).bookmark).toBeUndefined()
-    expect(bookmarkPluginValues(definition, {})).toMatchObject({ minScore: 2, minComments: 2, duplicateTitles: true })
+    expect(bookmarkPluginValues(definition, {})).toMatchObject({ minScore: 2, minComments: 2, duplicateTitles: true, connectionPosts: true })
     for (let values of [{ minScore: -1 }, { minScore: 1.5 }, { minComments: Infinity }, { duplicateTitles: 'yes' }, { rule: 'unknown' }, { missing: 1 }]) expect(() => bookmarkPluginValues(definition, values)).toThrow()
     for (let script of ['/tmp/file.js', '../file.js', 'a/../../file.js']) expect(() => parsePluginManifest(stringify({ ...manifest, bookmark: { ...definition, script } }))).toThrow()
     expect(() => parsePluginManifest(stringify({ ...manifest, bookmark: { ...definition, controls: [{ name: 'x', title: 'X', kind: 'number', default: -1, min: 0 }] } }))).toThrow()
@@ -55,10 +55,35 @@ let row = (id: string, score: string | null, comments: string | null, title = id
 let filter = (rows: ReturnType<typeof row>[], settings = {}) => {
   let notify: () => void = () => undefined, disconnect = vi.fn()
   let context = { location: { href: 'http://127.0.0.1/search/?q=foo&type=posts' }, URL, setTimeout, clearTimeout, document: { documentElement: {}, querySelectorAll: () => rows }, MutationObserver: class { constructor(callback: () => void) { notify = callback }; disconnect = disconnect; observe = vi.fn() } }
-  let cleanup = vm.runInNewContext(`(${source})`, context)(bookmarkPluginValues(definition, settings))
-  return { cleanup, context, notify: () => notify(), disconnect }
+  let report = vi.fn()
+  let cleanup = vm.runInNewContext(`(${source})`, context)(bookmarkPluginValues(definition, settings), report)
+  return { cleanup, context, report, notify: () => notify(), disconnect }
 }
 describe('Reddit filtering', () => {
+  test('reports counts, original titles and reasons and retains removed matches for this search', async () => {
+    vi.useFakeTimers()
+    let rows = [row('a', '0', '1', 'A useful title'), row('b', '5', '5', 'A keeper'), row('c', '5', '5', 'A keeper'), row('d', '41', '63', "Let's #connect")]
+    let run = filter(rows)
+    expect(run.report.mock.lastCall![0]).toEqual([
+      { key: '1', title: 'A useful title', url: '', reasons: ['Score 0 below 2', 'Comments 1 below 2'] },
+      { key: '3', title: 'A keeper', url: '', reasons: ['Duplicate title'] },
+      { key: '4', title: "Let's #connect", url: '', reasons: ['Connection post'] },
+    ])
+    rows.splice(0, 1); run.notify(); await vi.advanceTimersByTimeAsync(60)
+    expect(run.report.mock.lastCall![0]).toHaveLength(3)
+    rows.splice(0); run.context.location.href = 'https://www.reddit.com/search?q=other'
+    run.notify(); await vi.advanceTimersByTimeAsync(60)
+    expect(run.report).toHaveBeenLastCalledWith([]); run.cleanup()
+  })
+  test('hides connection prompts while retaining technical connections and supports opting out', () => {
+    let titles = ["let's #connect", 'Let’s connect with people building in tech:', "I'm looking to #connect with people interested in:", 'Hey X\nlooking to #connect with people who are into:', 'Looking to connect with fellow developers', 'Follow me for a follow', "Let's connect to Postgres", "Let's connect our API to a database", 'How do I connect with an API?', 'Connection pooling for builders', 'Disconnect from social media']
+    let rows = titles.map((title, index) => row(String(index), '41', '63', title))
+    let run = filter(rows)
+    expect(rows.map(item => item.hidden())).toEqual([true, true, true, true, true, true, false, false, false, false, false])
+    run.cleanup()
+    let disabled = filter(rows, { connectionPosts: false })
+    expect(rows.every(item => !item.hidden())).toBe(true); disabled.cleanup()
+  })
   test('uses both minima by default, retains unknown counts and parses abbreviations', () => {
     let rows = [row('a', '1', '5'), row('b', '5', '1'), row('c', '2', '2'), row('d', null, '1'), row('e', '1.2k', '2,000'), row('f', '-2', '5')]
     let run = filter(rows)

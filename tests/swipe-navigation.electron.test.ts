@@ -308,9 +308,6 @@ for (let route of ['history', 'noopener']) test(`native trackpad holds a scrolle
   await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${origin}/preview-two`)
   await page.evaluate(() => scrollTo(0, 400))
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(400)
-  await wheel('begin', 70, -6)
-  // No more wheel events while fingers rest: this exceeds the old idle timeout.
-  await page.waitForFunction(() => (window as any).wheels > 0 && performance.now() - (window as any).lastWheel > 1200)
   let screenshotPath = info.outputPath('native-held-swipe.png')
   let colors = async () => {
     await exec('/usr/sbin/screencapture', ['-x', screenshotPath])
@@ -328,6 +325,16 @@ for (let route of ['history', 'noopener']) test(`native trackpad holds a scrolle
     }, { url: page.url(), screenshotPath })
   }
   let closeColor = (actual: number[], expected: number[]) => actual.forEach((value, index) => expect(Math.abs(value - expected[index])).toBeLessThan(8))
+  // A new popup can report its scroll position before its native surface paints.
+  // Observe that surface before starting a gesture that freezes the current frame.
+  await expect(async () => {
+    let sample = await colors()
+    closeColor(sample.current, [0xd9, 0xe7, 0xee])
+    closeColor(sample.header, [0x55, 0x77, 0x66])
+  }).toPass({ timeout: 5000 })
+  await wheel('begin', 70, -6)
+  // No more wheel events while fingers rest: this exceeds the old idle timeout.
+  await page.waitForFunction(() => (window as any).wheels > 0 && performance.now() - (window as any).lastWheel > 1200)
   await expect(async () => {
     let sample = await colors()
     closeColor(sample.previous, [0xcc, 0x44, 0x55])

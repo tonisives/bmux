@@ -15,7 +15,7 @@ test('agent scrolls animate and share a domain lock within each profile', async 
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html' })
-    response.end(`<!doctype html><title>Agent scroll fixture</title><style>body{margin:0;min-height:6000px;background:linear-gradient(#e8eef8,#7194ba);font:20px system-ui}h1{padding:100px 30px}button{position:fixed;top:24px;left:24px;padding:12px}</style><h1>Smooth agent scrolling</h1><button>Record action</button><script>window.positions=[];window.clicks=[];addEventListener('scroll',()=>positions.push({y:scrollY,at:Date.now()}));document.querySelector('button').onclick=()=>clicks.push(Date.now());</script>`)
+    response.end(`<!doctype html><title>Agent scroll fixture</title><style>body{margin:0;min-height:6000px;background:linear-gradient(#e8eef8,#7194ba);font:20px system-ui}h1{padding:100px 30px}button{position:fixed;top:24px;left:24px;padding:12px}</style><h1>Smooth agent scrolling</h1><button id="fixture-action">Record action</button><script>window.positions=[];window.clicks=[];addEventListener('scroll',()=>positions.push({y:scrollY,at:Date.now()}));document.querySelector('#fixture-action').onclick=()=>clicks.push(Date.now());</script>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://example.com:${(server.address() as { port: number }).port}`
@@ -41,12 +41,12 @@ test('agent scrolls animate and share a domain lock within each profile', async 
     let other = await rpc('split-window', { pane, url: otherUrl })
     await expect.poll(() => application!.context().pages().some(page => page.url() === otherUrl)).toBe(true)
     let second = application.context().pages().find(page => page.url() === otherUrl)!
-    await expect(first.locator('h1')).toBeVisible(); await expect(second.locator('button')).toBeVisible()
+    await expect(first.locator('h1')).toBeVisible(); await expect(second.locator('#fixture-action')).toBeVisible()
     await expect.poll(() => application!.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some((view: any) => view.webContents?.getURL() === url && view.getBounds().height > 100)), first.url())).toBe(true)
     await first.evaluate(() => { (window as any).positions = [] })
     let scrolling = cli('scroll', { pane, action: 'scroll-half-down' })
     await expect.poll(() => first.evaluate(() => scrollY)).toBeGreaterThan(0)
-    let clicking = cli('click', { pane: other.id, selector: 'button' })
+    let clicking = cli('click', { pane: other.id, selector: '#fixture-action' })
     await Promise.all([scrolling, clicking])
     let positions = await first.evaluate(() => (window as any).positions as { y: number; at: number }[])
     expect(positions.length).toBeGreaterThan(3)

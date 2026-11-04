@@ -78,13 +78,19 @@ that prints one JSON object mapping parameter names to their effective values.
 BMUX passes the active profile in `BMUX_PLUGIN_PROFILE_ID`. This command runs
 before an interactive form, with a five second limit, and receives no plugin
 host token. Only declared visible non-password fields are accepted. It must
-only read configuration and must never print credentials. The form labels each
-inherited value as `Use saved setting: VALUE`; omitted values still use the
-plugin's saved configuration at launch. CLI invocations skip this reader.
+only read configuration and must never print credentials. The form displays the effective values directly. CLI invocations skip this reader.
+
+An optional `configuration_save_command` receives a JSON patch on stdin when
+settings change. BMUX debounces edits, serializes writes and waits for saving
+before Start or Cancel. Save errors stay in the form. This command has the same
+profile, timeout and credential restrictions as the reader. Hidden fields and
+passwords cannot be persisted. Text parameters can set `multiline: true`.
 
 Authenticated plugin browser operations carry the plugin's own identity. The
 external CLI identity requirements apply to external agents; plugin capability,
 document and automation checks still apply to each browser operation.
+
+Plugin setup uses the same rows, text size and controls as Settings. Settings are directly editable in their rows, with saved values shown in the controls. There is no separate editing mode.
 
 The page overlay has one Details and settings expander with a view selector. Stop
 returns browsing actions to their configuration form. Starting from that form
@@ -276,8 +282,9 @@ separate opt-in in config. Bundled IDs take precedence over local plugin folders
 A plugin can declare a `bookmark` contribution independently of actions and
 hooks. Enable the plugin in the Plugins panel, then attach it through a matching
 bookmark's sliders. Global hooks need not be enabled. The bundled
-`bmux.reddit-search` plugin provides Reddit post search filtering and starts
-disabled.
+`bmux.reddit-search` plugin provides Reddit post search filtering. The bundled
+`bmux.x-search` plugin filters connection prompts in X and Twitter search
+bookmarks. Both start disabled.
 
 ```yaml
 bookmark:
@@ -294,7 +301,12 @@ Controls support `number`, `boolean`, `text`, and `choice`. Each requires a
 JavaScript file must be inside the plugin directory and at most 256 KiB.
 
 The file contains a JavaScript function expression receiving validated settings
-and returning a synchronous cleanup function:
+and returning a synchronous cleanup function. An optional second argument reports
+hidden posts to the floating page overview. Call it after filtering with an array
+of `{ key, title, url, reasons }` objects; `reasons` is an array of short strings.
+Keep post keys stable, retain matches removed by infinite scrolling, and report
+an empty array on cleanup or when the search changes. Reporting stays in the
+page's isolated world.
 
 ```js
 (settings) => {
@@ -364,3 +376,43 @@ and binds the invocation to that new pane. The runner acquires its automation
 lease before navigating to the platform. The form can select Auto continue or
 Ask before each action. Cancelling the form creates no window. CLI invocations
 keep their existing pane and explicit session behavior.
+
+
+Overlay content may include up to two copy entries in copies with id, label,
+and text. Each full text is limited to 300,000 characters, separately from the
+32 KB display limit. BMUX retains these texts privately for the run; published
+overlay state contains only IDs and labels. A trusted copy button writes that
+run's selected text to the clipboard. overlay.update reports copyPayloads: true
+when this is supported.
+
+Close overlay hides the view without stopping the run. Show overlay in plugin
+activity reopens its original pane. When a run ends, its overlay collapses once
+to a completion header; it can be expanded to inspect the last post or used to
+choose a new session. Stop still returns directly to the configuration form.
+
+Text parameters can declare `range: { min: 1, max: 120, step: 1, unit: s }` to show a two-handle slider. Values remain strings such as `8-12` (or `10` for a fixed value), including saved settings and CLI arguments. Bounds and step are validated before execution. Slider edits use the same automatic save as other settings.
+
+### Named configuration profiles
+
+Actions can declare `configuration_profile_command` alongside the configuration
+read and save commands. BMUX supplies `BMUX_PLUGIN_PROFILE_ID` and
+`BMUX_PLUGIN_CONFIGURATION_VERSION=2` to all three commands. The read and profile
+commands return `{values, profiles: {active, items: [{id, name}], templates?: [{id, name}]}}`.
+The save command continues to receive a field patch on stdin. The profile command
+receives `{action: "create" | "select" | "rename" | "delete", id?, name?, template?}`
+on stdin. Profile switching flushes pending edits and refreshes the same form;
+it never starts the action. Plugins own storage and scope their libraries to the
+provided BMUX profile. Older hosts omit the version variable; plugins supporting
+them should return the original flat settings object in that case.
+
+Form sections are collapsible. An overlay button can set `setting` to the ID of
+an editable overlay control to open Session settings and focus that control,
+without submitting a browser action.
+
+Named profiles have a compact selector and an Edit button. Creation, naming and
+Persona fields appear in a separate editor. Back to browsing flushes edits.
+
+An overlay can supply `error: {title, message, diagnostic?, controls?: string[]}`.
+BMUX replaces post cards, metrics and details with the error and only the named
+recovery buttons. A recovery button with `setting` opens its editable control
+inside this view. Recovery IDs must refer to existing button controls.

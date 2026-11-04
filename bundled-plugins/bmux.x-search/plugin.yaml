@@ -1,0 +1,13 @@
+schema_version: 1
+id: bmux.x-search
+name: X search filter
+version: 1.1.0
+bookmark:
+  matches:
+    - 'https://x.com/search*'
+    - 'https://www.x.com/search*'
+    - 'https://twitter.com/search*'
+    - 'https://www.twitter.com/search*'
+  script: ./filter.js
+  controls:
+    - { name: connectionPosts, title: Connection posts, kind: boolean, default: true }

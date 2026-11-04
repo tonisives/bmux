@@ -19,3 +19,28 @@ test('overlay stays inside its pane after resize, drag and collapse', () => {
   expect(fitPluginOverlay({ x: 900, y: 1000, width: 320, height: 500, collapsed: true }, area)).toEqual({ x: 610, y: 632, width: 320, height: 500, collapsed: true })
   expect(fitPluginOverlay(undefined, { x: 0, y: 0, width: 180, height: 150 })).toEqual({ x: 0, y: 0, width: 180, height: 150, collapsed: false })
 })
+
+
+test('full payload copies are separate from the compact overlay text limits', () => {
+  let text = JSON.stringify({ image: 'x'.repeat(20000), caption: 'AI demo' })
+  expect(parsePluginOverlay({ ...content, copies: [{ id: 'request', label: 'Copy sent payload', text }] }).copies?.[0].text).toBe(text)
+  expect(() => parsePluginOverlay({ ...content, copies: [{ id: 'request', label: 'Copy', text: 'x'.repeat(300001) }] })).toThrow()
+  expect(() => parsePluginOverlay({ ...content, copies: [{ id: 'request', label: 'Copy', text }, { id: 'request', label: 'Copy', text }] })).toThrow()
+})
+
+test('settings buttons link only to an existing editable control', () => {
+  let button = { id: 'configure', label: 'AI limit settings', kind: 'button', setting: 'mode' }
+  expect(parsePluginOverlay({ ...content, controls: [...content.controls, button] }).controls.at(-1)?.setting).toBe('mode')
+  expect(() => parsePluginOverlay({ ...content, controls: [button] })).toThrow('Unknown overlay setting')
+  expect(() => parsePluginOverlay({ ...content, controls: [{ ...button, setting: 'configure' }] })).toThrow()
+  expect(() => parsePluginOverlay({ ...content, controls: [{ ...content.controls[0], setting: 'mode' }] })).toThrow()
+})
+
+
+test('overlay errors bound diagnostic text and reference existing recovery buttons', () => {
+  let controls = [...content.controls, { id: 'resume', label: 'Resume', kind: 'button' }]
+  let error = { title: 'AI request failed', message: 'OpenAI rate limit reached', diagnostic: 'HTTP 429 · slow_down', controls: ['resume'] }
+  expect(parsePluginOverlay({ ...content, controls, error }).error).toEqual(error)
+  expect(() => parsePluginOverlay({ ...content, controls, error: { ...error, message: 'x'.repeat(1001) } })).toThrow()
+  expect(() => parsePluginOverlay({ ...content, controls, error: { ...error, controls: ['missing'] } })).toThrow('Unknown overlay recovery control')
+})
