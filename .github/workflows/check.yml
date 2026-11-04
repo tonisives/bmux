@@ -117,6 +117,9 @@ jobs:
       - name: Visual UI check
         if: ${{ inputs.visual_check && matrix.shard == 1 }}
         run: pnpm test:ui
+      - name: Packaged app smoke check
+        if: ${{ inputs.visual_check && matrix.shard == 1 }}
+        run: pnpm test:package
       - uses: actions/upload-artifact@v4
         if: failure() || inputs.visual_check
         with:

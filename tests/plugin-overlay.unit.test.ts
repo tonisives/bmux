@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { fitPluginOverlay, parsePluginOverlay, validatePluginOverlayInput } from '../src/shared/plugin-overlay'
+import { fitPluginOverlay, pluginOverlayHeight, parsePluginOverlay, validatePluginOverlayInput } from '../src/shared/plugin-overlay'
 
 let content = { title: 'Feed training', nodes: [{ title: 'Post', lines: ['A local fixture'], tone: 'cyan' }], controls: [{ id: 'ads', label: 'Skip ads', kind: 'toggle', value: false }, { id: 'mode', label: 'Mode', kind: 'choice', choices: ['Browse', 'Train'], value: 'Train' }] }
 test('overlay accepts bounded text controls and rejects malformed input', () => {
@@ -43,4 +43,12 @@ test('overlay errors bound diagnostic text and reference existing recovery butto
   expect(parsePluginOverlay({ ...content, controls, error }).error).toEqual(error)
   expect(() => parsePluginOverlay({ ...content, controls, error: { ...error, message: 'x'.repeat(1001) } })).toThrow()
   expect(() => parsePluginOverlay({ ...content, controls, error: { ...error, controls: ['missing'] } })).toThrow('Unknown overlay recovery control')
+})
+
+test('compact overlay uses a small native view and keeps its expanded size', () => {
+  let bounds = fitPluginOverlay({ x: 100, y: 1000, width: 384, height: 500, compact: true }, { x: 0, y: 0, width: 900, height: 640 })
+  expect(bounds).toMatchObject({ y: 480, height: 500, compact: true })
+  expect(pluginOverlayHeight(bounds)).toBe(160)
+  expect(pluginOverlayHeight({ ...bounds, compact: false })).toBe(500)
+  expect(pluginOverlayHeight({ ...bounds, collapsed: true })).toBe(48)
 })

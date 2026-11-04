@@ -718,3 +718,8 @@
 .pluginProfileControls { display: flex; align-items: center; gap: 8px; width: 55%; min-width: 0; }
 .pluginProfiles .pluginProfileControls select { flex: 1; width: 0; max-width: none; }
 .pluginProfileControls button { flex: none; }
+
+.pluginSubscription { margin-bottom: 24px; max-width: var(--settings-row-width); }
+.extensionWorkspace[data-browsing-settings="true"] { grid-template-columns: minmax(160px, 1fr) minmax(0, 3fr); }
+.extensionWorkspace[data-browsing-settings="true"] > .extensionList { display: block; }
+@media (max-width: 540px) { .extensionWorkspace[data-browsing-settings="true"] { grid-template-columns: 120px minmax(0, 1fr); gap: 12px; } }

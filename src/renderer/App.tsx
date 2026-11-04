@@ -41,9 +41,9 @@ import { Fragment, createContext, useCallback, useContext, useEffect, useId, use
 import { createPortal } from 'react-dom'
 import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
-import type { PluginInfo, PluginPrompt } from '../shared/plugins'
+import type { PluginInfo, PluginPrompt, PluginParameter } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
-import type { RemoteComputer } from '../shared/remote-account'
+import type { RelayBilling, RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
 import iphoneFrame from './device-frames/iphone-15-pro.png'
 import pixelFrame from './device-frames/pixel-8.png'
@@ -174,9 +174,9 @@ export let App = () => {
     <BrowserStatus collapsedAlerts={alertsCollapsed ? agentAlerts : []} expandAlerts={() => setAlertsCollapsed(false)} />
     {notices.length > 0 && <Notifications notices={notices} collapseAlerts={collapseAlerts} />}
     {(panel === 'sessions' || sessionsBehind) && <Panel key="sessions" type="sessions" inactive={sessionsBehind} hidden={!!state.pluginPrompt} />}
-    {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}
+    {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt && !((panel === 'plugins' || panel === 'extensions') && state.pluginPrompt.kind === 'form')} />}
     {sessionsBehind && panel && <SecondaryPanel type={panel} closeToSessions={closeToSessions} hidden={!!state.pluginPrompt} />}
-    {state.pluginPrompt && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
+    {state.pluginPrompt && !((panel === 'plugins' || panel === 'extensions') && !sessionsBehind && state.pluginPrompt.kind === 'form') && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
 }
@@ -1490,7 +1490,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
   useEffect(() => { if (!hidden && !['help', 'sessions', 'bookmark', 'bookmarks', 'history', 'plugin-dialog', 'plugins', 'settings'].includes(type)) ref.current?.focus() }, [type, hidden])
   if (type === 'adblock-popup' || type === 'dark-mode-popup') return <PluginQuickSettings hidden={hidden} back={panelBack} feature={type === 'adblock-popup' ? 'adblock' : 'dark-mode'} />
   let cycleTabs = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (sessionPicker && detailBack) return
+    if (sessionPicker && detailBack || state.pluginPrompt?.kind === 'form') return
     if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
     let target = event.target as HTMLElement
     if (target.closest('form[aria-label="Cursor and timing"]') && !target.closest('[role="tablist"]')) return
@@ -1503,12 +1503,12 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     next.click(); next.focus()
   }
   let sessionPicker = type === 'sessions'
-  let title = sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = ['plugins', 'extensions'].includes(type) && state.pluginPrompt?.kind === 'form' ? 'Plugin' : sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) leave() }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
   }
-  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
+  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
     <PanelHeader back={sessionPicker || closeToParent ? null : navigation} dismiss={closeToParent ? leave : dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Local</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote</button>
@@ -1516,8 +1516,8 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     <div className={css.panelBody}>
       {sessionPicker && navigation && !closeToParent && <div className={css.sessionNavigation} data-session-navigation><BackButton back={navigation} /></div>}
       {type === 'help' && <HelpContent />}
-      {type === 'plugins' && <PluginList />}
-      {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} />}
+      {type === 'plugins' && <PluginList browsingPrompt={!hidden && state.pluginPrompt?.kind === 'form'} />}
+      {type === 'plugin-dialog' && state.pluginPrompt && (state.pluginPrompt.kind === 'form' ? <PluginList browsingPrompt /> : <PluginDialog key={state.pluginPrompt.id} />)}
       {type === 'site-info' && <SiteInformation />}
       {type === 'agent-info' && <AgentInformation />}
       {type === 'anti-bot-settings' && <GeneralBotSettings />}
@@ -1529,7 +1529,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {type === 'bookmarks' && <BookmarkPicker />}
       {type === 'history' && <HistoryPicker />}
       {type === 'downloads' && <DownloadManager />}
-      {type === 'extensions' && <ExtensionsContent />}
+      {type === 'extensions' && <ExtensionsContent browsingPrompt={!hidden && state.pluginPrompt?.kind === 'form'} />}
       {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
@@ -1652,15 +1652,16 @@ let SiteInformation = () => {
   </section>
 }
 let ExtensionInfoIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg>
-let ExtensionsContent = () => {
+let ExtensionsContent = ({ browsingPrompt = false }: { browsingPrompt?: boolean }) => {
   let [tab, setTab] = useSettingsState<'extensions' | 'plugins'>('extensions:tab', 'plugins')
   let extensions = () => setTab('extensions'), plugins = () => setTab('plugins')
+  let showingExtensions = tab === 'extensions' && !browsingPrompt
   return <>
     <div className={css.panelTabs} role="tablist" aria-label="Extensions sections">
-      <button type="button" role="tab" aria-selected={tab === 'plugins'} onClick={plugins}>Plugins</button>
-      <button type="button" role="tab" aria-selected={tab === 'extensions'} onClick={extensions}>Chrome extensions</button>
+      <button type="button" role="tab" aria-selected={!showingExtensions} onClick={plugins}>Plugins</button>
+      <button type="button" role="tab" aria-selected={showingExtensions} onClick={extensions}>Chrome extensions</button>
     </div>
-    <div role="tabpanel" aria-label={tab === 'extensions' ? 'Chrome extensions' : 'Plugins'}>{tab === 'extensions' ? <ExtensionManager /> : <PluginList compact />}</div>
+    <div role="tabpanel" aria-label={showingExtensions ? 'Chrome extensions' : 'Plugins'}>{showingExtensions ? <ExtensionManager /> : <PluginList compact browsingPrompt={browsingPrompt} />}</div>
   </>
 }
 let ExtensionManager = () => {
@@ -1758,8 +1759,9 @@ let BUILTIN_TOOLS = [
 ] as const
 
 type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
-let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
+let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compact?: boolean; matches?: Set<string>; browsingPrompt?: boolean }) => {
   let { state, run, initialPlugin, panelBack } = useUI()
+  let prompt = browsingPrompt && state.pluginPrompt?.kind === 'form' ? state.pluginPrompt : undefined
   let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null, 'Back to plugins', !compact && initialPlugin ? panelBack : null)
   let [query, setQuery] = useState(''), [changing, setChanging] = useState<string[]>([])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
@@ -1777,21 +1779,23 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
     {BUILTIN_TOOLS.map(tool => <BuiltinPluginSettings key={tool.id} feature={tool.id} matches={matches} />)}
     <PluginConfiguration compact={compact} matches={matches} />
   </>
-  let details = (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
+  let details = prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
     {builtin ? <><h2>{builtin.name}</h2><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <PluginDetails key={plugin!.id} plugin={plugin!} />}
   </section>
+  let open = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => { if (!prompt) stack.keys(event) }
   let includes = (text: string) => text.toLowerCase().includes(query.toLowerCase())
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
   let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.category ?? ''} ${plugin.name} ${plugin.actions.map(action => `${action.group ?? ''} ${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
   let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row className={css.extensionRow}>
-    <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={stack.open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
+    <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
   </div>
-  return <div className={css.extensionWorkspace} data-details-open={!!details} onKeyDown={stack.keys}>
+  return <div className={css.extensionWorkspace} data-details-open={!!details} data-browsing-settings={!!prompt} onKeyDown={keys}>
     <section aria-label="Plugin list" className={css.extensionList} ref={stack.list} tabIndex={-1}>
-    <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />
+    <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact && !prompt} />
     <h2>Built-in</h2>
-    {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={stack.open}><strong>{tool.name}</strong></button></div>)}
+    {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={open}><strong>{tool.name}</strong></button></div>)}
     {plugins.filter(plugin => plugin.bundled && plugin.category !== 'Social Media').map(row)}
     {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
     <h2>Custom</h2>
@@ -1869,13 +1873,38 @@ let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { pre
         <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
         <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? autosave ? 'Changes save automatically for this profile and platform.' : 'Custom settings for this session.' : presets.find(item => item.id === preset)?.description}</p>
       </section>
+let PluginSubscription = ({ busy, manage, children }: { busy: boolean; manage: () => void; children: ReactNode }) => {
+  let [billing, setBilling] = useState<RelayBilling>()
+  useEffect(() => {
+    let active = true
+    void bridge.remoteAccount<RelayBilling>('/api/billing/status').then(value => { if (active) setBilling(value) }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
+  let status = billing ? billing.relay.active ? `BMUX subscription · ${billing.relay.cancelRequested ? 'Ending' : billing.relay.status}` : 'No active BMUX subscription' : 'BMUX subscription'
+  return <section aria-label="AI subscription" className={css.pluginSubscription}>
+    <div className={css.pluginSettingsHeading}><span>{status}</span><button type="button" disabled={busy} onClick={manage}>Manage subscription</button></div>
+    {children}
+  </section>
+}
+let pluginParameterLabels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', included: 'BMUX subscription', personal: 'Personal OpenAI API key', true: 'On', false: 'Off' }
+let displayPluginParameter = (item: PluginParameter, value: unknown) => item.kind === 'password' ? 'Private' : value === undefined ? 'Not set' : pluginParameterLabels[String(value)] ?? String(value)
+let PluginParameterInput = ({ item, value, fallback, change, update }: { item: PluginParameter; value: unknown; fallback: unknown; change: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void; update: (name: string, value: unknown) => void }) => {
+    let inherited = fallback === undefined ? 'Not set' : displayPluginParameter(item, fallback)
+    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name} title={item.description}>{item.range ? <PluginRange field={item} value={value ?? fallback} onChange={update} /> : <label className={css.settingsRow}><span>{item.title}</span>
+      {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={value === undefined ? '' : String(value)} onChange={change} required={item.required}>
+        {!item.required && value === undefined && <option value="">{inherited}</option>}
+        {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{displayPluginParameter(item, value)}</option>)}
+      </select> : item.multiline ? <textarea name={item.name} value={String(value ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(value ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : displayPluginParameter(item, fallback)} required={item.required} autoComplete="off" />}</label>}
+    </div>
+}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
   let [subscription, setSubscription] = useState(false)
-  let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values }), [busy, setBusy] = useState(false)
+  let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
+  let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
   let [preset, setPreset] = useState('saved'), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
-  let pending = useRef<Record<string, unknown>>({}), saved = useRef({ ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  let pending = useRef<Record<string, unknown>>({}), saved = useRef<Record<string, string | boolean>>({ ...(hasSubscription ? { ai_source: 'included' } : {}), ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   let profile = state.model.profiles.find(profile => profile.id === request.profileId)
   let fields = request.fields ?? []
   let flush = useCallback(() => {
@@ -1932,19 +1961,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     try { await flush(); await run('plugin.respond', { id: request.id, cancel: true }) } catch { /* Keep unsaved settings available for correction. */ } finally { setBusy(false) }
   }
   useEffect(() => { let dismiss = () => { void cancel() }; window.addEventListener('bmux-plugin-dismiss', dismiss); return () => window.removeEventListener('bmux-plugin-dismiss', dismiss) }, [request.id])
-  let labels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', included: 'BMUX subscription', personal: 'Personal OpenAI API key', true: 'On', false: 'Off' }
-  let display = (item: typeof fields[number], value: unknown) => item.kind === 'password' ? 'Private' : value === undefined ? 'Not set' : labels[String(value)] ?? String(value)
-  let field = (item: typeof fields[number]) => {
-    let fallback = saved.current[item.name] ?? item.default
-    let inherited = fallback === undefined ? 'Not set' : display(item, fallback)
-    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name}>{item.range ? <PluginRange field={item} value={values[item.name] ?? fallback} onChange={update} /> : <label className={css.settingsRow}><span>{item.title}</span>
-      {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={values[item.name] === undefined ? '' : String(values[item.name])} onChange={change} required={item.required}>
-        {!item.required && values[item.name] === undefined && <option value="">{inherited}</option>}
-        {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{display(item, value)}</option>)}
-      </select> : item.multiline ? <textarea name={item.name} value={String(values[item.name] ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}</label>}
-      {item.description && <small>{item.description}</small>}
-    </div>
-  }
+  let field = (item: PluginParameter) => <PluginParameterInput key={item.name} item={item} value={values[item.name]} fallback={saved.current[item.name] ?? item.default} change={change} update={update} />
   let editProfile = () => setEditingProfile(true)
   let manageSubscription = () => { void flush().then(() => setSubscription(true)).catch(() => undefined) }
   let backToBrowsing = useCallback(() => { if (!busy) void flush().then(() => setEditingProfile(false)).catch(() => undefined) }, [busy, flush, setEditingProfile])
@@ -1952,8 +1969,9 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let profileBack = useMemo(() => subscription ? { label: 'Back to browsing', run: backFromSubscription } : editingProfile ? { label: 'Back to browsing', run: backToBrowsing } : null, [subscription, backFromSubscription, editingProfile, backToBrowsing])
   usePanelBack(profileBack)
   let profileFields = request.profiles ? fields.filter(item => item.section === 'Persona') : []
-  let visibleFields = fields.filter(item => !profileFields.includes(item))
-  let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Settings' || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
+  let sourceFields = fields.filter(item => item.name === 'ai_source')
+  let visibleFields = fields.filter(item => !profileFields.includes(item) && !sourceFields.includes(item))
+  let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={/^(Settings|Session|Playback|Interactions|Limits)/i.test(section) || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
   if (subscription) return <div className={css.pluginParameters}><h2>BMUX subscription</h2><p>Your remote subscription includes AI browsing.</p><DesktopRemoteAccount view="relay" /></div>
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
@@ -1961,9 +1979,10 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     <div className={css.pluginParameterBody}>
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
+      {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription}>{sourceFields.map(field)}</PluginSubscription>}
       {!!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} autosave={request.autosave} choosePreset={choosePreset} />}
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
-      {fields.some(item => item.choices?.includes('included')) && <button type="button" disabled={busy} onClick={manageSubscription}>Manage subscription</button>}</>}
+      </>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
     {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}

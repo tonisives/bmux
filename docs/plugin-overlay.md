@@ -11,3 +11,5 @@ Use overlays for plugin controls, settings, progress and results. Keep summaries
 ## Included AI bridge
 
 The separate `ai.decisions` capability permits manual scripts to query `decisions.usage` and submit `decisions.create` with `{requestId,payload}`. BMUX uses the signed-in subscription; scripts never receive the account token or provider key. The service enforces a shared monthly allowance and bounded gpt-6-luna request shape. Hooks cannot spend the allowance. A host or service without this feature returns an error; callers should pause and offer Train mode or a personal key.
+
+The Compact button switches to a 160px overlay showing AI decision percentages, the current action, and the session pause or resume control. Details restores the full overlay. Collapsing still reduces either view to its header. Errors reopen the detailed view for recovery.
