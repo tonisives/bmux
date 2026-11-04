@@ -446,6 +446,15 @@ test('automation and permission notices identify agent panes while personal brow
     await expect(chrome.getByRole('dialog', { name: 'Bot settings', exact: true }).getByRole('button', { name: 'Back to Bot settings' })).toBeVisible()
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-notice.png') })
+    await command('kill-pane', { pane: first.id, confirm: true })
+    await expect(alert.getByRole('button', { name: `Browser pane ${first.id} closed`, exact: true })).toBeDisabled()
+    await expect(research).toBeVisible()
+    await research.getByRole('button', { name: 'Focus agent', exact: true }).click()
+    await infoButton.click()
+    await expect(agentInfo).toContainText(`${first.id} · closed`)
+    await expect(agentInfo).toContainText('Research agent')
+    await expect(agentInfo.getByRole('button', { name: 'Hide agent cursor', exact: true })).toHaveCount(0)
+
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
@@ -1111,6 +1120,64 @@ test('agent identity is required by default, typed context can focus its termina
     expect((await cli(['dom', '-t', pane])).ok).toBe(true)
     await required.check()
     await expect.poll(async () => (await cli(['dom', '-t', pane])).error).toContain('Agent ID required')
+  } finally {
+    await closeTestApplication(application)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+for (let warning of [false, true]) test(`closed browser panes retain agent details and resume commands in ${warning ? 'warning' : 'session'} alerts`, async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-closed-alert-'))
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let server = http.createServer((_request, response) => {
+    response.setHeader('Content-Type', 'text/html')
+    response.end('<!doctype html><title>Closed alert fixture</title><main>Manual browsing</main>')
+  })
+  try {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    let url = `http://${warning ? 'two' : 'one'}.example.com:${(server.address() as any).port}/fixture`
+    let threadId = '01a1a883-c596-7c53-8d06-414d0e2dcd53'
+    let startedAt = Date.now() - 11 * 60_000
+    let marker = path.join(directory, 'focused')
+    let actors = [
+      { paneId: '%9000', hosts: ['one.example.com'], agentId: 'saved-codex', agentName: 'Saved research', agentType: 'terminal', agentData: { paneId: '%145' }, agentOrigin: { type: 'tmux', paneId: '%145', panePid: '12345', threadId } },
+      { paneId: '%9001', hosts: ['one.example.com'], agentId: 'bookmarks', agentType: 'clawtab', agentData: { jobId: 'research-screenshots' } },
+    ]
+    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ fixture: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000, activeMs: 600_000, limitReachedAt: startedAt + 600_000, actors, ...(warning ? { warning: 'account-warning', warningHost: 'one.example.com', warningAt: startedAt } : {}) } }))
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { fields: { paneId: { label: 'Terminal pane', type: 'pane' } }, focusCommand: `node -e 'require("node:fs").writeFileSync(process.argv[1], process.env.BMUX_AGENT_ID)' "${marker}"` } } } } }))
+    application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    await chrome.getByRole('button', { name: 'Address', exact: true }).click()
+    let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
+    await address.pressSequentially(url); await address.press('Enter')
+    let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: warning ? 'default · Account warning' : 'default · Session limit' })
+    for (let id of ['%9000', '%9001']) {
+      let closed = alert.getByRole('button', { name: `Browser pane ${id} closed`, exact: true })
+      await expect(closed).toBeDisabled()
+      await expect(closed).toHaveText(`${id} · closed`)
+      expect(await closed.evaluate(element => getComputedStyle(element).color)).toBe('rgb(146, 152, 163)')
+    }
+    let agent = alert.getByRole('group', { name: 'Agent %145', exact: true })
+    await agent.getByRole('button', { name: 'Focus agent', exact: true }).click()
+    await expect.poll(() => fs.readFile(marker, 'utf8').catch(() => '')).toBe('saved-codex')
+    await agent.getByRole('button', { name: 'Agent information', exact: true }).click()
+    let info = chrome.getByRole('dialog', { name: 'Agent information', exact: true })
+    await expect(info).toContainText('Saved research')
+    await expect(info).toContainText('%9000 · closed')
+    await expect(info.locator('code')).toHaveText(`codex resume ${threadId}`)
+    await expect(info.getByRole('button', { name: 'Hide agent cursor', exact: true })).toHaveCount(0)
+    await info.getByRole('button', { name: 'Copy resume command', exact: true }).click()
+    await expect(info.getByRole('button', { name: 'Copied resume command', exact: true })).toBeVisible()
+    expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(`codex resume ${threadId}`)
+    await info.press('Escape')
+    await alert.getByRole('group', { name: 'Agent bookmarks', exact: true }).getByRole('button', { name: 'Agent information', exact: true }).click()
+    await expect(info).toContainText('research-screenshots')
+    await expect(info.getByRole('button', { name: 'Copy resume command', exact: true })).toHaveCount(0)
+    await info.press('Escape')
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+    await chrome.screenshot({ path: path.resolve(`artifacts/closed-agent-alert-${warning ? 'warning' : 'session'}.png`) })
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))

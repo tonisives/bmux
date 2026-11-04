@@ -18,6 +18,11 @@ export let agentIdentifier = (actor: AgentInfo, definition?: AgentDefinition): {
   if (actor.agentOrigin) return { label: 'Pane ID', value: actor.agentOrigin.paneId }
   return { label: 'Agent ID', value: actor.agentId ?? actor.agentName ?? 'Unidentified agent' }
 }
+// The CLI records a thread origin only for callers identified through Codex.
+export let agentResumeCommand = (actor: AgentInfo): string | undefined => {
+  let threadId = actor.agentOrigin?.threadId
+  return threadId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(threadId) ? `codex resume ${threadId}` : undefined
+}
 let agentRequirementError = (reason: string, actor: AgentInfo, settings: AgentSettings) => {
   let types = Object.keys(settings.definitions)
   let knownType = actor.agentType && Object.hasOwn(settings.definitions, actor.agentType) ? actor.agentType : undefined

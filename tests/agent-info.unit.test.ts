@@ -2,7 +2,7 @@ import { test, expect } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { agentIdentifier, parseAgentSettings, updateAgentInfo, validateAgentInfo } from '../src/shared/agent-info'
+import { agentResumeCommand, agentIdentifier, parseAgentSettings, updateAgentInfo, validateAgentInfo } from '../src/shared/agent-info'
 import type { AgentInfo } from '../src/shared/agent-info'
 import { focusAgent } from '../src/main/agent-focus'
 import { createAgentRegistry } from '../src/main/agent-registry'
@@ -122,4 +122,13 @@ test('agent focus context remains available after another agent uses its browser
   expect(registry.get('unknown')).toBeUndefined()
   registry.get('original')!.agentData!.paneId = '%99'
   expect(registry.get('original')).toEqual(original)
+})
+
+test('resume commands use the recorded Codex thread rather than browser or terminal IDs', () => {
+  let threadId = '01a1a883-c596-7c53-8d06-414d0e2dcd53'
+  let actor: AgentInfo = { agentId: 'custom-label', agentType: 'tmux', agentOrigin: { type: 'tmux', paneId: '%70', panePid: '12345', threadId } }
+  expect(agentResumeCommand(actor)).toBe(`codex resume ${threadId}`)
+  expect(agentResumeCommand({ agentId: threadId, agentType: 'clawtab' })).toBeUndefined()
+  expect(agentResumeCommand({ agentId: '%70', agentType: 'tmux' })).toBeUndefined()
+  expect(agentResumeCommand({ ...actor, agentOrigin: { ...actor.agentOrigin!, threadId: '--last; echo wrong' } })).toBeUndefined()
 })

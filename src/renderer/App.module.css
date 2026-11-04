@@ -95,6 +95,8 @@
 .notification .notificationSegments > button, .notificationSegmentIcon { display: grid; place-items: center; width: 24px; height: 22px; flex: 0 0 24px; border: 0; color: inherit; }
 .notification button.notificationSegments:hover, .notification .notificationSegments > button:hover:not(:disabled) { background: #463137; }
 .notification button.notificationSegments:focus-visible, .notification .notificationSegments > button:focus-visible { outline: 2px solid #f2c1bb; outline-offset: 2px; }
+.notification button.notificationSegments:disabled { color: #9298a3; cursor: default; }
+.notification button.notificationSegments:disabled:hover { background: transparent; }
 .notification .notificationSegments > button:disabled { opacity: .5; cursor: default; }
 .notification .notificationSegments > * + * { border-left: 1px solid #76565a; }
 .notificationSegments svg { width: 14px; height: 14px; }

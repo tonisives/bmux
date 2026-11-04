@@ -256,7 +256,7 @@ loaded website and clears its saved warning when it is resolved. **Resume automa
 in the alert or Bot tab also checks immediately. Session breaks remain independent.
 The notice shows its pause icon and detection time on the left, names the blocking
 website once, and provides links to affected
-automation panes, including their agent identifiers. The **Bot settings** row below the alerts holds the shared controls. Its gear
+automation panes, including their agent identifiers. Closed browser panes retain their agent details and appear as grey pane IDs marked **closed**. Agent information shows a copyable `codex resume <thread-id>` command when the saved caller has a Codex thread origin. **Focus agent** remains available for configured agent types after their browser pane closes. The **Bot settings** row below the alerts holds the shared controls. Its gear
 opens shared agent requirements and a **Profile limits** list. Every profile is
 editable, including profiles with no open panes. Limits apply across agents using
 that profile, with a separate session timer for each website. Nested settings use

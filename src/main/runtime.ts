@@ -2724,10 +2724,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (method === 'agent.focus') {
       if (!sourceClientId) throw new Error('Focus agents from the bmux UI')
-      let { pane } = paneById(model, required(args, 'pane'))
-      let agentId = required(args, 'agentId')
-      let saved = automationSafety?.status().profiles.filter(usage => usage.profileId === pane.profileId).flatMap(usage => usage.actors ?? []).find(actor => actor.paneId === pane.id && actor.agentId === agentId)
-      let actor = agentRegistry.get(agentId) ?? (pane.agentId === agentId ? pane : pane.lastAgentInteraction?.agentId === agentId ? pane.lastAgentInteraction : saved)
+      let paneId = required(args, 'pane'), agentId = required(args, 'agentId')
+      let pane = model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(pane => pane.id === paneId)
+      let saved = automationSafety?.status().profiles.filter(usage => !pane || usage.profileId === pane.profileId).flatMap(usage => usage.actors ?? []).find(actor => actor.paneId === paneId && actor.agentId === agentId)
+      let actor = agentRegistry.get(agentId) ?? (pane?.agentId === agentId ? pane : pane?.lastAgentInteraction?.agentId === agentId ? pane.lastAgentInteraction : saved)
       if (!actor) throw new Error('The agent in this browser pane has changed; reopen Agent information')
       if (JSON.stringify(args.agentOrigin ?? null) !== JSON.stringify(actor.agentOrigin ?? null)) throw new Error('The agent terminal in this browser pane has changed; reopen Agent information')
       return focusAgent(actor, configuration?.automation.agents ?? DEFAULT_AGENTS)

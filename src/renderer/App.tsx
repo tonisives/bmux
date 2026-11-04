@@ -27,7 +27,7 @@ import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
 import { activityAge, activityLabel, compactActivityLabel, windowActivityTime, windowVisitTime } from '../shared/pane-activity'
 import { lastPaneAgent, paneAgents } from '../shared/pane-agents'
-import { agentIdentifier } from '../shared/agent-info'
+import { agentIdentifier, agentResumeCommand } from '../shared/agent-info'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
@@ -77,7 +77,7 @@ type AgentDetails = { paneId: string } | { actors: AutomationActor[] } | { windo
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; warning?: AutomationWarning; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { label: string; title: string; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; warning?: AutomationWarning; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { label: string; title: string; closed?: boolean; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
@@ -336,7 +336,7 @@ let automationActors = (state: PublicState, usage: AutomationSafetyState['profil
   return (usage.actors ?? []).flatMap(actor => {
     let pane = panes.find(pane => pane.id === actor.paneId && pane.profileId === usage.profileId)
     let hosts = actor.hosts?.filter(host => automationWarningEnabled(state.automationSafety!.limits, usage.profileId, host, Date.now(), actor.paneId))
-    return pane && automationWebsiteHost(pane.url) && automationSafetyEnabled(state.automationSafety!.limits, usage.profileId, pane.id) && (!actor.hosts?.length || hosts?.length) ? [{ ...actor, hosts, pane }] : []
+    return (!pane || automationWebsiteHost(pane.url)) && automationSafetyEnabled(state.automationSafety!.limits, usage.profileId, actor.paneId) && (!actor.hosts?.length || hosts?.length) ? [{ ...actor, hosts, pane }] : []
   })
 }
 
@@ -364,7 +364,7 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
   let selectedPane = selection(state).pane
   let paneLinks = (host?: string) => actors.filter(actor => actor.paneId !== selectedPane?.id && (!host || actor.hosts?.includes(host))).map(actor => {
     let label = permissionPaneLabel(state.model, actor.paneId) ?? actor.paneId
-    return { label, title: `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}`, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
+    return { label, closed: !actor.pane, title: actor.pane ? `Go to pane ${label}${actor.agentId ? ` (${actor.agentId})` : ''}` : `Browser pane ${actor.paneId} closed`, run: () => { void run('select-pane', { client: state.clientId, pane: actor.paneId }) } }
   })
   let name = profile?.name ?? usage.profileId
   let warningEnabled = host && eligiblePanes.some(pane => automationWarningEnabled(limits, usage.profileId, host, Date.now(), pane.id))
@@ -450,10 +450,10 @@ let NotificationIdentifier = ({ value, title = value }: { value: string; title?:
   return <span className={css.notificationSegmentLabel} title={title}>{location ? <><span className={css.notificationLocation}>{location[1]}</span><span className={css.notificationPaneId}>{location[2]}</span></> : value}</span>
 }
 
-let NotificationPaneLink = ({ label, title, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={css.notificationSegments} title={title} aria-label={title} onClick={run}>
+let NotificationPaneLink = ({ label, title, closed, run }: NonNullable<Notification['paneLinks']>[number]) => <button type="button" className={css.notificationSegments} title={title} aria-label={title} disabled={closed} onClick={run}>
   <span className={css.notificationSegmentIcon}><BmuxIcon /></span>
-  <NotificationIdentifier value={label} />
-  <span className={css.notificationSegmentIcon}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></span>
+  <NotificationIdentifier value={closed ? `${label} · closed` : label} />
+  {!closed && <span className={css.notificationSegmentIcon}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2h5v5M14 2 7 9M6 3H2v11h11v-4" /></svg></span>}
 </button>
 
 let AlertChevron = ({ collapsed = false }: { collapsed?: boolean }) => <svg className={css.alertChevron} viewBox="0 0 16 16" aria-hidden="true"><path d={collapsed ? 'm4 6 4 4 4-4' : 'm4 10 4-4 4 4'} /></svg>
@@ -1539,6 +1539,7 @@ let AgentInformation = () => {
   let panes = state.model.sessions.filter(session => !('sessionId' in agentDetails) || session.id === agentDetails.sessionId).flatMap(session => session.windows.filter(window => !('windowId' in agentDetails) || window.id === agentDetails.windowId).flatMap(window => window.panes))
   let actors = 'paneId' in agentDetails ? panes.filter(pane => pane.id === agentDetails.paneId).flatMap(pane => lastPaneAgent(pane, state.activeAgents) ?? []) : 'actors' in agentDetails ? agentDetails.actors : paneAgents(panes, state.activeAgents)
   let [busy, setBusy] = useState<string | null>(null)
+  let [copied, setCopied] = useState<string | null>(null)
   let focus = async (actor: AutomationActor) => {
     setBusy(actor.paneId)
     try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId, agentOrigin: actor.agentOrigin }) } finally { setBusy(null) }
@@ -1556,6 +1557,9 @@ let AgentInformation = () => {
     let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
     let sessionField = Object.keys(actor.agentData ?? {}).find(key => definition?.fields[key]?.type === 'session' || key === 'sessionId')
     let fields = Object.entries(actor.agentData ?? {}).filter(([key]) => key !== 'sessionName' || !sessionField)
+    let closed = !panes.some(pane => pane.id === actor.paneId)
+    let resumeCommand = agentResumeCommand(actor)
+    let copyResume = async () => { await bridge.clipboard(resumeCommand!); setCopied(resumeCommand!) }
     let hidden = state.hiddenAgentCursors?.includes(actor.paneId)
     let override = state.agentLockOverrides?.[actor.paneId]
     let locked = state.lockedAgentPanes?.includes(actor.paneId)
@@ -1563,14 +1567,17 @@ let AgentInformation = () => {
     let toggleInputLock = () => { void toggleLock(actor) }
     return <section key={`${actor.paneId}:${actor.agentId}`}>
       <dl>{actor.agentName && actor.agentName !== actor.agentId && <><dt>Name</dt><dd>{actor.agentName}</dd></>}{actor.agentId && <><dt>Agent ID</dt><dd>{actor.agentId}</dd></>}{actor.agentPurpose && <><dt>Browsing reason</dt><dd>{actor.agentPurpose}</dd></>}
+        <dt>Browser pane</dt><dd>{actor.paneId}{closed ? ' · closed' : ''}</dd>
+        {resumeCommand && <><dt>Resume command</dt><dd><code>{resumeCommand}</code></dd></>}
         <AgentInteractionField actor={actor} />
         {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
         {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session', sessionName: 'Session', windowId: 'Window ID', windowIndex: 'Window number', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{key === sessionField ? actor.agentData?.sessionName ?? value : value}</dd></Fragment>)}
       </dl>
       <div className={css.agentActions}>
         {definition?.focusCommand && <button className={css.agentAction} type="button" disabled={busy !== null} onClick={() => { void focus(actor) }}><FocusAgentIcon />Focus agent</button>}
-        <button className={css.agentAction} type="button" disabled={busy !== null} onClick={toggleVisibility}><AgentCursorIcon hidden={hidden} />{hidden ? 'Show agent cursor' : 'Hide agent cursor'}</button>
-        {(locked || override) && <button className={css.agentAction} type="button" disabled={busy !== null} title={override ? `Override ends at ${new Date(override).toLocaleTimeString()}` : 'Allow page input for 5 minutes'} onClick={toggleInputLock}><AgentLockIcon unlocked={!override} />{override ? 'Restore agent lock' : 'Override agent lock (5 min)'}</button>}
+        {resumeCommand && <button className={css.agentAction} type="button" onClick={() => { void copyResume() }}>{copied === resumeCommand ? 'Copied resume command' : 'Copy resume command'}</button>}
+        {!closed && <button className={css.agentAction} type="button" disabled={busy !== null} onClick={toggleVisibility}><AgentCursorIcon hidden={hidden} />{hidden ? 'Show agent cursor' : 'Hide agent cursor'}</button>}
+        {!closed && (locked || override) && <button className={css.agentAction} type="button" disabled={busy !== null} title={override ? `Override ends at ${new Date(override).toLocaleTimeString()}` : 'Allow page input for 5 minutes'} onClick={toggleInputLock}><AgentLockIcon unlocked={!override} />{override ? 'Restore agent lock' : 'Override agent lock (5 min)'}</button>}
       </div>
     </section>
   })}<div className={`${css.agentActions} ${css.agentSettings}`}><button className={css.agentAction} type="button" onClick={settings}><SettingsIcon />Bot settings</button></div></div>
