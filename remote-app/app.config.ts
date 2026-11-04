@@ -10,6 +10,7 @@ let config: ExpoConfig = {
   userInterfaceStyle: 'dark',
   orientation: 'default',
   ios: {
+    appleTeamId: 'S73DD99TM7',
     bundleIdentifier: 'cc.bmux.remote',
     supportsTablet: true,
     associatedDomains: ['applinks:remote.bmux.cc'],

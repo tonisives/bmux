@@ -1,0 +1,56 @@
+name: Prepare mobile cloud
+run-name: Prepare iOS ${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Published source commit SHA
+        required: true
+        type: string
+      request_id:
+        description: Unique request ID from the mobile cloud command
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CI: '1'
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install the app's pnpm version
+        run: |
+          app_dir=$(python3 -c 'import json; print(json.load(open("scripts/mobile-cloud.json"))["app_dir"])')
+          pnpm_version=$(node -p "require('./' + process.argv[1] + '/package.json').packageManager.split('@')[1].split('+')[0]" "$app_dir")
+          npm install --global "pnpm@$pnpm_version"
+      - name: Generate and publish native project
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python3 scripts/mobile-cloud-prepare.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-cloud-receipt
+          path: receipt.json
+          retention-days: 7
+
+  command-tests:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s scripts -p 'test_mobile_cloud.py'
