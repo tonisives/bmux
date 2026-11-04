@@ -74,7 +74,7 @@ console.log(JSON.stringify(values));`)
   let manifest = parse(await fs.readFile(path.join(folder, 'plugin.yaml'), 'utf8'))
   manifest.actions.find((action: any) => action.id === 'launch').launch_url = url + '/feed'
   let launch = manifest.actions.find((action: any) => action.id === 'launch')
-  manifest.actions.push({ ...launch, id: 'profiles', title: 'Browse feed', configuration_command: ['node','./profiles.mjs'], configuration_save_command: ['node','./profiles.mjs','save'], configuration_profile_command: ['node','./profiles.mjs','profile'] })
+  manifest.actions.push({ ...launch, group: undefined, id: 'profiles', title: 'Browse feed', configuration_command: ['node','./profiles.mjs'], configuration_save_command: ['node','./profiles.mjs','save'], configuration_profile_command: ['node','./profiles.mjs','profile'] })
   await fs.writeFile(path.join(folder, 'profiles.mjs'), `import fs from 'node:fs';
 let file='profiles-'+encodeURIComponent(process.env.BMUX_PLUGIN_PROFILE_ID)+'.json';
 let library=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):{active:'default',items:[{id:'default',name:'Default',values:{seconds:'300',persona:'Software',ads:false}}]};
