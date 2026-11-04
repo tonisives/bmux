@@ -8,14 +8,15 @@ let definition = parsePluginManifest(fs.readFileSync('bundled-plugins/bmux.x-sea
 let source = fs.readFileSync('bundled-plugins/bmux.x-search/filter.js', 'utf8')
 afterEach(() => vi.useRealTimers())
 let tweet = (textContent: string) => {
-  let text = { textContent }, styles = new Map<string, { value: string; priority: string }>()
-  return { text, querySelector: () => text, style: { getPropertyValue: (key: string) => styles.get(key)?.value ?? '', getPropertyPriority: (key: string) => styles.get(key)?.priority ?? '', setProperty: (key: string, value: string, priority: string) => styles.set(key, { value, priority }), removeProperty: (key: string) => styles.delete(key) }, hidden: () => styles.get('display')?.value === 'none' }
+  let text = { textContent }, href = { value: '' }, styles = new Map<string, { value: string; priority: string }>()
+  return { text, href, querySelector: (selector: string) => selector === '[data-testid="tweetText"]' ? text : href.value ? { getAttribute: () => href.value } : null, style: { getPropertyValue: (key: string) => styles.get(key)?.value ?? '', getPropertyPriority: (key: string) => styles.get(key)?.priority ?? '', setProperty: (key: string, value: string, priority: string) => styles.set(key, { value, priority }), removeProperty: (key: string) => styles.delete(key) }, hidden: () => styles.get('display')?.value === 'none' }
 }
 let filter = (rows: ReturnType<typeof tweet>[], settings = {}) => {
   let notify: () => void = () => undefined
   let context = { location: { href: 'https://x.com/search?q=saas' }, URL, setTimeout, clearTimeout, document: { documentElement: {}, querySelectorAll: () => rows }, MutationObserver: class { constructor(callback: () => void) { notify = callback }; disconnect = vi.fn(); observe = vi.fn() } }
-  let cleanup = vm.runInNewContext(`(${source})`, context)(bookmarkPluginValues(definition, settings))
-  return { cleanup, context, notify: () => notify() }
+  let report = vi.fn()
+  let cleanup = vm.runInNewContext(`(${source})`, context)(bookmarkPluginValues(definition, settings), report)
+  return { cleanup, context, report, notify: () => notify() }
 }
 test('X filter matches search bookmarks on X and Twitter only', () => {
   for (let host of ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com']) expect(matchesBookmarkPlugin(definition.matches, `https://${host}/search?q=saas`)).toBe(true)
@@ -48,4 +49,25 @@ test('handles appended and recycled tweets and restores results outside search',
   run.context.location.href = 'https://x.com/home'
   run.notify(); await vi.advanceTimersByTimeAsync(60)
   expect(rows.every(row => !row.hidden())).toBe(true); run.cleanup()
+})
+test('reports unique hidden posts across virtualized scrolling and resets on a new search', async () => {
+  vi.useFakeTimers()
+  let rows = [tweet('Let’s #connect')]
+  rows[0].href.value = '/builder/status/123'
+  let run = filter(rows)
+  expect(run.report).toHaveBeenLastCalledWith([{ key: 'https://x.com/builder/status/123', title: 'Let’s #connect', url: 'https://x.com/builder/status/123', reasons: ['Connection post'] }])
+  rows.splice(0, 1)
+  run.notify(); await vi.advanceTimersByTimeAsync(60)
+  expect(run.report.mock.lastCall![0]).toHaveLength(1)
+  rows.push(tweet('Let’s #connect')); rows[0].href.value = '/builder/status/123'
+  run.notify(); await vi.advanceTimersByTimeAsync(60)
+  expect(run.report.mock.lastCall![0]).toHaveLength(1)
+  rows[0].text.textContent = 'A useful technical post'
+  run.notify(); await vi.advanceTimersByTimeAsync(60)
+  expect(run.report).toHaveBeenLastCalledWith([])
+  rows[0].text.textContent = 'Let’s #connect'
+  run.notify(); await vi.advanceTimersByTimeAsync(60)
+  rows.splice(0, 1); run.context.location.href = 'https://x.com/search?q=other'
+  run.notify(); await vi.advanceTimersByTimeAsync(60)
+  expect(run.report).toHaveBeenLastCalledWith([]); run.cleanup()
 })

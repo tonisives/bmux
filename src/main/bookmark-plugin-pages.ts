@@ -38,15 +38,15 @@ export let createBookmarkPluginPages = (options: Options) => {
         if (!current()) return
         let script = `(() => {
           globalThis.__bmuxBookmarkCleanup?.();
-          let cleanups = [], errors = [], entries = ${JSON.stringify(entries.map(({ source: _source, ...entry }) => entry))};
+          let cleanups = [], errors = [], reports = new Map(), refreshReports = () => {}, entries = ${JSON.stringify(entries.map(({ source: _source, ...entry }) => entry))};
           globalThis.__bmuxBookmarkCleanup = () => { for (let cleanup of cleanups.splice(0).reverse()) { try { cleanup(); } catch {} } };
           ${entries.filter(entry => entry.attachment.enabled && !entry.error && entry.source).map(entry => `try {
             let install = (${entry.source}\n);
-            let cleanup = install(${JSON.stringify(entry.attachment.values)});
+            let cleanup = install(${JSON.stringify(entry.attachment.values)}, posts => { reports.set(${JSON.stringify(entry.attachment.id)}, posts); refreshReports(); });
             if (typeof cleanup !== 'function') throw new Error('Cleanup function required');
             cleanups.push(cleanup);
           } catch { errors.push(${JSON.stringify(entry.name)}); entries.find(entry => entry.attachment.id === ${JSON.stringify(entry.attachment.id)}).error = 'Plugin could not run'; }`).join('\n')}
-          ${entries.length ? `cleanups.push((${mountBookmarkPluginOverlay.toString()})(entries, value => globalThis.${binding}(value)));` : ''}
+          ${entries.length ? `let overlay = (${mountBookmarkPluginOverlay.toString()})(entries, value => globalThis.${binding}(value), reports); refreshReports = overlay.update; cleanups.push(overlay);` : ''}
           return errors;
         })()`
         let response = await options.cdp(tabId, 'Runtime.evaluate', { expression: script, contextId: executionContextId, returnByValue: true, timeout: 1000 })

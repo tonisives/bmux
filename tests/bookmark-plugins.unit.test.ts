@@ -55,10 +55,26 @@ let row = (id: string, score: string | null, comments: string | null, title = id
 let filter = (rows: ReturnType<typeof row>[], settings = {}) => {
   let notify: () => void = () => undefined, disconnect = vi.fn()
   let context = { location: { href: 'http://127.0.0.1/search/?q=foo&type=posts' }, URL, setTimeout, clearTimeout, document: { documentElement: {}, querySelectorAll: () => rows }, MutationObserver: class { constructor(callback: () => void) { notify = callback }; disconnect = disconnect; observe = vi.fn() } }
-  let cleanup = vm.runInNewContext(`(${source})`, context)(bookmarkPluginValues(definition, settings))
-  return { cleanup, context, notify: () => notify(), disconnect }
+  let report = vi.fn()
+  let cleanup = vm.runInNewContext(`(${source})`, context)(bookmarkPluginValues(definition, settings), report)
+  return { cleanup, context, report, notify: () => notify(), disconnect }
 }
 describe('Reddit filtering', () => {
+  test('reports counts, original titles and reasons and retains removed matches for this search', async () => {
+    vi.useFakeTimers()
+    let rows = [row('a', '0', '1', 'A useful title'), row('b', '5', '5', 'A keeper'), row('c', '5', '5', 'A keeper'), row('d', '41', '63', "Let's #connect")]
+    let run = filter(rows)
+    expect(run.report.mock.lastCall![0]).toEqual([
+      { key: '1', title: 'A useful title', url: '', reasons: ['Score 0 below 2', 'Comments 1 below 2'] },
+      { key: '3', title: 'A keeper', url: '', reasons: ['Duplicate title'] },
+      { key: '4', title: "Let's #connect", url: '', reasons: ['Connection post'] },
+    ])
+    rows.splice(0, 1); run.notify(); await vi.advanceTimersByTimeAsync(60)
+    expect(run.report.mock.lastCall![0]).toHaveLength(3)
+    rows.splice(0); run.context.location.href = 'https://www.reddit.com/search?q=other'
+    run.notify(); await vi.advanceTimersByTimeAsync(60)
+    expect(run.report).toHaveBeenLastCalledWith([]); run.cleanup()
+  })
   test('hides connection prompts while retaining technical connections and supports opting out', () => {
     let titles = ["let's #connect", 'Let’s connect with people building in tech:', "I'm looking to #connect with people interested in:", 'Hey X\nlooking to #connect with people who are into:', 'Looking to connect with fellow developers', 'Follow me for a follow', "Let's connect to Postgres", "Let's connect our API to a database", 'How do I connect with an API?', 'Connection pooling for builders', 'Disconnect from social media']
     let rows = titles.map((title, index) => row(String(index), '41', '63', title))
