@@ -2,8 +2,8 @@
 
 `Repair CI failure` observes failed or timed-out main-branch push runs of Check,
 Portable hosts, Windows, and Release. It calls the existing ClawTab trigger API
-to start Codex on the configured Mac. Forks, pull requests, manual test runs, and
-obsolete main commits cannot start a repair.
+to start Codex on the configured Mac. Forks, pull requests and manual test runs cannot start a repair.
+Older failures are checked by the local binary controller before starting Codex.
 
 `CI repair hook test` is also allowlisted for an end-to-end test. Its temporary
 `.github/workflows/ci-repair-hook-test.yml` fixture deliberately fails immediately;
@@ -11,7 +11,7 @@ the user-authorized repair is to delete that file and push the deletion. This is
 the only exception to the agent's prohibition on removing tests to make CI pass.
 The subscription can remain after the fixture is removed for future hook tests.
 
-The local tmux shell job `bmux/ci-repair` runs `scripts/run-ci-repair.py` with
+The silent local tmux shell job `bmux/ci-repair` runs `scripts/run-ci-repair.py` with
 `codex exec --approve-for-me`. Automatic approval review applies to this job;
 normal interactive sessions keep their existing settings. The wrapper collects
 Codex's structured final response and writes the ClawTab result itself.
@@ -21,10 +21,15 @@ session after 30 and 60 seconds, keeping approval review and the selected model.
 Other errors stop the run and retain its checkpoint. `cwtctl jobs restart
 bmux/ci-repair` continues the last repair without requiring its trigger parameters,
 including when the interrupted agent already pushed its fix. A new request for
-an obsolete commit is skipped before starting an agent.
+an older commit is skipped before starting an agent only when current main has
+successful CI checks. Otherwise the agent diagnoses the original failed run
+and fixes the failure on current main. A newer SHA alone does not stop repair.
 Completed results are saved before delivery. Repeating a completed request returns
 its saved outcome. Manual runs print the result; triggered runs also write the
 ClawTab result file when provided.
+All four notification flags are false with `notify_target: none`; the controller
+never sends job messages. The wrapper sends outcomes with the child Codex
+conversation ID, so Open and Reply resume that agent after the wrapper exits.
 The tmux backend is required on this Mac because daemon child processes cannot
 read the workspace on `/Volumes/sam`.
 

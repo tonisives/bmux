@@ -66,8 +66,11 @@ class RepairRequestTests(unittest.TestCase):
                 self.assertIsNone(payload)
                 self.assertIsNotNone(reason)
 
-    def test_stale_commit_and_repair_commit_stop(self):
-        self.assertIsNone(self.payload(sha="b" * 40)[0])
+    def test_stale_commit_is_gated_locally_and_repair_commit_stops(self):
+        payload, reason = self.payload(sha="b" * 40)
+        self.assertIsNone(reason)
+        self.assertEqual(payload["params"]["commit"], self.run["head_sha"])
+        self.assertEqual(payload["idempotency_key"], "bmux-ci-repair:" + "b" * 40)
         self.assertIsNone(self.payload(message="Fix [bmux-ci-repair]")[0])
 
     def test_all_failures_for_one_commit_have_identical_requests(self):
@@ -113,11 +116,55 @@ class LocalRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             result = root / "result.json"
-            with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "false", "CLAWTAB_PARAM_COMMIT": "a" * 40, "CLAWTAB_RESULT_FILE": str(result)}), patch.object(runner.subprocess, "run"), patch.object(runner.subprocess, "check_output", return_value="b" * 40), patch.object(runner, "run_agent") as launch:
+            with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "false", "CLAWTAB_PARAM_COMMIT": "a" * 40, "CLAWTAB_RESULT_FILE": str(result)}), patch.object(runner.subprocess, "run"), patch.object(runner.subprocess, "check_output", return_value="b" * 40), patch.object(runner, "main_is_green", return_value=True), patch.object(runner, "run_agent") as launch:
                 runner.main()
                 launch.assert_not_called()
                 self.assertFalse((root / ".worktrees/ci-repair.lock").exists())
                 self.assertEqual(json.loads(result.read_text())["status"], "skipped")
+
+    def test_advanced_main_with_unresolved_checks_still_launches_repair(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "false", "CLAWTAB_PARAM_COMMIT": "a" * 40}, clear=True), patch.object(runner.subprocess, "run"), patch.object(runner.subprocess, "check_output", return_value="b" * 40), patch.object(runner, "main_is_green", return_value=False), patch.object(runner, "run_agent", return_value=self.result) as launch:
+                runner.main()
+            launch.assert_called_once_with(False, "a" * 40, root / ".worktrees/ci-repair-state" / ("a" * 40))
+
+    def test_main_requires_successful_primary_ci_and_uses_latest_attempt(self):
+        cases = [
+            ([], False),
+            ([{"name": "Check", "status": "completed", "conclusion": "success"}], True),
+            ([{"name": "Check", "status": "completed", "conclusion": "cancelled"}], False),
+            ([{"name": "Check", "status": "in_progress", "conclusion": ""}], False),
+            ([{"name": "Portable hosts", "status": "completed", "conclusion": "success"}], False),
+            ([{"name": "Check", "status": "completed", "conclusion": "failure"}, {"name": "Check", "status": "completed", "conclusion": "success"}], False),
+        ]
+        for runs, expected in cases:
+            with self.subTest(runs=runs), patch.object(runner.subprocess, "check_output", return_value=json.dumps(runs)):
+                self.assertEqual(runner.main_is_green("b" * 40), expected)
+
+    def test_messages_belong_to_the_saved_child_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(runner.subprocess, "run") as send:
+                runner.send_agent_message(root, self.result)
+                send.assert_not_called()
+                (root / "session.json").write_text(json.dumps({"session_id": self.session}))
+                with patch.dict(os.environ, {"CLAWTAB_JOB_SLUG": "bmux/ci-repair", "CLAWTAB_RUN_ID": "run-1"}):
+                    runner.send_agent_message(root, self.result)
+                request = json.loads(send.call_args.kwargs["input"])
+                self.assertEqual(send.call_args.args[0], ["cwt", "message", "send", "--stdin"])
+                self.assertEqual(request["source"]["session_id"], self.session)
+                self.assertEqual(request["source"]["provider"], "codex")
+                self.assertEqual(request["source"]["run_id"], "run-1")
+                self.assertNotIn("pane_id", request["source"])
+                self.assertEqual(request["actions"][0]["kind"], "focus")
+                self.assertEqual(request["body"], "verified")
+
+    def test_repair_prompt_requires_fixing_current_main(self):
+        prompt = repair.repair_prompt("a" * 40)
+        self.assertIn("repair the failure on current main", prompt)
+        self.assertIn("implement and verify a fix", prompt)
+        self.assertNotIn("stop if it no longer equals", prompt)
 
     def test_failed_agent_releases_lock(self):
         with tempfile.TemporaryDirectory() as directory:
