@@ -38,11 +38,11 @@ export let PluginOverlay = () => {
     void command('plugin.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + overlay.bounds.width - width : overlay.bounds.x, width, height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) })
   }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
-  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting, openSetting }}><aside className={css.panel} aria-label="Page overlay">
+  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting, openSetting }}><aside className={css.panel} data-compact={overlay.bounds.compact || undefined} aria-label="Page overlay">
     <OverlayHeader begin={begin} update={update} end={end} />
-    {!overlay.bounds.collapsed && (error || overlay.error || overlay.content.error ? <OverlayFailure error={error || overlay.error} /> : <OverlayBody />)}
-    {!overlay.bounds.collapsed && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
-    {!overlay.bounds.collapsed && ['left','right','bottom-left','bottom-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label={edge === 'bottom-right' ? 'Resize page overlay' : 'Resize page overlay from ' + edge.replace('-', ' ')} aria-valuenow={overlay.bounds.width} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
+    {!overlay.bounds.collapsed && (error || overlay.error || overlay.content.error ? <OverlayFailure error={error || overlay.error} /> : overlay.bounds.compact ? <CompactOverlay /> : <OverlayBody />)}
+    {!overlay.bounds.collapsed && !overlay.bounds.compact && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
+    {!overlay.bounds.collapsed && !overlay.bounds.compact && ['left','right','bottom-left','bottom-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label={edge === 'bottom-right' ? 'Resize page overlay' : 'Resize page overlay from ' + edge.replace('-', ' ')} aria-valuenow={overlay.bounds.width} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
   </aside></OverlayContext.Provider>
 }
 
@@ -55,8 +55,19 @@ let OverlayHeader = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;
   let close = () => void command('plugin.overlay.close')
   let configure = () => void command('plugin.overlay.configure')
   let title = overlay.content.error?.title || (overlay.ended ? overlay.error || overlay.content.status.startsWith('Browsing stopped') ? 'Browsing stopped' : 'Session complete' : overlay.content.title)
+  let compact = () => void command('plugin.overlay.bounds', { ...overlay.bounds, compact: !overlay.bounds.compact })
   let collapse = () => void command('plugin.overlay.bounds', { ...overlay.bounds, collapsed: !overlay.bounds.collapsed })
-  return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}><div><strong>{title}</strong><span>{overlay.error || overlay.content.error ? overlay.ended ? 'Session ended' : 'Check the error below' : overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span></div><nav aria-label="Overlay controls">{overlay.ended && <button onClick={configure}>New session</button>}<button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Collapse page overlay'} onClick={collapse}>{overlay.bounds.collapsed ? '+' : '−'}</button><button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button></nav></header>
+  return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}><div><strong>{title}</strong><span>{overlay.error || overlay.content.error ? overlay.ended ? 'Session ended' : 'Check the error below' : overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span></div><nav aria-label="Overlay controls">{overlay.ended && <button onClick={configure}>New session</button>}<button aria-label={overlay.bounds.compact ? 'Show detailed overlay' : 'Show compact overlay'} aria-pressed={!!overlay.bounds.compact} onClick={compact}>{overlay.bounds.compact ? 'Details' : 'Compact'}</button><button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Collapse page overlay'} onClick={collapse}>{overlay.bounds.collapsed ? '+' : '−'}</button><button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button></nav></header>
+}
+let CompactOverlay = () => {
+  let { overlay } = useOverlay()
+  let decisions = overlay.content.nodes.filter(node => /ai|decision/i.test(node.title)).flatMap(node => node.lines.filter(line => /\d+(?:\.\d+)?%/.test(line)))
+  let control = overlay.content.controls.find(control => control.kind === 'button' && ['pause', 'resume', 'start'].includes(control.id))
+  return <div className={css.compactBody} aria-label="Compact session status">
+    <div className={css.decisions} aria-label="AI decision percentages">{decisions.map((line, index) => <p key={index}>{line}</p>)}</div>
+    <p role="status">{overlay.error || overlay.content.error?.message || overlay.content.status}</p>
+    {!overlay.ended && control && <OverlayButton control={control} />}
+  </div>
 }
 let OverlayBody = () => {
   let { overlay } = useOverlay()

@@ -75,7 +75,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
 import { createRemoteCapture } from './remote-capture'
 import { assertFrameCapture, capturePageFrame, frameCaptureError } from './frame-capture'
-import { fitPluginOverlay } from '../shared/plugin-overlay'
+import { fitPluginOverlay, pluginOverlayHeight } from '../shared/plugin-overlay'
 import type { PluginOverlayBounds } from '../shared/plugin-overlay'
 import { captureViewportScreenshot } from './viewport-screenshot'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
@@ -512,7 +512,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let key = clientId + ':' + client.paneId, bounds = fitPluginOverlay(pluginOverlayBounds.get(key), area)
     let previous = pluginOverlayRuns.get(key)
     let failed = Boolean(value.error || value.content.error)
-    if (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed }, area)
+    if (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, area)
     pluginOverlayRuns.set(key, { id: value.runId, ended: value.ended, failed })
     pluginOverlayBounds.set(key, bounds)
     return { ...value, bounds }
@@ -539,7 +539,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let view = owner.pluginOverlay
     if (view.webContents.isLoading()) return
     view.webContents.send('state', state(clientId))
-    view.setBounds({ x: overlay.bounds.x, y: overlay.bounds.y, width: overlay.bounds.width, height: overlay.bounds.collapsed ? 48 : overlay.bounds.height })
+    view.setBounds({ x: overlay.bounds.x, y: overlay.bounds.y, width: overlay.bounds.width, height: pluginOverlayHeight(overlay.bounds) })
     if (owner.window.contentView.children.at(-1) !== view) owner.window.contentView.addChildView(view)
     view.setVisible(true)
   }
@@ -3139,7 +3139,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (method === 'plugin.overlay.restart') return plugins?.restartOverlay(current.runId)
       if (method === 'plugin.overlay.bounds') {
         if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid page overlay bounds')
-        pluginOverlayBounds.set(sourceClientId + ':' + current.paneId, { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height), collapsed: args.collapsed })
+        pluginOverlayBounds.set(sourceClientId + ':' + current.paneId, { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height), collapsed: args.collapsed, compact: args.compact === true })
         refreshPluginOverlay(sourceClientId, owner); publish(); return null
       }
       throw new Error('Unknown page overlay command')

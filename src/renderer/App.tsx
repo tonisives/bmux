@@ -43,7 +43,7 @@ import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, Key
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
 import type { PluginInfo, PluginPrompt } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
-import type { RemoteComputer } from '../shared/remote-account'
+import type { RelayBilling, RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
 import iphoneFrame from './device-frames/iphone-15-pro.png'
 import pixelFrame from './device-frames/pixel-8.png'
@@ -174,9 +174,9 @@ export let App = () => {
     <BrowserStatus collapsedAlerts={alertsCollapsed ? agentAlerts : []} expandAlerts={() => setAlertsCollapsed(false)} />
     {notices.length > 0 && <Notifications notices={notices} collapseAlerts={collapseAlerts} />}
     {(panel === 'sessions' || sessionsBehind) && <Panel key="sessions" type="sessions" inactive={sessionsBehind} hidden={!!state.pluginPrompt} />}
-    {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}
+    {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt && !(panel === 'plugins' && state.pluginPrompt.kind === 'form')} />}
     {sessionsBehind && panel && <SecondaryPanel type={panel} closeToSessions={closeToSessions} hidden={!!state.pluginPrompt} />}
-    {state.pluginPrompt && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
+    {state.pluginPrompt && !(panel === 'plugins' && !sessionsBehind && state.pluginPrompt.kind === 'form') && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
 }
@@ -1503,12 +1503,12 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     next.click(); next.focus()
   }
   let sessionPicker = type === 'sessions'
-  let title = sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = type === 'plugins' && state.pluginPrompt?.kind === 'form' ? 'Plugin' : sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) leave() }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
   }
-  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' ? css.extensionsPanel : type === 'settings' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
+  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.extensionsPanel : type === 'settings' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
     <PanelHeader back={sessionPicker || closeToParent ? null : navigation} dismiss={closeToParent ? leave : dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Local</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote</button>
@@ -1517,7 +1517,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {sessionPicker && navigation && !closeToParent && <div className={css.sessionNavigation} data-session-navigation><BackButton back={navigation} /></div>}
       {type === 'help' && <HelpContent />}
       {type === 'plugins' && <PluginList />}
-      {type === 'plugin-dialog' && state.pluginPrompt && <PluginDialog key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} />}
+      {type === 'plugin-dialog' && state.pluginPrompt && (state.pluginPrompt.kind === 'form' ? <PluginList /> : <PluginDialog key={state.pluginPrompt.id} />)}
       {type === 'site-info' && <SiteInformation />}
       {type === 'agent-info' && <AgentInformation />}
       {type === 'anti-bot-settings' && <GeneralBotSettings />}
@@ -1760,6 +1760,7 @@ let BUILTIN_TOOLS = [
 type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
 let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
   let { state, run, initialPlugin, panelBack } = useUI()
+  let prompt = state.pluginPrompt?.kind === 'form' ? state.pluginPrompt : undefined
   let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null, 'Back to plugins', !compact && initialPlugin ? panelBack : null)
   let [query, setQuery] = useState(''), [changing, setChanging] = useState<string[]>([])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
@@ -1777,21 +1778,22 @@ let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: S
     {BUILTIN_TOOLS.map(tool => <BuiltinPluginSettings key={tool.id} feature={tool.id} matches={matches} />)}
     <PluginConfiguration compact={compact} matches={matches} />
   </>
-  let details = (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
+  let details = prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
     {builtin ? <><h2>{builtin.name}</h2><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <PluginDetails key={plugin!.id} plugin={plugin!} />}
   </section>
+  let open = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }
   let includes = (text: string) => text.toLowerCase().includes(query.toLowerCase())
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
   let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.category ?? ''} ${plugin.name} ${plugin.actions.map(action => `${action.group ?? ''} ${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
   let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row className={css.extensionRow}>
-    <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={stack.open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
+    <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
   </div>
-  return <div className={css.extensionWorkspace} data-details-open={!!details} onKeyDown={stack.keys}>
+  return <div className={css.extensionWorkspace} data-details-open={!!details} data-browsing-settings={!!prompt} onKeyDown={stack.keys}>
     <section aria-label="Plugin list" className={css.extensionList} ref={stack.list} tabIndex={-1}>
-    <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact} />
+    <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact && !prompt} />
     <h2>Built-in</h2>
-    {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={stack.open}><strong>{tool.name}</strong></button></div>)}
+    {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={open}><strong>{tool.name}</strong></button></div>)}
     {plugins.filter(plugin => plugin.bundled && plugin.category !== 'Social Media').map(row)}
     {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
     <h2>Custom</h2>
@@ -1872,8 +1874,15 @@ let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { pre
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
-  let [subscription, setSubscription] = useState(false)
-  let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values }), [busy, setBusy] = useState(false)
+  let [subscription, setSubscription] = useState(false), [billing, setBilling] = useState<RelayBilling>()
+  let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
+  useEffect(() => {
+    if (!hasSubscription) return
+    let active = true
+    void bridge.remoteAccount<RelayBilling>('/api/billing/status').then(value => { if (active) setBilling(value) }).catch(() => undefined)
+    return () => { active = false }
+  }, [hasSubscription, subscription])
+  let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
   let [preset, setPreset] = useState('saved'), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
   let pending = useRef<Record<string, unknown>>({}), saved = useRef({ ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   let profile = state.model.profiles.find(profile => profile.id === request.profileId)
@@ -1937,12 +1946,11 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let field = (item: typeof fields[number]) => {
     let fallback = saved.current[item.name] ?? item.default
     let inherited = fallback === undefined ? 'Not set' : display(item, fallback)
-    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name}>{item.range ? <PluginRange field={item} value={values[item.name] ?? fallback} onChange={update} /> : <label className={css.settingsRow}><span>{item.title}</span>
+    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name} title={item.description}>{item.range ? <PluginRange field={item} value={values[item.name] ?? fallback} onChange={update} /> : <label className={css.settingsRow}><span>{item.title}</span>
       {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={values[item.name] === undefined ? '' : String(values[item.name])} onChange={change} required={item.required}>
         {!item.required && values[item.name] === undefined && <option value="">{inherited}</option>}
         {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{display(item, value)}</option>)}
       </select> : item.multiline ? <textarea name={item.name} value={String(values[item.name] ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}</label>}
-      {item.description && <small>{item.description}</small>}
     </div>
   }
   let editProfile = () => setEditingProfile(true)
@@ -1952,8 +1960,9 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let profileBack = useMemo(() => subscription ? { label: 'Back to browsing', run: backFromSubscription } : editingProfile ? { label: 'Back to browsing', run: backToBrowsing } : null, [subscription, backFromSubscription, editingProfile, backToBrowsing])
   usePanelBack(profileBack)
   let profileFields = request.profiles ? fields.filter(item => item.section === 'Persona') : []
-  let visibleFields = fields.filter(item => !profileFields.includes(item))
-  let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Settings' || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
+  let sourceFields = fields.filter(item => item.name === 'ai_source')
+  let visibleFields = fields.filter(item => !profileFields.includes(item) && !sourceFields.includes(item))
+  let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={/^(Settings|Session|Playback|Interactions|Limits)/i.test(section) || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
   if (subscription) return <div className={css.pluginParameters}><h2>BMUX subscription</h2><p>Your remote subscription includes AI browsing.</p><DesktopRemoteAccount view="relay" /></div>
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
@@ -1961,9 +1970,10 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     <div className={css.pluginParameterBody}>
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
+      {hasSubscription && <section aria-label="AI subscription" className={css.pluginSubscription}><div className={css.pluginSettingsHeading}><span>{billing ? billing.relay.active ? `BMUX subscription · ${billing.relay.cancelRequested ? 'Ending' : billing.relay.status}` : 'No active BMUX subscription' : 'BMUX subscription'}</span><button type="button" disabled={busy} onClick={manageSubscription}>Manage subscription</button></div>{sourceFields.map(field)}</section>}
       {!!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} autosave={request.autosave} choosePreset={choosePreset} />}
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
-      {fields.some(item => item.choices?.includes('included')) && <button type="button" disabled={busy} onClick={manageSubscription}>Manage subscription</button>}</>}
+      </>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
     {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}

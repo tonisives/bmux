@@ -45,3 +45,10 @@
 .failure p { margin: 8px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .diagnostic { color: #8e98a4; font-size: 11px; }
 .recoverySettings { border-top: 1px solid #363c45; padding-top: 8px; }
+
+.compactBody { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; overflow: auto; }
+.compactBody p { margin: 0; overflow-wrap: anywhere; }
+.compactBody > button { align-self: flex-start; }
+.decisions { color: #eceef2; font-variant-numeric: tabular-nums; }
+.panel[data-compact="true"] header > div { display: none; }
+.panel[data-compact="true"] header nav { flex: 1; justify-content: flex-end; }

@@ -20,6 +20,5 @@ export let PluginRange = ({ field, value, onChange }: Props) => {
       <input type="range" aria-label={field.title + ' minimum'} aria-valuetext={low + (range.unit ?? '')} data-end="min" min={range.min} max={range.max} step={range.step} value={low} onChange={change} />
       <input type="range" aria-label={field.title + ' maximum'} aria-valuetext={high + (range.unit ?? '')} data-end="max" min={range.min} max={range.max} step={range.step} value={high} onChange={change} />
     </div>
-    <div className={css.bounds}><span>Minimum {low}{range.unit}</span><span>Maximum {high}{range.unit}</span></div>
   </div>
 }
