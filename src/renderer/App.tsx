@@ -1568,7 +1568,7 @@ let AgentInformation = () => {
     let toggleInputLock = () => { void toggleLock(actor) }
     return <section key={`${actor.paneId}:${actor.agentId}`}>
       <dl>{actor.agentName && actor.agentName !== actor.agentId && <><dt>Name</dt><dd>{actor.agentName}</dd></>}{actor.agentId && <><dt>Agent ID</dt><dd>{actor.agentId}</dd></>}{actor.agentPurpose && <><dt>Browsing reason</dt><dd>{actor.agentPurpose}</dd></>}
-        <dt>Browser pane</dt><dd>{actor.paneId}{closed ? ' · closed' : ''}</dd>
+        {closed && <><dt>Browser pane</dt><dd>{actor.paneId} · closed</dd></>}
         <AgentResumeField command={resumeCommand} />
         <AgentInteractionField actor={actor} />
         {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
