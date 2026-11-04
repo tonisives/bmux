@@ -1938,6 +1938,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     </div>
   }
   let editProfile = () => setEditingProfile(true)
+  let manageSubscription = () => { void flush().then(() => setSubscription(true)).catch(() => undefined) }
   let backToBrowsing = useCallback(() => { if (!busy) void flush().then(() => setEditingProfile(false)).catch(() => undefined) }, [busy, flush, setEditingProfile])
   let backFromSubscription = useCallback(() => setSubscription(false), [])
   let profileBack = useMemo(() => subscription ? { label: 'Back to browsing', run: backFromSubscription } : editingProfile ? { label: 'Back to browsing', run: backToBrowsing } : null, [subscription, backFromSubscription, editingProfile, backToBrowsing])
@@ -1954,7 +1955,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {!!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} autosave={request.autosave} choosePreset={choosePreset} />}
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
-      {fields.some(item => item.choices?.includes('included')) && <button type="button" disabled={busy} onClick={() => { void flush().then(() => setSubscription(true)).catch(() => undefined) }}>Manage subscription</button>}</>}
+      {fields.some(item => item.choices?.includes('included')) && <button type="button" disabled={busy} onClick={manageSubscription}>Manage subscription</button>}</>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
     {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
