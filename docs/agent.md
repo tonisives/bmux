@@ -287,6 +287,7 @@ a resolved warning or resets a session to end a break. It lists paused websites
 across the profile, including websites in other panes or closed tabs.
 Session minutes count active time: at most three seconds after each interaction.
 Idle thinking time and slow commands beyond those three seconds do not count.
+After two minutes idle, that website starts a fresh session on its next interaction.
 Social sites default to one action every three seconds, with up to three actions
 in one second once per minute. Actions queue per website and profile, so parallel
 commands share the same allowance. Existing custom delays still apply between bursts.

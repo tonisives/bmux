@@ -288,7 +288,7 @@ test('slow commands count at most three seconds and idle time survives restarts'
   advance(9 * 60_000)
   let next = restart()
   await next.before('bot', instagram)
-  expect(next.status().profiles[0]).toMatchObject({ activeMs: 6000, retryAfter: null })
+  expect(next.status().profiles[0]).toMatchObject({ activeMs: 0, retryAfter: null })
 })
 
 test('a human session reset persists fresh usage for only that profile and preserves warning pauses', async () => {
@@ -319,7 +319,7 @@ test('a reset session starts with the next admitted command after an agent waits
   await next.before('bot', instagram, undefined, true, actor)
   advance(2 * 60_000)
   await expect(next.before('bot', instagram, undefined, true, actor)).resolves.toBeUndefined()
-  expect(next.status().profiles[0]).toMatchObject({ startedAt: Date.parse('2026-10-01T00:19:00Z'), retryAfter: null })
+  expect(next.status().profiles[0]).toMatchObject({ startedAt: Date.parse('2026-10-01T00:21:00Z'), retryAfter: null })
 })
 
 test('a reset navigation session starts on commit and survives an unused preflight and restart', async () => {
@@ -336,7 +336,7 @@ test('a reset navigation session starts on commit and survives an unused preflig
   next.complete('bot', actor, url)
   advance(2 * 60_000)
   await expect(next.before('bot', instagram, undefined, true, actor)).resolves.toBeUndefined()
-  expect(next.status().profiles[0]).toMatchObject({ startedAt: Date.parse('2026-10-01T00:21:00Z'), retryAfter: null })
+  expect(next.status().profiles[0]).toMatchObject({ startedAt: Date.parse('2026-10-01T00:23:00Z'), retryAfter: null })
 })
 
 test('a page change during the delay is checked again before dispatch', async () => {
@@ -700,4 +700,35 @@ test('committed navigation preserves the burst allowance across restarts', async
     policy = restart()
   }
   expect(sleeps).toEqual([334, 334, 3000])
+})
+
+
+test('two minutes idle renews only that website and profile, including across restarts', async () => {
+  let { policy, advance, restart } = fixture()
+  let x = async () => ({ url: 'https://x.com/' })
+  await policy.before('bot', instagram, undefined, true, { paneId: '%old' })
+  await policy.before('bot', x)
+  await policy.before('other', instagram)
+  advance(119_999)
+  let next = restart()
+  // These sites remain active while the original website reaches two minutes idle.
+  await next.before('bot', x)
+  await next.before('other', instagram)
+  expect(next.status().profiles.find(row => row.profileId === 'bot' && row.siteHost === 'x.com')?.activeMs).toBe(3000)
+  advance(1)
+  await next.before('bot', instagram, undefined, true, { paneId: '%new' })
+  expect(next.status().profiles.find(row => row.profileId === 'bot' && row.siteHost === 'www.instagram.com')).toMatchObject({ activeMs: 0, startedAt: Date.parse('2026-10-01T00:02:00Z'), actors: [{ paneId: '%new' }], retryAfter: null })
+  await next.before('bot', x)
+  expect(next.status().profiles.find(row => row.profileId === 'bot' && row.siteHost === 'x.com')?.activeMs).toBeGreaterThan(3000)
+  expect(next.status().profiles.find(row => row.profileId === 'other')?.activeMs).toBe(3000)
+})
+
+test('an interaction just before two minutes idle keeps the current session', async () => {
+  let { policy, advance, restart } = fixture()
+  await policy.before('bot', instagram)
+  let startedAt = policy.status().profiles[0].startedAt
+  advance(119_999)
+  let next = restart()
+  await next.before('bot', instagram)
+  expect(next.status().profiles[0]).toMatchObject({ startedAt, activeMs: 3000 })
 })
