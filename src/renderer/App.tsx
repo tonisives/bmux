@@ -39,7 +39,7 @@ import { Fragment, createContext, useCallback, useContext, useEffect, useId, use
 import { createPortal } from 'react-dom'
 import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
-import type { PluginInfo } from '../shared/plugins'
+import type { PluginInfo, PluginPrompt } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
 import type { RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
@@ -1858,6 +1858,13 @@ let dismissPluginPrompt = (request: NonNullable<PublicState['pluginPrompt']>) =>
   if (request.kind === 'form' && request.autosave) globalThis.dispatchEvent(new Event('bmux-plugin-dismiss'))
   else void bridge.command({ method: 'plugin.respond', args: { id: request.id, cancel: true } }).catch(() => undefined)
 }
+let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { presets: NonNullable<PluginPrompt['presets']>; preset: string; autosave?: boolean; choosePreset: (event: MouseEvent<HTMLButtonElement>) => void }) => {
+  return <section aria-label="Browsing presets" className={css.pluginPresetSection}>
+        <h3>Browsing preset</h3>
+        <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
+        <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? autosave ? 'Changes save automatically for this profile and platform.' : 'Custom settings for this session.' : presets.find(item => item.id === preset)?.description}</p>
+      </section>
+}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
@@ -1944,11 +1951,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     <div className={css.pluginParameterBody}>
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
-      {!!request.presets?.length && <section aria-label="Browsing presets" className={css.pluginPresetSection}>
-        <h3>Browsing preset</h3>
-        <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{request.presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
-        <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? request.autosave ? 'Changes save automatically for this profile and platform.' : 'Custom settings for this session.' : request.presets.find(item => item.id === preset)?.description}</p>
-      </section>}
+      {!!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} autosave={request.autosave} choosePreset={choosePreset} />}
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div></>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
