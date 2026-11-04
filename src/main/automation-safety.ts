@@ -86,7 +86,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     if (value.activeMs < automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000) delete value.limitReachedAt
   }
   let reachedLimit = (value: Usage) => !value.pendingSession && (value.activeMs ?? 0) >= automationProfileLimits(options.settings(), value.profileId).maxSessionMinutes * 60_000
-  let rested = (value: Usage) => value.pendingSession || now() >= retryAt(value.profileId, value) || !reachedLimit(value) && now() - value.lastUsed >= automationProfileLimits(options.settings(), value.profileId).cooldownMinutes * 60_000
+  let rested = (value: Usage) => value.pendingSession || now() >= retryAt(value.profileId, value) || !reachedLimit(value) && now() - value.lastUsed >= 2 * 60_000
   let assertAvailable = (profileId: string, paneId?: string, url?: string) => {
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
     ensureLedger()

@@ -3012,7 +3012,7 @@ let AutomationLimitsEditor = ({ profile }: { profile: Profile }) => {
   }
   let limits = automationProfileLimits(state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety, profile.id)
   return <ProfileSection title="Limits"><div className={css.antiBotLimitFields}>
-    <AutomationLimitInput profileId={profile.id} setting="maxSessionMinutes" label="Active session limit (minutes)" description="Pauses after 3 seconds idle" value={limits.maxSessionMinutes} maximum={1440} />
+    <AutomationLimitInput profileId={profile.id} setting="maxSessionMinutes" label="Active session limit (minutes)" description="Idle: pause at 3s, reset at 2m" value={limits.maxSessionMinutes} maximum={1440} />
     <AutomationLimitInput profileId={profile.id} setting="cooldownMinutes" label="Break (minutes)" description="Pause after the session limit" value={limits.cooldownMinutes} maximum={1440} />
     <AutomationLimitInput profileId={profile.id} setting="socialDelayMs" label="Social site delay (seconds)" description="3 actions in 1s, once per minute" value={limits.socialDelayMs} scale={1000} maximum={30} />
   </div><label className={css.profileControl}><span>Simulate mouse movement<small>Move a virtual pointer between clicks</small></span><input className={css.proxyToggle} type="checkbox" role="switch" aria-label="Simulate mouse movement" checked={limits.simulateMouseMovement !== false} onChange={toggleMouse} disabled={busy} /></label></ProfileSection>
