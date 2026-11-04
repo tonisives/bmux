@@ -214,6 +214,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (controlObservation.has(method)) return
     let actor = remoteActor.getStore()
     let paneId = args.tab ?? args.pane
+    if (method === 'agent.focus' && typeof paneId === 'string' && !currentPane(paneId)) return
     let clientId = typeof args.client === 'string' ? args.client : sourceClientId
     let clientSession = ['client.overlay', 'focus-ui', 'focus-page', 'click-mode'].includes(method) ? model.clients.find(client => client.id === clientId)?.sessionId : undefined
     let affectedProfile = typeof args.profile === 'string' ? args.profile : undefined
