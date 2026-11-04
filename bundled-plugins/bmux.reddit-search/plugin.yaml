@@ -1,7 +1,7 @@
 schema_version: 1
 id: bmux.reddit-search
 name: Reddit search filter
-version: 1.1.0
+version: 1.2.0
 bookmark:
   matches:
     - 'https://www.reddit.com/search*'

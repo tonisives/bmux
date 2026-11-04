@@ -105,8 +105,13 @@ filter affects post search results, including infinite scrolling, rather than
 feeds or discussion comments. Filtering uses loaded page data and does not fetch
 additional results.
 
-A compact overlay appears on matching pages with an on/off toggle and
-**Configure** controls for each attached plugin. Changes update the bookmark and
+A floating **N hidden** button appears at the top right of matching pages. Expand
+it to review hidden post titles, links, and filtering reasons, alongside an on/off
+toggle and **Configure** controls for each attached plugin. The count includes
+matches removed from the page by infinite scrolling. It resets on a new search,
+reload, or filter settings change. **0 hidden** means no matches; **Off** and
+**Filter unavailable** identify filters that are disabled or could not run.
+Changes update the bookmark and
 its existing open panes. Turning a filter off restores the results it hid; the
 overlay remains available to turn it back on. Removing an attachment removes its
 overlay too. Missing or globally disabled plugins are shown as unavailable.

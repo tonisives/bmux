@@ -746,3 +746,12 @@ closing the final viewer. Teardown now observes all seven data channels closed,
 closes the viewer's peers, and releases its video sources before destroying the
 native window. Repeat all four cases together; focus, selection, streaming,
 reconnect, and window-removal assertions retain their existing deadlines.
+
+# Bookmark filter overview identity
+
+The overview fixture opens several panes with the same search URL. Finding a
+Playwright page by URL can select another pane and send a summary click to the
+wrong view. The fixture now marks the requested pane through its CDP connection
+and finds the page with that exact marker. Native summary clicks also wait for
+the selected pane and completed layout. Repeat the bookmark filter cases with
+the visual check when changing the overview.

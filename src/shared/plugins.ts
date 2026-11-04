@@ -19,4 +19,5 @@ export type BookmarkPluginValue = string | number | boolean
 export type BookmarkPluginControl = { name: string; title: string; kind: 'number' | 'boolean' | 'text' | 'choice'; default: BookmarkPluginValue; min?: number; max?: number; step?: number; choices?: string[] }
 export type BookmarkPluginContribution = { matches: string[]; script: string; controls: BookmarkPluginControl[] }
 export type BookmarkPluginAttachment = { id: string; enabled: boolean; values: Record<string, BookmarkPluginValue> }
+export type BookmarkHiddenPost = { key: string; title: string; url: string; reasons: string[] }
 export type BookmarkPluginSettings = Record<string, Record<string, BookmarkPluginAttachment[]>>
