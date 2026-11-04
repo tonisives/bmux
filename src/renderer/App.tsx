@@ -1858,13 +1858,11 @@ let dismissPluginPrompt = (request: NonNullable<PublicState['pluginPrompt']>) =>
   if (request.kind === 'form' && request.autosave) globalThis.dispatchEvent(new Event('bmux-plugin-dismiss'))
   else void bridge.command({ method: 'plugin.respond', args: { id: request.id, cancel: true } }).catch(() => undefined)
 }
-let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { presets: NonNullable<PluginPrompt['presets']>; preset: string; autosave?: boolean; choosePreset: (event: MouseEvent<HTMLButtonElement>) => void }) => {
-  return <section aria-label="Browsing presets" className={css.pluginPresetSection}>
+let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { presets: NonNullable<PluginPrompt['presets']>; preset: string; autosave?: boolean; choosePreset: (event: MouseEvent<HTMLButtonElement>) => void }) => <section aria-label="Browsing presets" className={css.pluginPresetSection}>
         <h3>Browsing preset</h3>
         <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
         <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? autosave ? 'Changes save automatically for this profile and platform.' : 'Custom settings for this session.' : presets.find(item => item.id === preset)?.description}</p>
       </section>
-}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
