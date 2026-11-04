@@ -174,9 +174,9 @@ export let App = () => {
     <BrowserStatus collapsedAlerts={alertsCollapsed ? agentAlerts : []} expandAlerts={() => setAlertsCollapsed(false)} />
     {notices.length > 0 && <Notifications notices={notices} collapseAlerts={collapseAlerts} />}
     {(panel === 'sessions' || sessionsBehind) && <Panel key="sessions" type="sessions" inactive={sessionsBehind} hidden={!!state.pluginPrompt} />}
-    {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt && !(panel === 'plugins' && state.pluginPrompt.kind === 'form')} />}
+    {panel && panel !== 'profiles' && panel !== 'sessions' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt && !(['plugins', 'extensions'].includes(panel!) && state.pluginPrompt.kind === 'form')} />}
     {sessionsBehind && panel && <SecondaryPanel type={panel} closeToSessions={closeToSessions} hidden={!!state.pluginPrompt} />}
-    {state.pluginPrompt && !(panel === 'plugins' && !sessionsBehind && state.pluginPrompt.kind === 'form') && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
+    {state.pluginPrompt && !(['plugins', 'extensions'].includes(panel!) && !sessionsBehind && state.pluginPrompt.kind === 'form') && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
   </div></Context.Provider>
 }
@@ -1503,12 +1503,12 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     next.click(); next.focus()
   }
   let sessionPicker = type === 'sessions'
-  let title = type === 'plugins' && state.pluginPrompt?.kind === 'form' ? 'Plugin' : sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = ['plugins', 'extensions'].includes(type) && state.pluginPrompt?.kind === 'form' ? 'Plugin' : sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) leave() }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
   }
-  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.extensionsPanel : type === 'settings' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
+  let content = <div className={css.overlay} style={hidden ? { display: 'none' } : undefined} onClick={dismissBackground} inert={inactive}><div className={`${css.panel} ${type === 'extensions' || type === 'plugins' || type === 'plugin-dialog' && state.pluginPrompt?.kind === 'form' ? css.extensionsPanel : type === 'settings' ? css.settingsPanel : type === 'profiles' ? css.profilePanel : type === 'proxy' ? css.proxyPanel : type === 'bookmarks' ? css.bookmarksPanel : sessionPicker ? css.sessionsPanel : ''}`} role="dialog" aria-label={title} aria-modal={!inactive} tabIndex={-1} ref={ref} onKeyDownCapture={cycleTabs} onKeyDown={keys} onFocusCapture={rememberFocus}>
     <PanelHeader back={sessionPicker || closeToParent ? null : navigation} dismiss={closeToParent ? leave : dismiss}>{sessionPicker ? <div className={css.panelTabs} role="tablist" aria-label="Sessions">
       <button type="button" role="tab" aria-selected={sessionTab === 'local'} onClick={chooseLocalSessions}>Local</button>
       <button type="button" role="tab" aria-selected={sessionTab === 'remote'} onClick={chooseRemoteSessions}>Remote</button>
@@ -1516,8 +1516,8 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     <div className={css.panelBody}>
       {sessionPicker && navigation && !closeToParent && <div className={css.sessionNavigation} data-session-navigation><BackButton back={navigation} /></div>}
       {type === 'help' && <HelpContent />}
-      {type === 'plugins' && <PluginList />}
-      {type === 'plugin-dialog' && state.pluginPrompt && (state.pluginPrompt.kind === 'form' ? <PluginList /> : <PluginDialog key={state.pluginPrompt.id} />)}
+      {type === 'plugins' && <PluginList browsingPrompt={!hidden && state.pluginPrompt?.kind === 'form'} />}
+      {type === 'plugin-dialog' && state.pluginPrompt && (state.pluginPrompt.kind === 'form' ? <PluginList browsingPrompt /> : <PluginDialog key={state.pluginPrompt.id} />)}
       {type === 'site-info' && <SiteInformation />}
       {type === 'agent-info' && <AgentInformation />}
       {type === 'anti-bot-settings' && <GeneralBotSettings />}
@@ -1529,7 +1529,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {type === 'bookmarks' && <BookmarkPicker />}
       {type === 'history' && <HistoryPicker />}
       {type === 'downloads' && <DownloadManager />}
-      {type === 'extensions' && <ExtensionsContent />}
+      {type === 'extensions' && <ExtensionsContent browsingPrompt={!hidden && state.pluginPrompt?.kind === 'form'} />}
       {type === 'activity' && <><PluginActivity /><p>Permissions</p>{state.permissions.length ? state.permissions.map(permission => <PermissionRow key={permission.id} permission={permission} />) : <p>No pending requests.</p>}<DownloadManager /></>}
     </div>
   </div></div>
@@ -1652,15 +1652,16 @@ let SiteInformation = () => {
   </section>
 }
 let ExtensionInfoIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg>
-let ExtensionsContent = () => {
+let ExtensionsContent = ({ browsingPrompt = false }: { browsingPrompt?: boolean }) => {
   let [tab, setTab] = useSettingsState<'extensions' | 'plugins'>('extensions:tab', 'plugins')
   let extensions = () => setTab('extensions'), plugins = () => setTab('plugins')
+  let showingExtensions = tab === 'extensions' && !browsingPrompt
   return <>
     <div className={css.panelTabs} role="tablist" aria-label="Extensions sections">
-      <button type="button" role="tab" aria-selected={tab === 'plugins'} onClick={plugins}>Plugins</button>
-      <button type="button" role="tab" aria-selected={tab === 'extensions'} onClick={extensions}>Chrome extensions</button>
+      <button type="button" role="tab" aria-selected={!showingExtensions} onClick={plugins}>Plugins</button>
+      <button type="button" role="tab" aria-selected={showingExtensions} onClick={extensions}>Chrome extensions</button>
     </div>
-    <div role="tabpanel" aria-label={tab === 'extensions' ? 'Chrome extensions' : 'Plugins'}>{tab === 'extensions' ? <ExtensionManager /> : <PluginList compact />}</div>
+    <div role="tabpanel" aria-label={showingExtensions ? 'Chrome extensions' : 'Plugins'}>{showingExtensions ? <ExtensionManager /> : <PluginList compact browsingPrompt={browsingPrompt} />}</div>
   </>
 }
 let ExtensionManager = () => {
@@ -1758,9 +1759,9 @@ let BUILTIN_TOOLS = [
 ] as const
 
 type BuiltinTool = typeof BUILTIN_TOOLS[number]['id']
-let PluginList = ({ compact = false, matches }: { compact?: boolean; matches?: Set<string> }) => {
+let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compact?: boolean; matches?: Set<string>; browsingPrompt?: boolean }) => {
   let { state, run, initialPlugin, panelBack } = useUI()
-  let prompt = state.pluginPrompt?.kind === 'form' ? state.pluginPrompt : undefined
+  let prompt = browsingPrompt && state.pluginPrompt?.kind === 'form' ? state.pluginPrompt : undefined
   let stack = usePanelStack(!compact && initialPlugin ? `builtin:${initialPlugin}` : null, 'Back to plugins', !compact && initialPlugin ? panelBack : null)
   let [query, setQuery] = useState(''), [changing, setChanging] = useState<string[]>([])
   let change = (event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
@@ -1884,7 +1885,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   }, [hasSubscription, subscription])
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
   let [preset, setPreset] = useState('saved'), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
-  let pending = useRef<Record<string, unknown>>({}), saved = useRef({ ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  let pending = useRef<Record<string, unknown>>({}), saved = useRef({ ...(hasSubscription ? { ai_source: 'included' } : {}), ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   let profile = state.model.profiles.find(profile => profile.id === request.profileId)
   let fields = request.fields ?? []
   let flush = useCallback(() => {
