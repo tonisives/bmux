@@ -322,6 +322,11 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: -20, y: -30 })
       expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
       await rpc('agent.input-lock.override', { pane: client.paneId, enabled: true })
+      await hand.click()
+      await expect(hand).toHaveAttribute('aria-pressed', 'true')
+      await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+      await hand.click()
+      await expect(hand).toHaveAttribute('aria-pressed', 'false')
     } catch (error) {
       await fs.writeFile(info.outputPath('chrome-wheels.json'), JSON.stringify(await chrome.evaluate(() => (globalThis as any).viewportWheels ?? [])))
       await fs.writeFile(info.outputPath('gutter-events.json'), JSON.stringify({ dom: await chrome.evaluate(() => (globalThis as any).gutterTrace), native: await application.evaluate(() => (globalThis as any).nativeGutterTrace) }))
@@ -332,6 +337,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       throw error
     }
     for (let pane of [client.paneId, added.id]) await content(pane).evaluate(element => element.scrollTo(Number(element.dataset.panOriginX ?? 0), Number(element.dataset.panOriginY ?? 0)))
+    await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
     await nativeResize(1280, 850)
     for (let [pane, page] of [[client.paneId, first], [added.id, second]] as const) {
       await expect.poll(() => size(page)).toEqual(locked[pane])
@@ -538,7 +544,8 @@ for (let position of ['top', 'bottom']) test(`remote viewport stays inside the n
       await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual(size)
       await expect.poll(async () => {
         let rect = (await content.boundingBox())!, bounds = await nativeBounds()
-        if (size.width < rect.width && size.height < rect.height) return Math.abs(bounds.page.x + bounds.page.width / 2 - rect.x - rect.width / 2) <= 1 && Math.abs(bounds.page.y + bounds.page.height / 2 - rect.y - rect.height / 2) <= 1
+        let area = await content.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight }))
+        if (size.width < area.width && size.height < area.height) return Math.abs(bounds.page.x + bounds.page.width / 2 - rect.x - area.width / 2) <= 1 && Math.abs(bounds.page.y + bounds.page.height / 2 - rect.y - area.height / 2) <= 1
         return bounds.clip.x >= rect.x - 1 && bounds.clip.y >= rect.y - 1 && bounds.clip.x + bounds.clip.width <= rect.x + rect.width + 1 && bounds.clip.y + bounds.clip.height <= rect.y + rect.height + 1
       }).toBe(true)
       if (size.width > 1000) {

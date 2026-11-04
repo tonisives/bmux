@@ -215,8 +215,8 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await expect.poll(zoomed).toBe(true)
     await cmdZ()
     await expect.poll(zoomed).toBe(false)
-    // Enlarging a locked pane removes its native clipping wrapper. Keep the
-    // website focused so the conditional shortcut can restore the split again.
+    // Keep the website focused while a locked pane switches between fitting
+    // and overflowing, so its conditional shortcut can restore the split again.
     await rpc('lock-viewport', { window: client.windowId, width: Math.floor(await chrome.evaluate(() => innerWidth) * .7), height: 200 })
     await page.locator('#surface').click()
     for (let attempt = 0; attempt < 3; attempt++) {

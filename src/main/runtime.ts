@@ -2184,7 +2184,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           let owner = [...clients.values()].find(owner => owner.window === live.parent)
           owner?.tabTooltip.setVisible(false)
           if (live.parent.isFocused()) {
-            let contents = live.inputLock?.contents ?? live.contents
+            let contents = live.inputLock?.view?.getVisible() ? live.inputLock.contents! : live.contents
             contents.focus(); syncPageSelection(contents)
           }
         }, delta => zoomViewport(tabId, delta), visible => {
