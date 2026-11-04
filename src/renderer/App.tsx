@@ -464,6 +464,7 @@ let AutomationPause = ({ detectedAt }: { detectedAt?: number }) => <span classNa
 let AgentStatusIcon = ({ locked = false }: { locked?: boolean }) => <svg className={css.statusIcon} viewBox="0 0 20 20" aria-hidden="true">{locked ? <><rect x="4" y="8" width="12" height="9" rx="1" /><path d="M6 8V6a4 4 0 0 1 8 0v2" /></> : <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6M1 10v4m18-4v4" /></>}</svg>
 
 let AgentInteractionTime = ({ when, compact = false, now }: { when: number; compact?: boolean; now?: number }) => <time className={compact ? css.windowActivity : undefined} data-age={compact ? activityAge(when, now) : undefined} dateTime={new Date(when).toISOString()} title={`Last agent interaction ${new Date(when).toLocaleString()}`}>{compact ? compactActivityLabel(when, now) : new Date(when).toLocaleString()}</time>
+let AgentResumeField = ({ command }: { command?: string }) => command ? <><dt>Resume command</dt><dd><code>{command}</code></dd></> : null
 let AgentInteractionField = ({ actor }: { actor: AutomationActor }) => 'lastUsed' in actor && typeof actor.lastUsed === 'number' ? <><dt>Last interaction</dt><dd><AgentInteractionTime when={actor.lastUsed} /></dd></> : null
 
 let AgentButton = ({ agents, paneId, active = true, lastUsed }: { agents: AutomationActor[]; paneId?: string; active?: boolean; lastUsed?: number }) => {
@@ -1568,7 +1569,7 @@ let AgentInformation = () => {
     return <section key={`${actor.paneId}:${actor.agentId}`}>
       <dl>{actor.agentName && actor.agentName !== actor.agentId && <><dt>Name</dt><dd>{actor.agentName}</dd></>}{actor.agentId && <><dt>Agent ID</dt><dd>{actor.agentId}</dd></>}{actor.agentPurpose && <><dt>Browsing reason</dt><dd>{actor.agentPurpose}</dd></>}
         <dt>Browser pane</dt><dd>{actor.paneId}{closed ? ' · closed' : ''}</dd>
-        {resumeCommand && <><dt>Resume command</dt><dd><code>{resumeCommand}</code></dd></>}
+        <AgentResumeField command={resumeCommand} />
         <AgentInteractionField actor={actor} />
         {actor.agentType && <><dt>Type</dt><dd>{actor.agentType}</dd></>}
         {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session', sessionName: 'Session', windowId: 'Window ID', windowIndex: 'Window number', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{key === sessionField ? actor.agentData?.sessionName ?? value : value}</dd></Fragment>)}
