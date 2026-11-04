@@ -373,3 +373,35 @@ test('range parameters validate slider bounds, defaults and presets', () => {
   for (let invalid of [{ ...range, min: 120 }, { ...range, step: 0 }, { ...range, max: Infinity }]) expect(() => parsePluginManifest(manifest({ range: invalid }))).toThrow()
   expect(() => parsePluginManifest(manifest({ kind: 'boolean', range }))).toThrow()
 })
+
+test('named configuration switches preserve the form, profile scope and defaults before starting', async () => {
+  let prepare = vi.fn(async (context: PluginContext) => context)
+  let command = [process.execPath, './configuration.mjs']
+  let { plugins, directory, context } = fixture('', {
+    capabilities: ['browser.manage'], launch_url: 'https://example.test/',
+    configuration_command: command, configuration_save_command: [...command,'save'], configuration_profile_command: [...command,'profile'],
+    parameters: [{name:'persona',title:'Persona',kind:'text'}, {name:'watch',title:'Watch',kind:'text',default:'8-12',range:{min:1,max:120,step:1}}],
+  }, undefined, prepare)
+  fs.writeFileSync(path.join(directory,'plugins/test/configuration.mjs'), `
+    if(process.env.BMUX_PLUGIN_CONFIGURATION_VERSION!=='2')throw new Error('Missing version');
+    let input='';for await(let chunk of process.stdin)input+=chunk;
+    let profile=process.argv[2]==='profile'?JSON.parse(input).id:'default';
+    console.log(JSON.stringify({values:{persona:process.env.BMUX_PLUGIN_PROFILE_ID+' '+profile},profiles:{active:profile,items:[{id:'default',name:'Default'},{id:'research',name:'Research'}]}}));
+  `)
+  let id = plugins.run('test/run',{...context,profileId:'profile-fixture'},{},true).id
+  await vi.waitFor(() => expect(plugins.prompt('client')?.kind).toBe('form'))
+  let prompt = plugins.prompt('client')!
+  expect(prompt.savedValues).toEqual({persona:'profile-fixture default'})
+  expect(prompt.values).toEqual({watch:'8-12'})
+  await expect(plugins.respond('client',{id:prompt.id,profile:{action:'select',id:'research',extra:'bad'}})).rejects.toThrow('Unknown profile operation')
+  await plugins.respond('client',{id:prompt.id,profile:{action:'select',id:'research'}})
+  let selected = plugins.prompt('client')!
+  expect(selected.id).not.toBe(prompt.id); expect(selected.runId).toBe(id)
+  expect(selected.profiles?.active).toBe('research')
+  expect(selected.savedValues).toEqual({persona:'profile-fixture research'})
+  expect(selected.values).toEqual({watch:'8-12'})
+  expect(prepare).not.toHaveBeenCalled()
+  expect(() => plugins.respond('client',{id:prompt.id,cancel:true})).toThrow('unavailable')
+  plugins.respond('client',{id:selected.id,cancel:true})
+  expect((await done(plugins,id)).status).toBe('cancelled')
+})

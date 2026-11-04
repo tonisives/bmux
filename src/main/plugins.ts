@@ -139,8 +139,11 @@ export let createPlugins = (options: Options) => {
     let output = await configuration(run, run.action.configuration_profile_command, operation)
     if (!live(run) || run.pending?.prompt.id !== request.id) throw new Error('Plugin prompt is unavailable')
     readConfiguration(run, output)
-    for (let field of request.fields ?? []) delete run.parameters[field.name]
-    run.pending.prompt = { ...request, id: randomUUID(), savedValues: run.savedValues, values: {}, profiles: run.profiles }
+    for (let field of request.fields ?? []) {
+      delete run.parameters[field.name]
+      if (run.savedValues?.[field.name] === undefined && field.default !== undefined) run.parameters[field.name] = field.default
+    }
+    run.pending.prompt = { ...request, id: randomUUID(), savedValues: run.savedValues, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => request.fields?.some(field => field.name === key))), profiles: run.profiles }
     options.changed()
     return { updated: true }
   }

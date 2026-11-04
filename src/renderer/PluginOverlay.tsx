@@ -13,7 +13,7 @@ export let PluginOverlay = () => {
   let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await bridge.command({ method, args: { ...args, id: overlay?.runId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
   let input = async (id: string, value?: string | boolean) => { setBusy(true); await command('plugin.overlay.input', { control: id, value }); setBusy(false) }
   let stop = () => { setReturnToSetup(true); void input('stop') }
-  useEffect(() => { setReturnToSetup(false) }, [overlay?.runId])
+  useEffect(() => { setReturnToSetup(false); openSetting(undefined) }, [overlay?.runId])
   useEffect(() => {
     if (overlay?.ended && returnToSetup) { setReturnToSetup(false); void command('plugin.overlay.configure') }
   }, [overlay?.ended, returnToSetup, command])
