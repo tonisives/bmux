@@ -10,7 +10,7 @@ import { observeNativeFocus, recordNativeFocus } from './native-focus'
 
 let directory: string, application: ElectronApplication, chrome: Page, url: string, server: http.Server
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
-let openSettings = async (dialog: ReturnType<Page['getByRole']>) => { for (let summary of await dialog.locator('details:not([open]) > summary').all()) await summary.click() }
+let openSettings = async (dialog: ReturnType<Page['getByRole']>) => { for (let section of await dialog.locator('details').all()) if (await section.getAttribute('open') === null) await section.locator('summary').click() }
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let run = async (action: string, args: Record<string, unknown> = {}) => (await rpc('plugin.run', { action: `test/${action}`, ...args })).id as string

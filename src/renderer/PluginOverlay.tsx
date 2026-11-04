@@ -92,9 +92,12 @@ let OverlayDetails = () => {
   useEffect(() => {
     if (!setting || !details.current) return
     details.current.open = true; setSelected('settings')
+  }, [setting])
+  useEffect(() => {
+    if (!setting || selected !== 'settings') return
     let frame = requestAnimationFrame(() => { let field = [...details.current!.querySelectorAll<HTMLElement>('[data-overlay-setting]')].find(field => field.dataset.overlaySetting === setting.id); field?.querySelector<HTMLElement>('input,select,textarea')?.focus(); field?.scrollIntoView({ block: 'nearest' }) })
     return () => cancelAnimationFrame(frame)
-  }, [setting])
+  }, [setting, selected])
   let sections = [...(!overlay.ended && overlay.content.controls.some(control => control.kind !== 'button') ? [{ id: 'settings', title: 'Session settings' }] : []), ...overlay.content.details.map((detail, index) => ({ id: String(index), title: detail.title }))]
   let current = sections.find(section => section.id === selected)?.id ?? sections[0]?.id
   let choose = (event: ChangeEvent<HTMLSelectElement>) => setSelected(event.target.value)
