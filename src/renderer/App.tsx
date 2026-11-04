@@ -1885,7 +1885,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   }, [hasSubscription, subscription])
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
   let [preset, setPreset] = useState('saved'), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
-  let pending = useRef<Record<string, unknown>>({}), saved = useRef({ ...(hasSubscription ? { ai_source: 'included' } : {}), ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  let pending = useRef<Record<string, unknown>>({}), saved = useRef<Record<string, string | boolean>>({ ...(hasSubscription ? { ai_source: 'included' } : {}), ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   let profile = state.model.profiles.find(profile => profile.id === request.profileId)
   let fields = request.fields ?? []
   let flush = useCallback(() => {
