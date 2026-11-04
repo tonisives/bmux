@@ -70,7 +70,7 @@ class RepairRequestTests(unittest.TestCase):
         payload, reason = self.payload(sha="b" * 40)
         self.assertIsNone(reason)
         self.assertEqual(payload["params"]["commit"], self.run["head_sha"])
-        self.assertEqual(payload["idempotency_key"], "bmux-ci-repair:" + "b" * 40)
+        self.assertEqual(payload["idempotency_key"], "bmux-ci-repair:" + self.run["head_sha"])
         self.assertIsNone(self.payload(message="Fix [bmux-ci-repair]")[0])
 
     def test_all_failures_for_one_commit_have_identical_requests(self):
