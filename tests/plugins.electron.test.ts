@@ -583,6 +583,12 @@ test('browsing profiles switch saved settings in place without starting a window
   let id = await run('profiles'), dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
   let selector = dialog.getByRole('combobox', { name: 'Browsing profile', exact: true })
   await expect(selector).toHaveValue('default')
+  await dialog.getByRole('button', { name: 'Manage subscription', exact: true }).click()
+  await expect(dialog.getByRole('heading', { name: 'BMUX subscription', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toHaveCount(0)
+  await dialog.locator(':scope > header').getByRole('button', { name: 'Back to browsing', exact: true }).click()
+  await expect(selector).toHaveValue('default')
+  expect((await state()).pluginPrompt.runId).toBe(id)
   let edit = dialog.getByRole('button', { name: 'Edit browsing profile', exact: true })
   let selectionBounds = (await selector.boundingBox())!, editBounds = (await edit.boundingBox())!
   expect(editBounds.x).toBeGreaterThanOrEqual(selectionBounds.x + selectionBounds.width)

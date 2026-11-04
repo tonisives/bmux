@@ -1864,6 +1864,7 @@ let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { pre
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
+  let [subscription, setSubscription] = useState(false)
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values }), [busy, setBusy] = useState(false)
   let [preset, setPreset] = useState('saved'), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
   let pending = useRef<Record<string, unknown>>({}), saved = useRef({ ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -1938,11 +1939,13 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   }
   let editProfile = () => setEditingProfile(true)
   let backToBrowsing = useCallback(() => { if (!busy) void flush().then(() => setEditingProfile(false)).catch(() => undefined) }, [busy, flush, setEditingProfile])
-  let profileBack = useMemo(() => editingProfile ? { label: 'Back to browsing', run: backToBrowsing } : null, [editingProfile, backToBrowsing])
+  let backFromSubscription = useCallback(() => setSubscription(false), [])
+  let profileBack = useMemo(() => subscription ? { label: 'Back to browsing', run: backFromSubscription } : editingProfile ? { label: 'Back to browsing', run: backToBrowsing } : null, [subscription, backFromSubscription, editingProfile, backToBrowsing])
   usePanelBack(profileBack)
   let profileFields = request.profiles ? fields.filter(item => item.section === 'Persona') : []
   let visibleFields = fields.filter(item => !profileFields.includes(item))
   let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Settings' || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
+  if (subscription) return <div className={css.pluginParameters}><h2>BMUX subscription</h2><p>Your remote subscription includes AI browsing.</p><DesktopRemoteAccount view="relay" /></div>
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
     <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
@@ -1950,7 +1953,8 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {!!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} autosave={request.autosave} choosePreset={choosePreset} />}
-      <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div></>}
+      <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
+      {fields.some(item => item.choices?.includes('included')) && <button type="button" disabled={busy} onClick={() => { void flush().then(() => setSubscription(true)).catch(() => undefined) }}>Manage subscription</button>}</>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
     {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
