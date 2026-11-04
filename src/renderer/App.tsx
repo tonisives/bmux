@@ -1932,7 +1932,7 @@ let PluginParameters = () => {
       {item.description && <small>{item.description}</small>}
     </div>
   }
-  let sections = [...new Set(fields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section}><summary>{section}</summary>{fields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
+  let sections = [...new Set(fields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Settings' || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{fields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{request.pluginName} · {request.title}</h2>
     <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
