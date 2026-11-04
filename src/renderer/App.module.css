@@ -713,3 +713,6 @@
 .pluginProfiles p { color: #8e98a4; margin: 8px 0; }
 .pluginProfiles .settingsRow { white-space: normal; }
 .pluginProfiles .settingsRow select, .pluginProfiles .settingsRow input { width: 55%; min-width: 0; box-sizing: border-box; }
+.pluginProfileControls { display: flex; align-items: center; gap: 8px; width: 55%; min-width: 0; }
+.pluginProfiles .pluginProfileControls select { flex: 1; width: 0; max-width: none; }
+.pluginProfileControls button { flex: none; }

@@ -1475,7 +1475,7 @@ let SecondaryPanel = ({ type, closeToSessions, hidden }: { type: Control; closeT
 let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: { type: Control; hidden?: boolean; inactive?: boolean; closeToParent?: boolean }) => {
   let { state, dismiss, panelBack, control } = useUI()
   let [detailBack, setDetailBack] = useState<PanelBack | null>(null)
-  let navigation = inactive ? null : type === 'plugin-dialog' ? isPanel(control) ? { label: 'Back', run: dismiss } : null : detailBack ?? panelBack
+  let navigation = inactive ? null : detailBack ?? (type === 'plugin-dialog' ? isPanel(control) ? { label: 'Back', run: dismiss } : null : panelBack)
   let leave = navigation?.run ?? dismiss
   let ref = useRef<HTMLDivElement>(null), lastFocused = useRef<HTMLElement | null>(null), wasHidden = useRef(false)
   let rememberFocus = (event: FocusEvent<HTMLDivElement>) => { lastFocused.current = event.target }
@@ -1869,7 +1869,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let pending = useRef<Record<string, unknown>>({}), saved = useRef({ ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   let profile = state.model.profiles.find(profile => profile.id === request.profileId)
   let fields = request.fields ?? []
-  let flush = () => {
+  let flush = useCallback(() => {
     clearTimeout(timer.current)
     let saving = queue.current.catch(() => undefined).then(async () => {
       while (Object.keys(pending.current).length) {
@@ -1888,7 +1888,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     })
     queue.current = saving
     return saving
-  }
+  }, [request.id, request.autosave])
   useEffect(() => () => { clearTimeout(timer.current) }, [])
   let save = (patch: Record<string, unknown>) => {
     if (!request.autosave) return
@@ -1937,7 +1937,9 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     </div>
   }
   let editProfile = () => setEditingProfile(true)
-  let backToBrowsing = async () => { try { await flush(); setEditingProfile(false) } catch { /* Keep unsaved fields available. */ } }
+  let backToBrowsing = useCallback(() => { if (!busy) void flush().then(() => setEditingProfile(false)).catch(() => undefined) }, [busy, flush, setEditingProfile])
+  let profileBack = useMemo(() => editingProfile ? { label: 'Back to browsing', run: backToBrowsing } : null, [editingProfile, backToBrowsing])
+  usePanelBack(profileBack)
   let profileFields = request.profiles ? fields.filter(item => item.section === 'Persona') : []
   let visibleFields = fields.filter(item => !profileFields.includes(item))
   let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Settings' || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
@@ -1951,7 +1953,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div></>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
-    <div className={css.settingsFooter}>{editingProfile ? <button type="button" onClick={backToBrowsing} disabled={busy}>Back to browsing</button> : <><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></>}</div>
+    {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
   </form>
 }
 let PluginDialog = () => {
