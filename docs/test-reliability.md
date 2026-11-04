@@ -746,3 +746,11 @@ closing the final viewer. Teardown now observes all seven data channels closed,
 closes the viewer's peers, and releases its video sources before destroying the
 native window. Repeat all four cases together; focus, selection, streaming,
 reconnect, and window-removal assertions retain their existing deadlines.
+
+## Scrolled popup before a native swipe
+
+A full Check failed the held-swipe pixel assertion for a new noopener pane. Its
+screenshot still showed the page before scrolling, although scrollY was already
+400. The fixture now verifies the native page background and fixed header before
+beginning the gesture. The held-frame colors, scroll position, fixed header and
+private history-image assertions remain unchanged.
