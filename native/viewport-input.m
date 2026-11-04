@@ -49,6 +49,12 @@ static NSView *find_renderer(NSView *view) {
 // Give AppKit the actual chrome renderer for margins, so its normal mouse-down
 // tracking and Chromium pointer capture continue across the page during a drag.
 static NSView *root_hit_test(NSView *root, SEL selector, NSPoint point) {
+  BmuxInputRegion *state = objc_getAssociatedObject(root, &root_key);
+  struct objc_super parent = { root, state.originalClass };
+  NSView *hit = ((NSView *(*)(struct objc_super *, SEL, NSPoint))objc_msgSendSuper)(&parent, selector, point);
+  // A stationary control can sit over the space outside the page. Preserve its
+  // actual renderer instead of routing that click through the chrome margins.
+  if ([hit isKindOfClass:NSClassFromString(@"RenderWidgetHostViewCocoa")]) return hit;
   NSPoint local = [root.superview convertPoint:point toView:root];
   for (BmuxInputRegion *region in regions.allValues) {
     if (region.root != root || !region.page || !NSPointInRect(local, region.rect)) continue;
@@ -56,9 +62,7 @@ static NSView *root_hit_test(NSView *root, SEL selector, NSPoint point) {
     NSView *renderer = find_renderer(find_page(root, root, root.bounds));
     if (renderer) return renderer;
   }
-  BmuxInputRegion *state = objc_getAssociatedObject(root, &root_key);
-  struct objc_super parent = { root, state.originalClass };
-  return ((NSView *(*)(struct objc_super *, SEL, NSPoint))objc_msgSendSuper)(&parent, selector, point);
+  return hit;
 }
 static void install_root(NSView *root) {
   if (objc_getAssociatedObject(root, &root_key)) return;

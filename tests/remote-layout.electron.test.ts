@@ -346,7 +346,10 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     // A page that fits still pans, with room to bring its header and footer
     // to the middle instead of stopping at the native viewport edge.
     let fittedHand = (await controlPage(client.paneId)).getByRole('button', { name: 'Pan viewport', exact: true })
-    await fittedHand.click()
+    if (process.platform === 'darwin') {
+      let button = (await controlBounds(client.paneId))!
+      for (let phase of [0, 1, 3]) await application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { x: button.x + 16, y: button.y + 16, phase, modifier: 0 })
+    } else await fittedHand.click()
     await expect(fittedHand).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => first.locator('#bmux-viewport-pan').evaluate(element => (element.shadowRoot!.querySelector('div') as HTMLElement).style.pointerEvents)).toBe('auto')
     await first.mouse.move(120, 120); await first.mouse.down(); await first.mouse.move(100, 100); await first.mouse.up()
