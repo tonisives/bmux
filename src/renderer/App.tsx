@@ -39,7 +39,7 @@ import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
+import type { ReactNode, HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
 import type { PluginInfo, PluginPrompt } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
@@ -1783,6 +1783,7 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     {builtin ? <><h2>{builtin.name}</h2><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <PluginDetails key={plugin!.id} plugin={plugin!} />}
   </section>
   let open = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => { if (!prompt) stack.keys(event) }
   let includes = (text: string) => text.toLowerCase().includes(query.toLowerCase())
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
   let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.category ?? ''} ${plugin.name} ${plugin.actions.map(action => `${action.group ?? ''} ${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
@@ -1790,7 +1791,7 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
   </div>
-  return <div className={css.extensionWorkspace} data-details-open={!!details} data-browsing-settings={!!prompt} onKeyDown={prompt ? undefined : stack.keys}>
+  return <div className={css.extensionWorkspace} data-details-open={!!details} data-browsing-settings={!!prompt} onKeyDown={keys}>
     <section aria-label="Plugin list" className={css.extensionList} ref={stack.list} tabIndex={-1}>
     <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact && !prompt} />
     <h2>Built-in</h2>
@@ -1872,17 +1873,24 @@ let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { pre
         <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
         <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? autosave ? 'Changes save automatically for this profile and platform.' : 'Custom settings for this session.' : presets.find(item => item.id === preset)?.description}</p>
       </section>
-let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
-  let { state, run } = useUI()
-  let request = state.pluginPrompt!
-  let [subscription, setSubscription] = useState(false), [billing, setBilling] = useState<RelayBilling>()
-  let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
+let PluginSubscription = ({ busy, manage, children }: { busy: boolean; manage: () => void; children: ReactNode }) => {
+  let [billing, setBilling] = useState<RelayBilling>()
   useEffect(() => {
-    if (!hasSubscription) return
     let active = true
     void bridge.remoteAccount<RelayBilling>('/api/billing/status').then(value => { if (active) setBilling(value) }).catch(() => undefined)
     return () => { active = false }
-  }, [hasSubscription, subscription])
+  }, [])
+  let status = billing ? billing.relay.active ? `BMUX subscription · ${billing.relay.cancelRequested ? 'Ending' : billing.relay.status}` : 'No active BMUX subscription' : 'BMUX subscription'
+  return <section aria-label="AI subscription" className={css.pluginSubscription}>
+    <div className={css.pluginSettingsHeading}><span>{status}</span><button type="button" disabled={busy} onClick={manage}>Manage subscription</button></div>
+    {children}
+  </section>
+}
+let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
+  let { state, run } = useUI()
+  let request = state.pluginPrompt!
+  let [subscription, setSubscription] = useState(false)
+  let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
   let [preset, setPreset] = useState('saved'), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
   let pending = useRef<Record<string, unknown>>({}), saved = useRef<Record<string, string | boolean>>({ ...(hasSubscription ? { ai_source: 'included' } : {}), ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -1971,7 +1979,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     <div className={css.pluginParameterBody}>
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
-      {hasSubscription && <section aria-label="AI subscription" className={css.pluginSubscription}><div className={css.pluginSettingsHeading}><span>{billing ? billing.relay.active ? `BMUX subscription · ${billing.relay.cancelRequested ? 'Ending' : billing.relay.status}` : 'No active BMUX subscription' : 'BMUX subscription'}</span><button type="button" disabled={busy} onClick={manageSubscription}>Manage subscription</button></div>{sourceFields.map(field)}</section>}
+      {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription}>{sourceFields.map(field)}</PluginSubscription>}
       {!!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} autosave={request.autosave} choosePreset={choosePreset} />}
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
       </>}
