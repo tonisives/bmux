@@ -41,7 +41,7 @@ import { Fragment, createContext, useCallback, useContext, useEffect, useId, use
 import { createPortal } from 'react-dom'
 import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
-import type { PluginInfo, PluginPrompt } from '../shared/plugins'
+import type { PluginInfo, PluginPrompt, PluginParameter } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
 import type { RelayBilling, RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
@@ -1886,6 +1886,17 @@ let PluginSubscription = ({ busy, manage, children }: { busy: boolean; manage: (
     {children}
   </section>
 }
+let pluginParameterLabels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', included: 'BMUX subscription', personal: 'Personal OpenAI API key', true: 'On', false: 'Off' }
+let displayPluginParameter = (item: PluginParameter, value: unknown) => item.kind === 'password' ? 'Private' : value === undefined ? 'Not set' : pluginParameterLabels[String(value)] ?? String(value)
+let PluginParameterInput = ({ item, value, fallback, change, update }: { item: PluginParameter; value: unknown; fallback: unknown; change: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => void; update: (name: string, value: unknown) => void }) => {
+    let inherited = fallback === undefined ? 'Not set' : displayPluginParameter(item, fallback)
+    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name} title={item.description}>{item.range ? <PluginRange field={item} value={value ?? fallback} onChange={update} /> : <label className={css.settingsRow}><span>{item.title}</span>
+      {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={value === undefined ? '' : String(value)} onChange={change} required={item.required}>
+        {!item.required && value === undefined && <option value="">{inherited}</option>}
+        {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{displayPluginParameter(item, value)}</option>)}
+      </select> : item.multiline ? <textarea name={item.name} value={String(value ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(value ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : displayPluginParameter(item, fallback)} required={item.required} autoComplete="off" />}</label>}
+    </div>
+}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
@@ -1950,18 +1961,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     try { await flush(); await run('plugin.respond', { id: request.id, cancel: true }) } catch { /* Keep unsaved settings available for correction. */ } finally { setBusy(false) }
   }
   useEffect(() => { let dismiss = () => { void cancel() }; window.addEventListener('bmux-plugin-dismiss', dismiss); return () => window.removeEventListener('bmux-plugin-dismiss', dismiss) }, [request.id])
-  let labels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', included: 'BMUX subscription', personal: 'Personal OpenAI API key', true: 'On', false: 'Off' }
-  let display = (item: typeof fields[number], value: unknown) => item.kind === 'password' ? 'Private' : value === undefined ? 'Not set' : labels[String(value)] ?? String(value)
-  let field = (item: typeof fields[number]) => {
-    let fallback = saved.current[item.name] ?? item.default
-    let inherited = fallback === undefined ? 'Not set' : display(item, fallback)
-    return <div key={item.name} className={css.pluginParameterField} data-plugin-setting={item.name} title={item.description}>{item.range ? <PluginRange field={item} value={values[item.name] ?? fallback} onChange={update} /> : <label className={css.settingsRow}><span>{item.title}</span>
-      {item.kind === 'boolean' || item.kind === 'choice' ? <select name={item.name} value={values[item.name] === undefined ? '' : String(values[item.name])} onChange={change} required={item.required}>
-        {!item.required && values[item.name] === undefined && <option value="">{inherited}</option>}
-        {(item.kind === 'boolean' ? ['true', 'false'] : item.choices ?? []).map(value => <option key={value} value={value}>{display(item, value)}</option>)}
-      </select> : item.multiline ? <textarea name={item.name} value={String(values[item.name] ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(values[item.name] ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : display(item, fallback)} required={item.required} autoComplete="off" />}</label>}
-    </div>
-  }
+  let field = (item: PluginParameter) => <PluginParameterInput key={item.name} item={item} value={values[item.name]} fallback={saved.current[item.name] ?? item.default} change={change} update={update} />
   let editProfile = () => setEditingProfile(true)
   let manageSubscription = () => { void flush().then(() => setSubscription(true)).catch(() => undefined) }
   let backToBrowsing = useCallback(() => { if (!busy) void flush().then(() => setEditingProfile(false)).catch(() => undefined) }, [busy, flush, setEditingProfile])
