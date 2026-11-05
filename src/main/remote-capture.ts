@@ -76,7 +76,9 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     unsubscribe?.()
     // Keep the transport alive long enough to send SCTP closure to the viewer.
     if (!window.isDestroyed() && !window.webContents.isCrashed()) {
-      shutdown = setTimeout(destroy, 1000)
+      // SCTP reset can outlive one second when several streams close together.
+      // Prefer the renderer's stopped acknowledgement; bound an unresponsive peer.
+      shutdown = setTimeout(destroy, 5000)
       window.webContents.send('remote-message', { type: 'stop' })
     } else destroy()
     options.closed()
