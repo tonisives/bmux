@@ -5,7 +5,8 @@
 .panel header strong, .panel header span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .panel header strong { font-size: inherit; font-weight: 500; color: #eceef2; }
 .panel header span { color: #8e98a4; font-size: 11px; }
-.panel header nav { display: flex; flex-shrink: 0; gap: 8px; }
+.panel header nav { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
+.panel header nav button { display: flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; }
 .panel header svg { display: block; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .body { padding: 12px; overflow: auto; flex: 1; min-height: 0; }
 .status { color: #bdc9b4; margin: 0 0 12px; }
@@ -66,9 +67,12 @@
 .decisionBranch[data-active="true"] { border-color: #a7b69c; color: #eceef2; background: #283127; }
 .decisionBranch[data-active="true"]::before { background: #a7b69c; }
 .decisionBranch span:last-child { font-variant-numeric: tabular-nums; }
-.actionLine { display: flex; gap: 8px; align-items: center; padding-top: 16px; }
-.actionLine svg { width: 12px; height: 12px; stroke: currentColor; fill: none; }
-.interactionSummary { color: #8e98a4; margin-top: 12px; }
+.actionLine { display: grid; grid-template-columns: 40px 40px 1fr; gap: 12px; align-items: center; padding-top: 16px; }
+.actionLine > span { grid-column: 1 / -1; }
+.panel .actionLine button { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: 1px solid #444b59; }
+.panel .actionLine button:hover { background: #283127; }
+.actionLine svg { display: block; width: 24px; height: 24px; stroke: currentColor; fill: none; }
+.interactionSummary { flex-shrink: 0; color: #8e98a4; padding: 8px 12px; }
 .interactionSummary p { margin: 4px 0; }
 .popup { position: absolute; inset: 48px 8px 48px; background: #20242d; border: 1px solid #444b59; padding: 12px; overflow: auto; z-index: 2; }
 .popupHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

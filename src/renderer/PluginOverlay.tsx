@@ -61,7 +61,7 @@ let OverlayHeader = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;
   let small = overlay.bounds.compact || overlay.bounds.collapsed
   return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}>
     {small && !overlay.ended ? <CompactInformation inline={!!overlay.bounds.collapsed} /> : <div><strong>{overlay.content.decision && !overlay.ended ? <><img className={css.brandMark} src={bmuxIcon} alt="" width="20" height="20" /> BMUX Accounts</> : title}</strong>{!overlay.content.decision && <span>{overlay.error || overlay.content.error ? overlay.ended ? 'Session ended' : 'Check the error below' : overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span>}</div>}
-    <nav aria-label="Overlay controls">{overlay.ended && <button onClick={configure}>New session</button>}<button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Minimize page overlay'} title={overlay.bounds.collapsed ? 'Show full overlay' : overlay.bounds.compact ? 'Minimize to one line' : 'Show compact overlay'} onClick={minimize}>{overlay.bounds.collapsed ? '+' : '_'}</button><button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button></nav>
+    <nav aria-label="Overlay controls">{overlay.ended && <button onClick={configure}>New session</button>}<button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Minimize page overlay'} title={overlay.bounds.collapsed ? 'Show full overlay' : overlay.bounds.compact ? 'Minimize to one line' : 'Show compact overlay'} onClick={minimize}><svg viewBox="0 0 12 12" aria-hidden="true"><path d={overlay.bounds.collapsed ? 'M2 6h8M6 2v8' : 'M2 6h8'} /></svg></button><button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button></nav>
   </header>
 }
 let CompactInformation = ({ inline = false }: { inline?: boolean }) => {
@@ -105,8 +105,8 @@ let DecisionBody = () => {
       <div className={css.decisionRoot}>{decision.loading && <span className={css.spinner} role="status" aria-label="AI is deciding" />}{decision.loading ? 'AI is deciding' : 'Possible outcomes'}</div>
       <DecisionTree />
       <div className={css.actionLine}><CompactAction /><NextPostButton /></div>
-      {overlay.content.nodes.filter(node => node.title === 'Interactions').map(node => <div key={node.title} className={css.interactionSummary}>{node.lines.map((line,index) => <p key={index}>{line}</p>)}</div>)}
     </div>
+    {overlay.content.nodes.filter(node => node.title === 'Interactions').map(node => <div key={node.title} className={css.interactionSummary}>{node.lines.map((line,index) => <p key={index}>{line}</p>)}</div>)}
     <div className={css.controls}><button aria-expanded={popup === 'settings'} onClick={settings}>Settings</button><button aria-expanded={popup === 'usage'} onClick={usage}>Usage</button></div>
     {popup && <div className={css.popup} role="dialog" aria-label={popup === 'settings' ? 'Overlay settings' : 'Session usage'} ref={popupRef} onKeyDown={keys}>
       <div className={css.popupHeading}><h2>{popup === 'settings' ? 'Settings' : 'Usage'}</h2><button onClick={close} aria-label="Close popup">Close</button></div>

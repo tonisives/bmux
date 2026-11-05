@@ -43,7 +43,7 @@ if (action === 'pick') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
 } else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
 } else if (['overlay','graph'].includes(action)) {
- let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Exact duration confidence: 72% (duration assessment)','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'fail',label:'Trigger AI error',kind:'button'},{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI limit settings',kind:'button',setting:'ads'}],details:[{title:'Profile',text:'Interested in computers'}]};if(action==='graph'){content.decision={loading:true,options:[{id:'skip',label:'Skip',active:false},{id:'watch',label:'Brief watch',active:false},{id:'finish',label:'Near the end',active:false}]};content.controls.push({id:'decide',label:'Resolve AI decision',kind:'button'})}host('overlay.update',content);
+ let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Exact duration confidence: 72% (duration assessment)','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'fail',label:'Trigger AI error',kind:'button'},{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI limit settings',kind:'button',setting:'ads'}],details:[{title:'Profile',text:'Interested in computers'}]};if(action==='graph'){content.nodes.push({title:'Interactions',lines:['1 like · 2 comment reads · 1 profile view'],tone:'neutral'});content.decision={loading:true,options:[{id:'skip',label:'Skip',active:false},{id:'watch',label:'Brief watch',active:false},{id:'finish',label:'Near the end',active:false}]};content.controls.push({id:'decide',label:'Resolve AI decision',kind:'button'})}host('overlay.update',content);
  while(true){
   let inputs=host('overlay.events');
   if(inputs.some(input=>input.id==='decide')){content={...content,decision:{loading:false,options:[{id:'skip',label:'Skip',probability:.05,active:false},{id:'watch',label:'Brief watch',probability:.8,active:true},{id:'finish',label:'Near the end',probability:.15,active:false}]}};host('overlay.update',content)}
@@ -754,7 +754,16 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   await expect(usage.getByText('No usage recorded yet.', { exact: true })).toBeVisible()
   await usage.getByRole('button', { name: 'Close popup' }).click()
   await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
-  await observer.getByRole('button', { name: 'Show next post', exact: true }).click()
+  let pause = observer.getByRole('button', { name: 'Pause session', exact: true }), next = observer.getByRole('button', { name: 'Show next post', exact: true })
+  let pauseBounds = (await pause.boundingBox())!, nextBounds = (await next.boundingBox())!, statusBounds = (await observer.getByRole('status').boundingBox())!
+  expect(pauseBounds.width).toBeGreaterThanOrEqual(40); expect(pauseBounds.height).toBeGreaterThanOrEqual(40)
+  expect(nextBounds.y).toBe(pauseBounds.y); expect(pauseBounds.y).toBeGreaterThanOrEqual(statusBounds.y + statusBounds.height)
+  let likesBounds = (await observer.getByText('1 like · 2 comment reads · 1 profile view', { exact: true }).boundingBox())!, footerBounds = (await observer.getByRole('button', { name: 'Settings', exact: true }).boundingBox())!
+  expect(likesBounds.y).toBeGreaterThan(pauseBounds.y + pauseBounds.height); expect(footerBounds.y - likesBounds.y).toBeLessThan(64)
+  let minimize = (await observer.getByRole('button', { name: 'Minimize page overlay' }).boundingBox())!, close = (await observer.getByRole('button', { name: 'Close overlay', exact: true }).boundingBox())!
+  expect(minimize.y + minimize.height / 2).toBe(close.y + close.height / 2)
+  await observer.screenshot({ path: path.resolve('artifacts/plugin-decision-playback.png') })
+  await next.click()
   await expect(observer.getByRole('status')).toHaveText('Showing next post')
   await chrome.getByRole('button', { name: 'Command prompt' }).click()
   let command = chrome.getByRole('combobox', { name: 'Command', exact: true }); await command.fill('extensions'); await command.press('Enter')
