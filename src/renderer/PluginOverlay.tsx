@@ -56,7 +56,7 @@ let OverlayHeader = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;
   let close = () => void command('plugin.overlay.close')
   let configure = () => void command('plugin.overlay.configure')
   let title = overlay.content.error?.title || (overlay.ended ? overlay.error || overlay.content.status.startsWith('Browsing stopped') ? 'Browsing stopped' : 'Session complete' : overlay.content.title)
-  let minimize = () => void command('plugin.overlay.bounds', { ...overlay.bounds, compact: !overlay.bounds.collapsed, collapsed: overlay.bounds.compact && !overlay.bounds.collapsed })
+  let minimize = () => void command('plugin.overlay.bounds', { ...overlay.bounds, compact: !overlay.bounds.collapsed, collapsed: !!overlay.bounds.compact && !overlay.bounds.collapsed })
   let small = overlay.bounds.compact || overlay.bounds.collapsed
   return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}>
     {small && !overlay.ended ? <CompactInformation inline={!!overlay.bounds.collapsed} /> : <div><strong>{title}</strong><span>{overlay.error || overlay.content.error ? overlay.ended ? 'Session ended' : 'Check the error below' : overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span></div>}
