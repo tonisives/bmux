@@ -723,3 +723,9 @@
 .extensionWorkspace[data-browsing-settings="true"] { grid-template-columns: minmax(160px, 1fr) minmax(0, 3fr); }
 .extensionWorkspace[data-browsing-settings="true"] > .extensionList { display: block; }
 @media (max-width: 540px) { .extensionWorkspace[data-browsing-settings="true"] { grid-template-columns: 120px minmax(0, 1fr); gap: 12px; } }
+
+.pluginPlayback { position: sticky; bottom: 0; display: flex; gap: 16px; padding: 12px; margin-top: 16px; border-top: 1px solid #363c45; background: #191d23; }
+.pluginPlayback > button { display: flex; align-items: center; justify-content: center; }
+.pluginPlayback svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.pluginPlaybackMenu { position: absolute; bottom: 100%; left: 0; right: 0; display: flex; flex-direction: column; padding: 8px; border: 1px solid #363c45; background: #191d23; z-index: 2; }
+.pluginPlaybackMenu button { text-align: left; padding: 8px; }

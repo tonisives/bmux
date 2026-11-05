@@ -1803,8 +1803,33 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     {plugins.filter(plugin => !plugin.bundled && plugin.category !== 'Social Media').map(row)}
     {!plugins.some(plugin => !plugin.bundled && plugin.category !== 'Social Media') && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
     <button onClick={reload}>Reload plugins</button>
+    <PluginPlayback />
     </section>
     {details || <p className={css.extensionPlaceholder}>Select a plugin to see its details.</p>}
+  </div>
+}
+
+let PluginPlayback = () => {
+  let { state, run } = useUI(), [open, setOpen] = useState(false), [busy, setBusy] = useState(false)
+  let overlay = state.pluginOverlay, active = overlay && !overlay.ended
+  let toggle = () => setOpen(current => !current)
+  let send = async (event: MouseEvent<HTMLButtonElement>) => {
+    if (!overlay) return
+    let control = event.currentTarget.dataset.control
+    setBusy(true)
+    try { await run('plugin.overlay.input', { id: overlay.runId, control }); setOpen(false) } finally { setBusy(false) }
+  }
+  let next = async () => { if (!overlay) return; setBusy(true); try { await run('plugin.overlay.input', { id: overlay.runId, control: 'next' }) } finally { setBusy(false) } }
+  let launch = (event: MouseEvent<HTMLButtonElement>) => { setOpen(false); void run('plugin.run', { action: event.currentTarget.dataset.action }) }
+  let nextControl = active && overlay.content.controls.find(control => control.id === 'next')
+  let options = state.plugins?.filter(plugin => plugin.enabled && plugin.category === 'Social Media').flatMap(plugin => plugin.actions.filter(action => /^(Browse feed|Simulate feed browsing)$/i.test(action.title)).map(action => ({ id: `${plugin.id}/${action.id}`, label: `${plugin.name} · ${action.title}` }))) ?? []
+  let keys = (event: KeyboardEvent) => { if (event.key === 'Escape' && open) { event.stopPropagation(); setOpen(false) } }
+  return <div className={css.pluginPlayback} onKeyDown={keys}>
+    <button type="button" onClick={toggle} aria-label="Agent playback actions" title="Agent playback actions" aria-expanded={open}><svg viewBox="0 0 16 16" aria-hidden="true">{active ? <path d="M4 4h8v8H4Z" /> : <path d="m5 3 8 5-8 5Z" />}</svg></button>
+    <button type="button" onClick={next} disabled={busy || !nextControl || nextControl.disabled} aria-label="Show next post" title="Show next video (override AI)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 3 8 5-8 5Z M13 3v10" /></svg></button>
+    {open && <div role="group" aria-label="Agent playback actions" className={css.pluginPlaybackMenu}>
+      {active ? overlay.content.controls.filter(control => control.kind === 'button' && ['start','continue','auto','pause','resume','stop'].includes(control.id)).map(control => <button key={control.id} type="button" data-control={control.id} onClick={send} disabled={busy || control.disabled}>{control.label}</button>) : options.length ? options.map(option => <button key={option.id} type="button" data-action={option.id} onClick={launch}>{option.label}</button>) : <span>No browsing actions available.</span>}
+    </div>}
   </div>
 }
 

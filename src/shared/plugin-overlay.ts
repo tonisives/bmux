@@ -1,6 +1,7 @@
 export type PluginOverlayControl = { id: string; label: string; kind: 'button' | 'toggle' | 'choice' | 'text'; value?: string | boolean; choices?: string[]; disabled?: boolean; setting?: string }
 export type PluginOverlayError = { title: string; message: string; diagnostic?: string; controls?: string[] }
-export type PluginOverlayContent = { error?: PluginOverlayError; title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
+export type PluginDecision = { loading: boolean; options: { id: string; label: string; probability?: number; active: boolean }[] }
+export type PluginOverlayContent = { decision?: PluginDecision; error?: PluginOverlayError; title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
 export type PluginOverlayBounds = { x: number; y: number; width: number; height: number; collapsed?: boolean; compact?: boolean }
 export type PluginOverlayState = { runId: string; paneId: string; content: PluginOverlayContent; bounds: PluginOverlayBounds; ended: boolean; error?: string }
 export type PluginOverlayInput = { id: string; value?: string | boolean }
@@ -10,7 +11,7 @@ export let parsePluginOverlay = (value: Record<string, unknown>): PluginOverlayC
   let { copies: rawCopies, ...layout } = value
   if (JSON.stringify(value).length > 900000) throw new Error('Overlay payload exceeds 900 KB')
   if (JSON.stringify(layout).length > 32768) throw new Error('Overlay exceeds 32 KB')
-  let controls = array(value.controls ?? [], 16).map((control): PluginOverlayControl => {
+  let controls = array(value.controls ?? [], 24).map((control): PluginOverlayControl => {
     if (!control || !['button','toggle','choice','text'].includes(control.kind) || !/^[a-zA-Z0-9._-]{1,64}$/.test(control.id)) throw new Error('Invalid overlay control')
     let choices = control.kind === 'choice' ? array(control.choices, 16).map(choice => text(choice, 80)) : undefined
     if (control.setting !== undefined && (control.kind !== 'button' || typeof control.setting !== 'string' || !/^[a-zA-Z0-9._-]{1,64}$/.test(control.setting))) throw new Error('Invalid overlay settings link')
@@ -27,7 +28,16 @@ export let parsePluginOverlay = (value: Record<string, unknown>): PluginOverlayC
   if (new Set(copies.map(copy => copy.id)).size !== copies.length) throw new Error('Duplicate overlay copy')
   let error = value.error === undefined ? undefined : value.error as Record<string, unknown>
   let failure = error ? { title: text(error.title, 100), message: text(error.message, 1000), ...(error.diagnostic === undefined ? {} : { diagnostic: text(error.diagnostic, 2000) }), controls: array(error.controls ?? [], 4).map(id => { let name = text(id, 64); if (!controls.some(control => control.id === name && control.kind === 'button')) throw new Error('Unknown overlay recovery control'); return name }) } : undefined
-  return { ...(failure ? { error: failure } : {}), copies, title: text(value.title, 100), subtitle: text(value.subtitle ?? '', 180), status: text(value.status ?? '', 180), metrics: text(value.metrics ?? '', 300), controls,
+  let decision: PluginDecision | undefined
+  if (value.decision !== undefined) {
+    let raw = value.decision as PluginDecision
+    if (typeof raw.loading !== 'boolean') throw new Error('Invalid decision state')
+    decision = { loading: raw.loading, options: array(raw.options, 8).map(option => {
+      if (typeof option.active !== 'boolean' || option.probability !== undefined && (!Number.isFinite(option.probability) || option.probability < 0 || option.probability > 1)) throw new Error('Invalid decision option')
+      return { id: text(option.id, 64), label: text(option.label, 80), active: option.active, ...(option.probability === undefined ? {} : { probability: option.probability }) }
+    }) }
+  }
+  return { ...(decision ? { decision } : {}), ...(failure ? { error: failure } : {}), copies, title: text(value.title, 100), subtitle: text(value.subtitle ?? '', 180), status: text(value.status ?? '', 180), metrics: text(value.metrics ?? '', 300), controls,
     nodes: array(value.nodes ?? [], 8).map(node => { if (!node || !['cyan','green','neutral'].includes(node.tone)) throw new Error('Invalid overlay node'); return { title: text(node.title, 80), lines: array(node.lines, 12).map(line => text(line, 800)), tone: node.tone } }),
     details: array(value.details ?? [], 8).map(detail => ({ title: text(detail.title, 80), text: text(detail.text, 12000) })),
   }

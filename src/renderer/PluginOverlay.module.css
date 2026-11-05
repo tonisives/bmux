@@ -57,3 +57,23 @@
 .panel[data-collapsed="true"] .compactInformation > .decisions { flex-shrink: 0; }
 .panel[data-collapsed="true"] header strong { font-size: 12px; }
 .panel[data-collapsed="true"] header > div > span:not(.compactAction):not(.decisions) { display: none; }
+.postExcerpt h2 { font: inherit; color: #8e98a4; margin: 0 0 4px; }
+.postExcerpt p { margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.decisionRoot { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 24px; padding: 8px; border: 1px solid #444b59; }
+.decisionTree { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 16px 0 0 12px; border-left: 1px solid #444b59; margin-left: 12px; }
+.decisionBranch { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px; border: 1px solid #363c45; color: #8e98a4; }
+.decisionBranch::before { content: ''; position: absolute; width: 12px; height: 1px; background: #444b59; right: 100%; }
+.decisionBranch[data-active="true"] { border-color: #a7b69c; color: #eceef2; background: #283127; }
+.decisionBranch[data-active="true"]::before { background: #a7b69c; }
+.decisionBranch span:last-child { font-variant-numeric: tabular-nums; }
+.actionLine { display: flex; gap: 8px; align-items: center; padding-top: 16px; }
+.actionLine svg { width: 12px; height: 12px; stroke: currentColor; fill: none; }
+.interactionSummary { color: #8e98a4; margin-top: 12px; }
+.interactionSummary p { margin: 4px 0; }
+.popup { position: absolute; inset: 48px 8px 48px; background: #20242d; border: 1px solid #444b59; padding: 12px; overflow: auto; z-index: 2; }
+.popupHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.popupHeading h2 { font: inherit; margin: 0; }
+.panel header .brandMark { display: inline-block; width: 20px; height: 20px; vertical-align: middle; }
+.spinner { width: 12px; height: 12px; border: 2px solid #444b59; border-top-color: #bdc9b4; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

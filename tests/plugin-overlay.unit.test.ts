@@ -59,3 +59,10 @@ test('AI confidence summaries omit duration explanations and keep the current ac
   expect(pluginOverlaySummary(parsed)).toEqual({ decisions: 'Conf: 72% · Match: 98%', action: 'Watching: 10s remaining' })
   expect(pluginOverlaySummary({ ...parsed, status: 'Paused' }).action).toBe('Paused')
 })
+
+test('decision graph validates probabilities and active state', () => {
+  let decision = { loading: false, options: [{ id: 'watch', label: 'Brief watch', probability: .8, active: true }] }
+  expect(parsePluginOverlay({ ...content, decision }).decision).toEqual(decision)
+  expect(() => parsePluginOverlay({ ...content, decision: { ...decision, options: [{ ...decision.options[0], probability: 2 }] } })).toThrow()
+  expect(() => parsePluginOverlay({ ...content, decision: { ...decision, loading: 'yes' } })).toThrow()
+})
