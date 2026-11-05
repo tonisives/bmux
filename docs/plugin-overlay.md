@@ -13,3 +13,14 @@ Use overlays for plugin controls, settings, progress and results. Keep summaries
 The separate `ai.decisions` capability permits manual scripts to query `decisions.usage` and submit `decisions.create` with `{requestId,payload}`. BMUX uses the signed-in subscription; scripts never receive the account token or provider key. The service enforces a shared monthly allowance and bounded gpt-6-luna request shape. Hooks cannot spend the allowance. A host or service without this feature returns an error; callers should pause and offer Train mode or a personal key.
 
 The minimize button cycles through the full overlay, a 64px compact view, and a 32px single line view. Both compact views keep AI percentages, the current action, and pause or resume available. Clicking the button again restores the full overlay. Confidence labels show the percentage without duration explanations. Errors reopen the detailed view for recovery.
+
+
+Social browsing can provide a decision tree with per-option probabilities,
+loading state, and selected paths. The full view shows the post excerpt and
+places settings and usage in footer popups. Usage includes interaction counts,
+AI allowance and estimated costs reported by the plugin. The compact views keep
+playback and next-post controls beside the decision percentages.
+
+The bottom of the plugin list has an agent playback menu and a Next button for
+the current pane. Next overrides the current AI decision; the shared feed runner
+interrupts the watch or request before advancing without post interactions.
