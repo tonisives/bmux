@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { automationWarningScript, createAutomationSafety } from '../src/main/automation-safety'
-import { updateAutomationSafetyLimit, automationWebsiteHost, automationProfileLimits, automationSiteEnabled, automationSafetyEnabled, automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
+import { automationSessionMinutes, updateAutomationSafetyLimit, automationWebsiteHost, automationProfileLimits, automationSiteEnabled, automationSafetyEnabled, automationSiteExclusion, automationWarningEnabled, updateAutomationSiteExclusion, automationTargetUrl, DEFAULT_AUTOMATION, isSocialUrl, paceAutomationCommand, parseAutomationSettings } from '../src/shared/automation'
 
 let directories: string[] = []
 afterEach(() => { for (let directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }) })
@@ -21,7 +21,7 @@ let fixture = (pause?: (ms: number) => Promise<void>) => {
     for (let remaining = ms; remaining > 0;) {
       let step = Math.min(1000, remaining)
       time += step; remaining -= step
-      if (remaining) for (let row of current.status().profiles) current.after(row.profileId, '%active', `https://${row.siteHost}/`)
+      if (remaining) for (let row of current.status().profiles) current.after(row.profileId, '%active', `https://${row.siteHost}/`, row.jobId ? { paneId: '%active', agentType: 'clawtab', agentData: { jobId: row.jobId } } : undefined)
     }
   }
   return { active, policy: create(), file, settings, sleeps, changes: () => changes, advance: (ms: number) => { time += ms }, restart: create }
@@ -731,4 +731,55 @@ test('an interaction just before two minutes idle keeps the current session', as
   let next = restart()
   await next.before('bot', instagram)
   expect(next.status().profiles[0]).toMatchObject({ startedAt, activeMs: 3000 })
+})
+
+
+test('website and job session limits validate and inherit in scope order', () => {
+  let settings = parseAutomationSettings({ safety: { profileLimits: { bot: { maxSessionMinutes: 3 } }, siteSessionMinutes: { bot: { 'one.example.com': 5 } }, jobSessionMinutes: { 'research-screenshots': 30 } } }).safety
+  expect(automationSessionMinutes(settings, 'bot', 'one.example.com', 'research-screenshots')).toBe(30)
+  expect(automationSessionMinutes(settings, 'bot', 'one.example.com')).toBe(5)
+  expect(automationSessionMinutes(settings, 'bot', 'two.example.com')).toBe(3)
+  expect(automationSessionMinutes(settings, 'other', 'one.example.com')).toBe(10)
+  for (let amount of [0, 1441, 1.5, '30', null]) {
+    expect(() => parseAutomationSettings({ safety: { jobSessionMinutes: { research: amount } } })).toThrow()
+    expect(() => parseAutomationSettings({ safety: { siteSessionMinutes: { bot: { 'one.example.com': amount } } } })).toThrow()
+  }
+  expect(() => parseAutomationSettings({ safety: { siteSessionMinutes: { bot: { 'https://one.example.com': 30 } } } })).toThrow()
+})
+
+test('a job shares its budget across panes while other jobs and websites retain their limits across restarts', async () => {
+  let { policy, settings, active, restart } = fixture()
+  settings.maxSessionMinutes = 1
+  settings.siteSessionMinutes = { bot: { 'one.example.com': 2 } }
+  settings.jobSessionMinutes = { research: 4 }
+  let page = async () => ({ url: 'https://one.example.com/' })
+  let job = { paneId: '%research', agentId: 'research-bot', agentType: 'clawtab', agentData: { jobId: 'research' } }
+  await policy.before('bot', page, undefined, false, { paneId: '%ordinary' })
+  await policy.before('bot', page, undefined, false, job)
+  await policy.before('bot', page, undefined, false, { ...job, paneId: '%reader' })
+  expect(policy.status().profiles).toHaveLength(2)
+  active(2 * 60_000)
+  let next = restart()
+  await expect(next.before('bot', page, undefined, false, { paneId: '%ordinary' })).rejects.toThrow('session limit')
+  await next.before('bot', page, undefined, false, job)
+  active(2 * 60_000)
+  await expect(next.before('bot', page, undefined, false, { ...job, paneId: '%reader' })).rejects.toThrow('session limit')
+  await next.before('bot', async () => ({ url: 'https://two.example.com/' }), undefined, false, job)
+  expect(next.status().profiles.find(row => row.jobId === 'research' && row.siteHost === 'two.example.com')?.activeMs).toBe(0)
+  settings.jobSessionMinutes.research = 6
+  await next.before('bot', page, undefined, false, job)
+})
+
+test('job-specific budgets preserve shared site pacing and account warning pauses', async () => {
+  let { policy, settings, sleeps, restart } = fixture()
+  settings.jobSessionMinutes = { first: 30, second: 40 }
+  let first = { paneId: '%first', agentType: 'clawtab', agentData: { jobId: 'first' } }
+  let second = { paneId: '%second', agentType: 'clawtab', agentData: { jobId: 'second' } }
+  await policy.before('bot', instagram, undefined, true, first)
+  await policy.before('bot', instagram, undefined, true, second)
+  await policy.before('bot', instagram, undefined, true, first)
+  await restart().before('bot', instagram, undefined, true, second)
+  expect(sleeps).toEqual([334, 334, 3000])
+  await expect(policy.before('bot', async () => ({ url: 'https://www.instagram.com/', warning: 'account-warning' as const }), undefined, false, first)).rejects.toThrow('account-warning')
+  await expect(policy.before('bot', instagram, undefined, false, second)).rejects.toThrow('account-warning')
 })

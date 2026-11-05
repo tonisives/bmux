@@ -423,3 +423,15 @@ Social Media plugin's Recordings tab and in the combined Recordings list.
 Include `agentName`, `agentPurpose`, and `agentData` with run IDs or request details.
 Activity hooks retain this metadata with the saved recording. Older recordings
 without context remain in the combined list.
+
+Website and ClawTab job session limits can be edited from **Configure session
+limit** in an alert's website dropdown. Job details also offer **Configure job
+limit**. A job override takes precedence over the website limit; the website
+limit otherwise inherits its profile's limit. Overrides accept 1–1440 minutes
+and can be cleared to inherit again. Jobs with an override share a separate
+session budget across their browser panes on each website. Website pacing and
+account warning pauses still apply across jobs in the same profile.
+
+The settings are stored under `automation.safety.siteSessionMinutes`, keyed by
+profile ID and website hostname, and `automation.safety.jobSessionMinutes`,
+keyed by the ClawTab `jobId` recorded by the caller.

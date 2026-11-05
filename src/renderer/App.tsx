@@ -34,7 +34,7 @@ import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
-import { automationWebsiteHost, automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
+import { automationJobId, automationSessionMinutes, automationWebsiteHost, automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
 import type { AutomationActor, AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState, AutomationWarning } from '../shared/automation'
 import { ConnectionIndicator } from './ConnectionIndicator'
 import { connectionLabels, initialSecurity } from '../shared/site-security'
@@ -72,9 +72,9 @@ import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'select-window' | 'close-pane' | 'close-window'
-type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings'
+type Control = ManagementControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings' | 'bot-limits'
 type PanelLocation = { control: Control | null; initialPlugin: BuiltinTool | null; bookmarkDestination: BookmarkDestination | null; agentDetails: AgentDetails }
-type AgentDetails = { paneId: string } | { actors: AutomationActor[] } | { windowId: string } | { sessionId: string }
+type AgentDetails = { profileId: string; host: string; jobs: string[] } | { paneId: string } | { actors: AutomationActor[] } | { windowId: string } | { sessionId: string }
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
@@ -374,10 +374,11 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
     return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, warning: usage.warning, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `${name} · ${automationWarningLabels[usage.warning]}`, detectedAt: usage.warningAt, actions: affectedPane ? [{ label: 'Resume automation', title: 'Check the website again and resume if the warning has cleared', run: () => { void resumeAutomation(state, run, affectedPane.id) } }] : [], paneLinks: paneLinks(host) }]
   }
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
+  if (!usage.jobId && usage.actors?.length && usage.actors.every(actor => { let jobId = automationJobId(actor); return jobId && limits.jobSessionMinutes?.[jobId] !== undefined })) return []
   let retryAfter = usage.retryAfter
   // Current tab URLs may come from manual browsing after automation stopped.
   let siteHosts = usage.siteHost ? [usage.siteHost] : [...new Set(actors.flatMap(actor => actor.hosts ?? []))]
-  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `${name} · Session limit`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost) }))
+  return (siteHosts.length ? siteHosts : [undefined]).map(siteHost => ({ id: `${usage.profileId}:${usage.siteHost ?? ''}:${usage.jobId ?? ''}:session:${usage.retryAfter}`, profileId: usage.profileId, agents: actors.filter(actor => !siteHost || actor.hosts?.includes(siteHost)), ...(siteHost ? { siteExclusion: { profileId: usage.profileId, host: siteHost } } : {}), text: `${name} · Session limit${usage.jobId ? ` · ${usage.jobId}` : ''}`, cooldown: { retryAfter, minutes: automationProfileLimits(limits, usage.profileId).cooldownMinutes }, paneLinks: paneLinks(siteHost) }))
 })
 
 let profileDeviceLabel = (pane: { device?: { preset: DevicePreset; platform: DevicePlatform } }) => !pane.device ? 'desktop' : ({ 'pixel-8': 'Pixel 8', 'galaxy-s24': 'Galaxy S24', 'iphone-15-pro': 'iPhone 15 Pro', 'iphone-15-pro-max': 'iPhone 15 Pro Max', custom: pane.device.platform === 'android' ? 'Android' : 'iOS' })[pane.device.preset]
@@ -539,7 +540,7 @@ let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; col
     {notices.map(notice => <div key={`${notice.id}:${notice.siteExclusion?.host ?? ''}`} className={css.notification} role="status" data-agent-alert={notice.profileId ? true : undefined}>
       {notice.warning && <AutomationPause detectedAt={notice.detectedAt} />}
       {notice.cooldown && <CooldownTimer {...notice.cooldown} />}
-      {notice.siteExclusion && <AutomationWebsiteSelect {...notice.siteExclusion} resetSession={!!notice.cooldown} />}
+      {notice.siteExclusion && <AutomationWebsiteSelect {...notice.siteExclusion} actors={notice.agents} resetSession={!!notice.cooldown} />}
       <span className={css.notificationText}>{notice.text}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
       {notice.agents && <NotificationAgents actors={notice.agents} />}
@@ -1520,7 +1521,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     next.click(); next.focus()
   }
   let sessionPicker = type === 'sessions'
-  let title = ['plugins', 'extensions'].includes(type) && state.pluginPrompt?.kind === 'form' ? 'Plugin' : sessionPicker ? 'Sessions' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = ['plugins', 'extensions'].includes(type) && state.pluginPrompt?.kind === 'form' ? 'Plugin' : sessionPicker ? 'Sessions' : type === 'bot-limits' ? 'Session limits' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) leave() }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
@@ -1538,6 +1539,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {type === 'site-info' && <SiteInformation />}
       {type === 'agent-info' && <AgentInformation />}
       {type === 'anti-bot-settings' && <GeneralBotSettings />}
+      {type === 'bot-limits' && <SessionLimitSettings />}
       {type === 'settings' && <SettingsContent />}
       {sessionPicker && (sessionTab === 'remote' ? <RemoteSessionPicker /> : <SessionPicker />)}
       {type === 'profiles' && <ProfileInfo />}
@@ -1553,7 +1555,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
   return <PanelBackContext.Provider value={setDetailBack}>{content}</PanelBackContext.Provider>
 }
 let AgentInformation = () => {
-  let { agentDetails, state, run, show } = useUI()
+  let { agentDetails, setAgentDetails, state, run, show } = useUI()
   let panes = state.model.sessions.filter(session => !('sessionId' in agentDetails) || session.id === agentDetails.sessionId).flatMap(session => session.windows.filter(window => !('windowId' in agentDetails) || window.id === agentDetails.windowId).flatMap(window => window.panes))
   let actors = 'paneId' in agentDetails ? panes.filter(pane => pane.id === agentDetails.paneId).flatMap(pane => lastPaneAgent(pane, state.activeAgents) ?? []) : 'actors' in agentDetails ? agentDetails.actors : paneAgents(panes, state.activeAgents)
   let [busy, setBusy] = useState<string | null>(null)
@@ -1576,6 +1578,9 @@ let AgentInformation = () => {
     let sessionField = Object.keys(actor.agentData ?? {}).find(key => definition?.fields[key]?.type === 'session' || key === 'sessionId')
     let fields = Object.entries(actor.agentData ?? {}).filter(([key]) => key !== 'sessionName' || !sessionField)
     let closed = !panes.some(pane => pane.id === actor.paneId)
+    let jobId = automationJobId(actor)
+    let usage = state.automationSafety?.profiles.find(usage => usage.actors?.some(item => item.paneId === actor.paneId && item.agentId === actor.agentId))
+    let configureJob = jobId && usage?.siteHost ? () => { setAgentDetails({ profileId: usage.profileId, host: usage.siteHost!, jobs: [jobId] }); show('bot-limits') } : undefined
     let resumeCommand = agentResumeCommand(actor)
     let copyResume = async () => { await bridge.clipboard(resumeCommand!); setCopied(resumeCommand!) }
     let hidden = state.hiddenAgentCursors?.includes(actor.paneId)
@@ -1592,6 +1597,7 @@ let AgentInformation = () => {
         {fields.map(([key, value]) => <Fragment key={key}><dt>{definition?.fields[key]?.label ?? ({ sessionId: 'Session', sessionName: 'Session', windowId: 'Window ID', windowIndex: 'Window number', paneId: 'Pane ID' }[key] ?? key)}</dt><dd>{key === sessionField ? actor.agentData?.sessionName ?? value : value}</dd></Fragment>)}
       </dl>
       <div className={css.agentActions}>
+        {configureJob && <button type="button" className={css.agentAction} onClick={configureJob}>Configure job limit</button>}
         {definition?.focusCommand && <button className={css.agentAction} type="button" disabled={busy !== null} onClick={() => { void focus(actor) }}><FocusAgentIcon />Focus agent</button>}
         {resumeCommand && <button className={css.agentAction} type="button" onClick={() => { void copyResume() }}>{copied === resumeCommand ? 'Copied resume command' : 'Copy resume command'}</button>}
         {!closed && <button className={css.agentAction} type="button" disabled={busy !== null} onClick={toggleVisibility}><AgentCursorIcon hidden={hidden} />{hidden ? 'Show agent cursor' : 'Hide agent cursor'}</button>}
@@ -2976,17 +2982,18 @@ let useAutomationExpiry = (safety?: AutomationSafetyState) => {
   }, [safety, now])
 }
 
-let AutomationWebsiteSelect = ({ profileId, host, resetSession }: { profileId: string; host: string; resetSession: boolean }) => {
-  let { run } = useUI(), [busy, setBusy] = useState(false)
+let AutomationWebsiteSelect = ({ profileId, host, actors = [], resetSession }: { profileId: string; host: string; actors?: AutomationActor[]; resetSession: boolean }) => {
+  let { run, show, setAgentDetails } = useUI(), [busy, setBusy] = useState(false)
   let choose = async (event: ChangeEvent<HTMLSelectElement>) => {
     let action = event.target.value
+    if (action === 'configure') { setAgentDetails({ profileId, host, jobs: [...new Set(actors.map(automationJobId).filter((id): id is string => !!id))] }); show('bot-limits'); return }
     setBusy(true)
     try {
       if (action === 'reset') await run('automation.reset-session', { profile: profileId, host })
       else await run('profile.anti-bot.site.set', { profile: profileId, host, enabled: false, durationMinutes: action === 'permanent' ? null : Number(action) })
     } finally { setBusy(false) }
   }
-  return <label className={css.notificationSiteExclusion}><span>{host}</span><span className={css.notificationSiteMenu}><select className={css.notificationAction} onChange={choose} value="" disabled={busy} aria-label={`Automation actions for ${host}`}><option value="" disabled hidden />{resetSession && <option value="reset">Reset session</option>}<optgroup label="Disable Bot protection"><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></optgroup></select><AlertChevron collapsed /></span></label>
+  return <label className={css.notificationSiteExclusion}><span>{host}</span><span className={css.notificationSiteMenu}><select className={css.notificationAction} onChange={choose} value="" disabled={busy} aria-label={`Automation actions for ${host}`}><option value="" disabled hidden /><option value="configure">Configure session limit</option>{resetSession && <option value="reset">Reset session</option>}<optgroup label="Disable Bot protection"><option value="15">For 15 minutes</option><option value="60">For 1 hour</option><option value="permanent">Until removed</option></optgroup></select><AlertChevron collapsed /></span></label>
 }
 
 let SiteExclusionRow = ({ profileId, host, exclusion }: { profileId: string; host: string; exclusion: AutomationSiteExclusion }) => {
@@ -3054,7 +3061,7 @@ let ProfileExcludedWebsites = ({ profile, pane }: BotProfileProps) => {
   </section>
 }
 
-let AutomationLimitInput = ({ profileId, setting, label, description, value, scale = 1, maximum }: { profileId: string; setting: AutomationSafetyLimitKey; label: string; description: string; value: number; scale?: number; maximum: number }) => {
+let AutomationLimitInput = ({ profileId, host, jobId, setting, label, description, value, scale = 1, maximum }: { profileId: string; host?: string; jobId?: string; setting: AutomationSafetyLimitKey; label: string; description: string; value: number; scale?: number; maximum: number }) => {
   let { run } = useUI(), [text, setText] = useState(String(value / scale)), [busy, setBusy] = useState(false)
   useEffect(() => { setText(String(value / scale)) }, [value, scale])
   let change = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
@@ -3063,13 +3070,39 @@ let AutomationLimitInput = ({ profileId, setting, label, description, value, sca
     let next = Math.round(Number(text) * scale)
     if (next === value) return
     setBusy(true)
-    try { await run('automation.safety.set', { profile: profileId, key: setting, value: next }) } finally { setBusy(false) }
+    try { await run('automation.safety.set', { profile: profileId, ...(host ? { host } : {}), ...(jobId ? { jobId } : {}), key: setting, value: next }) } finally { setBusy(false) }
   }
   let keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'Enter') return
     event.preventDefault(); event.currentTarget.blur()
   }
   return <label><span>{label}<small>{description}</small></span><input className={css.pluginInput} aria-label={label} type="number" min={1 / scale} max={maximum} step={1 / scale} value={text} onChange={change} onBlur={save} onKeyDown={keys} disabled={busy} required /></label>
+}
+
+let ScopedSessionLimit = ({ profileId, host, jobId }: { profileId: string; host: string; jobId?: string }) => {
+  let { state, run } = useUI(), [busy, setBusy] = useState(false)
+  let limits = state.automationSafety?.limits ?? DEFAULT_AUTOMATION.safety
+  let override = jobId ? limits.jobSessionMinutes?.[jobId] : limits.siteSessionMinutes?.[profileId]?.[host]
+  let reset = async () => {
+    setBusy(true)
+    try { await run('automation.safety.set', { profile: profileId, ...(jobId ? { jobId } : { host }), key: 'maxSessionMinutes', value: null }) } finally { setBusy(false) }
+  }
+  return <section className={css.profileSection} aria-label={jobId ? `Job ${jobId}` : 'Website session limit'}>
+    <h2>{jobId ? `Job: ${jobId}` : host}</h2>
+    <div className={css.antiBotLimitFields}><AutomationLimitInput profileId={profileId} host={jobId ? undefined : host} jobId={jobId} setting="maxSessionMinutes" label={jobId ? 'Job session limit (minutes)' : 'Website session limit (minutes)'} description={jobId ? 'Applies to this ClawTab job across websites' : 'Default for bots using this website in this profile'} value={automationSessionMinutes(limits, profileId, host, jobId)} maximum={1440} /></div>
+    {override !== undefined && <button type="button" disabled={busy} onClick={reset}>{jobId ? 'Use website limit' : 'Use profile limit'}</button>}
+  </section>
+}
+
+let SessionLimitSettings = () => {
+  let { agentDetails, state } = useUI()
+  if (!('profileId' in agentDetails)) return null
+  let { profileId, host, jobs } = agentDetails
+  let profile = state.model.profiles.find(profile => profile.id === profileId)
+  return <div className={css.agentInformation}><p>{profile?.name ?? profileId}</p>
+    <ScopedSessionLimit profileId={profileId} host={host} />
+    {jobs.map(jobId => <ScopedSessionLimit key={jobId} profileId={profileId} host={host} jobId={jobId} />)}
+  </div>
 }
 
 let AutomationLimitsEditor = ({ profile }: { profile: Profile }) => {

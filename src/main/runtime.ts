@@ -896,7 +896,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         await virtualMouse.move(tabId, params, (method, params) => debuggerApi.sendCommand(method, params, sessionId), () => {
           if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
           checkControl('cdp', { tab: tabId })
-          automationSafety?.assertAvailable(pane.profileId, pane.id, live.contents.getURL())
+          automationSafety?.assertAvailable(pane.profileId, pane.id, live.contents.getURL(), { paneId: pane.id, ...agentInfo(pane) })
         })
         if (params.type === 'mousePressed') await virtualMouse.click(tabId, (method, params) => debuggerApi.sendCommand(method, params, sessionId))
       }
@@ -916,7 +916,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (navigationActor && result.errorText && automatedNavigations.get(tabId) === navigationActor) automatedNavigations.delete(tabId)
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseReleased') {
       let { pane } = paneById(model, tabId)
-      automationSafety?.after(pane.profileId, pane.id, live.contents.getURL())
+      automationSafety?.after(pane.profileId, pane.id, live.contents.getURL(), { paneId: pane.id, ...agentInfo(pane) })
     }
     if (method === 'Page.setInterceptFileChooserDialog') filePickers.interception(tabId, params, sessionId)
     return result
@@ -2753,6 +2753,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (method === 'automation.safety.set') {
       if (!sourceClientId) throw new Error('Change bot limits in the bmux UI')
       let profile = resolve(model.profiles, required(args, 'profile'), 'Profile')
+      if (args.host !== undefined || args.jobId !== undefined) {
+        if (args.key !== 'maxSessionMinutes') throw new Error('Choose the session limit')
+        let host = args.host === undefined ? undefined : required(args, 'host')
+        if (host && automationWebsiteHost(`https://${host}`) !== host) throw new Error('Choose a website hostname')
+        let jobId = args.jobId === undefined ? undefined : required(args, 'jobId')
+        if (jobId && (jobId.length > 128 || /[\x00-\x1f\x7f]/.test(jobId))) throw new Error('Choose a ClawTab job ID')
+        let value = args.value === null ? undefined : updateAutomationSafetyLimit(configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety, args.key, args.value)
+        configuration?.update(jobId ? ['automation', 'safety', 'jobSessionMinutes', jobId] : ['automation', 'safety', 'siteSessionMinutes', profile.id, host!], value)
+        return { value: value ?? null }
+      }
       let value = args.key === 'simulateMouseMovement' ? (() => { if (typeof args.value !== 'boolean') throw new Error('simulateMouseMovement must be true or false'); return args.value })() : updateAutomationSafetyLimit(configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety, args.key, args.value)
       configuration?.update(['automation', 'safety', 'profileLimits', profile.id, String(args.key)], value)
       return { value }
@@ -2854,7 +2864,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!sourceClientId && !remoteActor.getStore() && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let session = method === 'new-window' ? resolve(model.sessions, args.session, 'Session') : paneById(model, args.pane).session
       let profileId = resolve(model.profiles, args.profile ?? (method === 'new-window' ? session.defaultProfileId : paneById(model, args.pane).pane.profileId), 'Profile').id
-      await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)), true, undefined, false)
+      await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)), true, { paneId: '', ...agentInfo(args) }, false)
     }
     if (method === 'window.audio.toggle' || method === 'session.audio.toggle') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -4116,7 +4126,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let { tab, pane, session } = tabById(model, tabId)
       if (!sourceClientId && !remoteActor.getStore() && !controlObservation.has(method)) attention.assert(pane.id)
       let destination = automationTargetUrl(method, args)
-      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(pane.profileId, tabId, destination ? normalizeUrl(destination, searchAppForSession(session)) : tab.url)
+      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(pane.profileId, tabId, destination ? normalizeUrl(destination, searchAppForSession(session)) : tab.url, { paneId: pane.id, ...agentInfo(pane) })
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
       checkControl(method, args)

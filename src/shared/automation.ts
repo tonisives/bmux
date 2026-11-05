@@ -12,13 +12,15 @@ export type AutomationGroup = {
 }
 export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
 export type AutomationSiteRule = boolean | AutomationSiteExclusion
-export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; simulateMouseMovement?: boolean; profiles: Record<string, boolean>; profileLimits?: Record<string, Partial<AutomationProfileLimits>>; panes?: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
+export type AutomationSafety = { enabled: boolean; maxSessionMinutes: number; cooldownMinutes: number; socialDelayMs: number; simulateMouseMovement?: boolean; profiles: Record<string, boolean>; profileLimits?: Record<string, Partial<AutomationProfileLimits>>; siteSessionMinutes?: Record<string, Record<string, number>>; jobSessionMinutes?: Record<string, number>; panes?: Record<string, boolean>; sites?: Record<string, Record<string, AutomationSiteRule>> }
 export type AutomationActor = AgentInfo & { paneId: string; hosts?: string[] }
 export type AutomationSafetyLimitKey = 'maxSessionMinutes' | 'cooldownMinutes' | 'socialDelayMs'
 export type AutomationProfileLimits = Pick<AutomationSafety, AutomationSafetyLimitKey> & { simulateMouseMovement?: boolean }
 export let automationProfileLimits = (settings: AutomationSafety, profileId: string): AutomationProfileLimits => ({ maxSessionMinutes: settings.maxSessionMinutes, cooldownMinutes: settings.cooldownMinutes, socialDelayMs: settings.socialDelayMs, simulateMouseMovement: settings.simulateMouseMovement ?? true, ...settings.profileLimits?.[profileId] })
+export let automationJobId = (actor?: AgentInfo) => actor?.agentType === 'clawtab' ? actor.agentData?.jobId : undefined
+export let automationSessionMinutes = (settings: AutomationSafety, profileId: string, host?: string, jobId?: string) => (jobId ? settings.jobSessionMinutes?.[jobId] : undefined) ?? (host ? settings.siteSessionMinutes?.[profileId]?.[host] : undefined) ?? automationProfileLimits(settings, profileId).maxSessionMinutes
 export type AutomationWarning = 'account-warning' | 'challenge' | 'rate-limit'
-export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; siteHost?: string; startedAt: number; lastUsed: number; activeMs?: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; warningAt?: number; retryAfter: string | null }[] }
+export type AutomationSafetyState = { enabled: boolean; limits: AutomationSafety; error?: string; profiles: { profileId: string; siteHost?: string; jobId?: string; startedAt: number; lastUsed: number; activeMs?: number; actors?: AutomationActor[]; warning?: AutomationWarning; warningHost?: string; warningAt?: number; retryAfter: string | null }[] }
 export type AutomationSettings = { agents: AgentSettings; safety: AutomationSafety; groups: Record<string, AutomationGroup> }
 export let DEFAULT_AUTOMATION: AutomationSettings = { agents: DEFAULT_AGENTS, safety: { enabled: true, maxSessionMinutes: 10, cooldownMinutes: 20, socialDelayMs: 3000, profiles: {} }, groups: {} }
 export let automationSafetyEnabled = (settings: AutomationSafety, profileId: string, paneId?: string) => (paneId ? settings.panes?.[paneId] : undefined) ?? settings.profiles[profileId] ?? settings.enabled
@@ -105,6 +107,20 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
         }
       }
       safety.sites = sites as Record<string, Record<string, AutomationSiteRule>>; continue
+    }
+    if (key === 'siteSessionMinutes' || key === 'jobSessionMinutes') {
+      let entries = mapping(value, `automation.safety.${key}`)
+      for (let [id, entry] of Object.entries(entries)) {
+        if (!id.trim() || id.length > 128) throw new Error('Invalid session limit identity')
+        if (key === 'jobSessionMinutes') updateAutomationSafetyLimit(DEFAULT_AUTOMATION.safety, 'maxSessionMinutes', entry)
+        else for (let [host, amount] of Object.entries(mapping(entry, 'Website session limits'))) {
+          if (automationWebsiteHost(`https://${host}`) !== host) throw new Error('Choose a website hostname')
+          updateAutomationSafetyLimit(DEFAULT_AUTOMATION.safety, 'maxSessionMinutes', amount)
+        }
+      }
+      if (key === 'jobSessionMinutes') safety.jobSessionMinutes = entries as Record<string, number>
+      else safety.siteSessionMinutes = entries as Record<string, Record<string, number>>
+      continue
     }
     if (key === 'profileLimits') {
       let entries = mapping(value, 'automation.safety.profileLimits'), overrides: NonNullable<AutomationSafety['profileLimits']> = {}
