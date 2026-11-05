@@ -87,6 +87,9 @@ fs.writeFileSync(file,JSON.stringify(library))}
 console.log(JSON.stringify({values:item().values,profiles:{active:library.active,items:library.items.map(({id,name})=>({id,name})),templates:[{id:'research',name:'AI Researcher'}]}}));`)
   await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify(manifest))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_DEBUG: '1' } })
+  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+  chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+  await chrome.waitForLoadState('domcontentloaded')
   await application.evaluate(({ ipcMain }) => {
     ;(globalThis as any).__pluginAIUsage = { enabled: true, active: true, remaining: 219, used: 81, limit: 300 }
     ipcMain.removeHandler('remote-account')
@@ -97,8 +100,6 @@ console.log(JSON.stringify({values:item().values,profiles:{active:library.active
     })
   })
   await observeNativeFocus(application)
-  await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
-  chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
   let current = await state(); await rpc('activate-client', { client: current.clientId })
 })
 test.afterAll(async () => {
