@@ -768,6 +768,8 @@ test('a job shares its budget across panes while other jobs and websites retain 
   expect(next.status().profiles.find(row => row.jobId === 'research' && row.siteHost === 'two.example.com')?.activeMs).toBe(0)
   settings.jobSessionMinutes.research = 6
   await next.before('bot', page, undefined, false, job)
+  delete settings.jobSessionMinutes.research
+  expect(next.status().profiles.some(row => row.jobId === 'research')).toBe(false)
 })
 
 test('job-specific budgets preserve shared site pacing and account warning pauses', async () => {
