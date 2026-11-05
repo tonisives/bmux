@@ -102,7 +102,13 @@ let DecisionBody = () => {
     <div className={css.body}>
       <section className={css.postExcerpt}><h2>{post?.title || 'Post'}</h2><p title={post?.lines.join(' ')}>{post?.lines.join(' ').slice(0, 240) || 'Waiting for a post'}</p></section>
       <div className={css.decisionRoot}>{decision.loading && <span className={css.spinner} role="status" aria-label="AI is deciding" />}{decision.loading ? 'AI is deciding' : 'Possible outcomes'}</div>
-      <div className={css.decisionTree} role="tree" aria-label="Possible outcomes" aria-busy={decision.loading}>{decision.options.map(option => <div key={option.id} role="treeitem" aria-selected={!decision.loading && option.active} className={css.decisionBranch} data-active={!decision.loading && option.active}><span>{option.label}</span><span>{decision.loading ? '…' : option.probability === undefined ? option.active ? 'Active' : '—' : Math.round(option.probability * 100) + '%'}</span></div>)}</div>
+      <div className={css.decisionTree} role="tree" aria-label="Possible outcomes" aria-busy={decision.loading}>
+        {decision.options.filter(option => option.id === 'skip').map(option => <DecisionBranch key={option.id} option={option} loading={decision.loading} />)}
+        <div role="treeitem" aria-expanded="true" className={css.watchBranch}><div className={css.watchLabel} data-active={!decision.loading && decision.options.some(option => ['watch','linger','finish'].includes(option.id) && option.active)}>Watch</div>
+          <div role="group" className={css.watchOptions}>{decision.options.filter(option => ['watch','linger','finish'].includes(option.id)).map(option => <DecisionBranch key={option.id} option={option} loading={decision.loading} />)}</div>
+          <div role="group" aria-label="After watching" className={css.watchOptions}>{decision.options.filter(option => !['skip','watch','linger','finish'].includes(option.id)).map(option => <DecisionBranch key={option.id} option={option} loading={decision.loading} />)}</div>
+        </div>
+      </div>
       <div className={css.actionLine}><CompactAction /><NextPostButton /></div>
       {overlay.content.nodes.filter(node => node.title === 'Interactions').map(node => <div key={node.title} className={css.interactionSummary}>{node.lines.map((line,index) => <p key={index}>{line}</p>)}</div>)}
     </div>
@@ -113,6 +119,7 @@ let DecisionBody = () => {
     </div>}
   </>
 }
+let DecisionBranch = ({ option, loading }: { option: NonNullable<PluginOverlayState['content']['decision']>['options'][number]; loading: boolean }) => <div role="treeitem" aria-selected={!loading && option.active} className={css.decisionBranch} data-active={!loading && option.active}><span>{option.label}</span><span>{loading ? '…' : option.probability === undefined ? option.active ? 'Active' : '—' : Math.round(option.probability * 100) + '%'}</span></div>
 let CopyPayload = ({ id, label }: { id: string; label: string }) => {
   let { command } = useOverlay(), [copied, setCopied] = useState(false)
   let copy = async () => { let result = await command('plugin.overlay.copy', { copy: id }) as { copied?: boolean }; setCopied(!!result?.copied) }

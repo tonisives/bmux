@@ -728,9 +728,11 @@ test('Social Media AI subscription status and launch eligibility use the AI enti
 })
 
 test('plugin decision tree highlights answers and moves settings and usage into popups', async () => {
+  await chrome.keyboard.press('Escape'); await activate()
   let id = await run('graph')
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
   let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).some((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()))).toBe(true)
   await expect(observer.getByText('BMUX Accounts', { exact: true })).toBeVisible()
   await expect(observer.getByRole('status', { name: 'AI is deciding' })).toBeVisible()
   let tree = observer.getByRole('tree', { name: 'Possible outcomes' })

@@ -56,6 +56,6 @@ export let conciseConfidence = (line: string) => /confidence/i.test(line) && /\d
 export let pluginOverlaySummary = (content: PluginOverlayContent) => {
   let lines = content.nodes.filter(node => /\bAI\b|decision|caption match/i.test(node.title)).flatMap(node => node.lines.map(conciseConfidence))
   let decisions = lines.filter(line => /\d+(?:\.\d+)?%/.test(line)).map(line => line.replace(/^Profile match:/i, 'Match:').replace(/^Confidence:/i, 'Conf:')).join(' · ')
-  let action = /^(paused|waiting|browsing stopped|session complete)/i.test(content.status) ? content.status : [...lines].reverse().find(line => /^(watching|skipping|moving|reading|checking|applying|waiting|watch to|watch for)/i.test(line)) || content.status
+  let action = /^(paused|waiting|showing next post|browsing stopped|session complete)/i.test(content.status) ? content.status : [...lines].reverse().find(line => /^(watching|skipping|moving|reading|checking|applying|waiting|watch to|watch for)/i.test(line)) || content.status
   return { decisions, action }
 }
