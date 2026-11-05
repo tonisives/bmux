@@ -46,9 +46,14 @@
 .diagnostic { color: #8e98a4; font-size: 11px; }
 .recoverySettings { border-top: 1px solid #363c45; padding-top: 8px; }
 
-.compactBody { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; overflow: auto; }
-.compactBody p { margin: 0; overflow-wrap: anywhere; }
-.compactBody > button { align-self: flex-start; }
+.compactBody { display: flex; align-items: center; gap: 8px; padding: 4px 8px; min-height: 32px; overflow: hidden; }
+.compactInformation { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.panel .compactInformation span { display: inline; font-size: 12px; }
 .decisions { color: #eceef2; font-variant-numeric: tabular-nums; }
-.panel[data-compact="true"] header > div { display: none; }
-.panel[data-compact="true"] header nav { flex: 1; justify-content: flex-end; }
+.compactAction { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compactBody button, .compactInformation button { flex-shrink: 0; }
+.compactBody svg, .compactInformation svg { display: block; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.panel[data-compact="true"] header, .panel[data-collapsed="true"] header { height: 32px; padding: 4px 8px; }
+.panel[data-collapsed="true"] .compactInformation > .decisions { flex-shrink: 0; }
+.panel[data-collapsed="true"] header strong { font-size: 12px; }
+.panel[data-collapsed="true"] header > div > span:not(.compactAction):not(.decisions) { display: none; }

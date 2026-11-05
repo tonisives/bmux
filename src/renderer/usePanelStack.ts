@@ -9,7 +9,7 @@ export let usePanelStack = (initial: string | null = null, label = 'Back', origi
   let previous = useRef<string | null>(null)
   let back = useCallback(() => setSelected(null), [])
   let navigation = useMemo(() => enabled && selected ? selected === initial && origin ? origin : { label, run: back, focus: true } : null, [enabled, selected, initial, origin, label, back])
-  usePanelBack(navigation)
+  usePanelBack(navigation, enabled)
   useEffect(() => {
     if (!selected && previous.current) {
       let button = Array.from(list.current?.querySelectorAll<HTMLButtonElement>('[data-details]') ?? []).find(button => button.dataset.details === previous.current)

@@ -1,3 +1,4 @@
+import { usePluginAI, usesIncludedAI } from './plugin-ai'
 import { PluginConfigurationProfiles } from './PluginConfigurationProfiles'
 import { remoteWorkspaceShortcut } from '../shared/remote-workspace'
 import { PluginRange } from './PluginRange'
@@ -43,7 +44,7 @@ import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, Key
 import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
 import type { PluginInfo, PluginPrompt, PluginParameter } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
-import type { RelayBilling, RemoteComputer } from '../shared/remote-account'
+import type { RemoteComputer } from '../shared/remote-account'
 import css from './App.module.css'
 import iphoneFrame from './device-frames/iphone-15-pro.png'
 import pixelFrame from './device-frames/pixel-8.png'
@@ -1868,21 +1869,13 @@ let dismissPluginPrompt = (request: NonNullable<PublicState['pluginPrompt']>) =>
   if (request.kind === 'form' && request.autosave) globalThis.dispatchEvent(new Event('bmux-plugin-dismiss'))
   else void bridge.command({ method: 'plugin.respond', args: { id: request.id, cancel: true } }).catch(() => undefined)
 }
-let PluginParameterPresets = ({ presets, preset, autosave, choosePreset }: { presets: NonNullable<PluginPrompt['presets']>; preset: string; autosave?: boolean; choosePreset: (event: MouseEvent<HTMLButtonElement>) => void }) => <section aria-label="Browsing presets" className={css.pluginPresetSection}>
-        <h3>Browsing preset</h3>
-        <div className={css.panelTabs} role="group" aria-label="Choose browsing preset"><button type="button" data-preset="saved" aria-pressed={preset === 'saved'} onClick={choosePreset}>Saved settings</button>{presets.map(item => <button key={item.id} type="button" data-preset={item.id} aria-pressed={preset === item.id} onClick={choosePreset}>{item.title}</button>)}</div>
-        <p>{preset === 'saved' ? 'Your current profile and platform settings.' : preset === 'custom' ? autosave ? 'Changes save automatically for this profile and platform.' : 'Custom settings for this session.' : presets.find(item => item.id === preset)?.description}</p>
-      </section>
-let PluginSubscription = ({ busy, manage, children }: { busy: boolean; manage: () => void; children: ReactNode }) => {
-  let [billing, setBilling] = useState<RelayBilling>()
-  useEffect(() => {
-    let active = true
-    void bridge.remoteAccount<RelayBilling>('/api/billing/status').then(value => { if (active) setBilling(value) }).catch(() => undefined)
-    return () => { active = false }
-  }, [])
-  let status = billing ? billing.relay.active ? `BMUX subscription · ${billing.relay.cancelRequested ? 'Ending' : billing.relay.status}` : 'No active BMUX subscription' : 'BMUX subscription'
+let PluginParameterPresets = ({ presets, preset, choosePreset }: { presets: NonNullable<PluginPrompt['presets']>; preset: string; choosePreset: (event: ChangeEvent<HTMLSelectElement>) => void }) => <section aria-label="Browsing presets" className={css.pluginPresetSection}>
+  <label className={css.settingsRow}><span>Apply preset</span><select aria-label="Browsing preset" value={preset} onChange={choosePreset}><option value="">Custom settings</option>{presets.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+</section>
+let PluginSubscription = ({ busy, manage, access, children }: { busy: boolean; manage: () => void; access: ReturnType<typeof usePluginAI>; children: ReactNode }) => {
+  let status = access.problem || `BMUX AI active · ${access.usage!.remaining} requests left`
   return <section aria-label="AI subscription" className={css.pluginSubscription}>
-    <div className={css.pluginSettingsHeading}><span>{status}</span><button type="button" disabled={busy} onClick={manage}>Manage subscription</button></div>
+    <div className={css.pluginSettingsHeading}><span role="status">{status}</span><button type="button" disabled={busy} onClick={manage}>Manage subscription</button><button type="button" onClick={access.refresh} disabled={busy}>Refresh</button></div>
     {children}
   </section>
 }
@@ -1903,7 +1896,8 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let [subscription, setSubscription] = useState(false)
   let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
-  let [preset, setPreset] = useState('saved'), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
+  let access = usePluginAI(!!hasSubscription)
+  let [preset, setPreset] = useState(''), [saveStatus, setSaveStatus] = useState(''), [saveError, setSaveError] = useState('')
   let pending = useRef<Record<string, unknown>>({}), saved = useRef<Record<string, string | boolean>>({ ...(hasSubscription ? { ai_source: 'included' } : {}), ...request.savedValues }), queue = useRef(Promise.resolve()), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   let profile = state.model.profiles.find(profile => profile.id === request.profileId)
   let fields = request.fields ?? []
@@ -1922,7 +1916,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
           throw error
         }
       }
-      if (request.autosave) setSaveStatus('Saved')
+      if (request.autosave) setSaveStatus('')
     })
     queue.current = saving
     return saving
@@ -1941,19 +1935,18 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   }
   let update = (name: string, value: unknown) => {
     let patch = { [name]: value }
-    setPreset('custom'); setValues(current => ({ ...current, ...patch })); save(patch)
+    setSaveError(''); setPreset(''); setValues(current => ({ ...current, ...patch })); save(patch)
   }
-  let choosePreset = (event: MouseEvent<HTMLButtonElement>) => {
-    let id = event.currentTarget.dataset.preset!
-    let patch = id === 'saved' ? { ...saved.current } : { ...request.presets?.find(item => item.id === id)?.values }
-    setPreset(id); if (id === 'saved' && request.autosave) return; setValues(id === 'saved' ? patch : current => ({ ...current, ...patch })); if (id !== 'saved') save(patch)
+  let choosePreset = (event: ChangeEvent<HTMLSelectElement>) => {
+    let id = event.target.value, patch = { ...request.presets?.find(item => item.id === id)?.values }
+    setPreset(id); setValues(current => ({ ...current, ...patch })); save(patch)
   }
   let submit = async (event: FormEvent) => {
     event.preventDefault()
     if (busy) return
     if (editingProfile) { await flush().catch(() => undefined); return }
     setBusy(true)
-    try { await flush(); await run('plugin.respond', { id: request.id, value: values }) } catch { /* Save error remains beside the settings. */ } finally { setBusy(false) }
+    try { await flush(); if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await run('plugin.respond', { id: request.id, value: values }) } catch { /* Save error remains beside the settings. */ } finally { setBusy(false) }
   }
   let cancel = async () => {
     if (busy) return
@@ -1965,27 +1958,29 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let editProfile = () => setEditingProfile(true)
   let manageSubscription = () => { void flush().then(() => setSubscription(true)).catch(() => undefined) }
   let backToBrowsing = useCallback(() => { if (!busy) void flush().then(() => setEditingProfile(false)).catch(() => undefined) }, [busy, flush, setEditingProfile])
-  let backFromSubscription = useCallback(() => setSubscription(false), [])
-  let profileBack = useMemo(() => subscription ? { label: 'Back to browsing', run: backFromSubscription } : editingProfile ? { label: 'Back to browsing', run: backToBrowsing } : null, [subscription, backFromSubscription, editingProfile, backToBrowsing])
+  let backFromSubscription = useCallback(() => { setSubscription(false); access.refresh() }, [access.check])
+  let backToPlugin = useCallback(() => globalThis.dispatchEvent(new Event('bmux-plugin-dismiss')), [])
+  let profileBack = useMemo(() => subscription ? { label: 'Back to browsing', run: backFromSubscription } : editingProfile ? { label: 'Back to browsing', run: backToBrowsing } : { label: `Back to ${request.pluginName}`, run: backToPlugin }, [subscription, backFromSubscription, editingProfile, backToBrowsing, backToPlugin, request.pluginName])
   usePanelBack(profileBack)
   let profileFields = request.profiles ? fields.filter(item => item.section === 'Persona') : []
   let sourceFields = fields.filter(item => item.name === 'ai_source')
   let visibleFields = fields.filter(item => !profileFields.includes(item) && !sourceFields.includes(item))
-  let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={/^(Settings|Session|Playback|Interactions|Limits)/i.test(section) || fields.some(item => (item.section ?? 'Settings') === section && item.required)}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
+  let sections = [...new Set(visibleFields.map(item => item.section ?? 'Settings'))].map(section => <details key={section} className={`${css.settingsGroup} ${css.pluginSettingsSection}`} role="group" aria-label={section} open={section === 'Session'}><summary>{section}</summary>{visibleFields.filter(item => (item.section ?? 'Settings') === section).map(field)}</details>)
+  let presets = !!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} choosePreset={choosePreset} />
   if (subscription) return <div className={css.pluginParameters}><h2>BMUX subscription</h2><p>Your remote subscription includes AI browsing.</p><DesktopRemoteAccount view="relay" /></div>
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
     <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
-      {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
-      {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription}>{sourceFields.map(field)}</PluginSubscription>}
-      {!!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} autosave={request.autosave} choosePreset={choosePreset} />}
+      {editingProfile ? <>{presets}<div role="group" aria-label="Profile settings">{profileFields.map(field)}</div><div className={css.pluginSettingsRows}>{sections}</div></> : <>
+      {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access}>{sourceFields.map(field)}</PluginSubscription>}
+      {!request.profiles && <section aria-label="Browsing profile"><h3>Browsing profile</h3>{presets}</section>}
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
       </>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
-    {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
+    {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy || usesIncludedAI(values) && !!access.problem}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
   </form>
 }
 let PluginDialog = () => {

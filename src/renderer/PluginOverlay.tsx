@@ -1,3 +1,4 @@
+import { conciseConfidence, pluginOverlaySummary } from '../shared/plugin-overlay'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
 import type { Bridge, PublicState } from '../shared/types'
@@ -38,7 +39,7 @@ export let PluginOverlay = () => {
     void command('plugin.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + overlay.bounds.width - width : overlay.bounds.x, width, height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) })
   }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
-  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting, openSetting }}><aside className={css.panel} data-compact={overlay.bounds.compact || undefined} aria-label="Page overlay">
+  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting, openSetting }}><aside className={css.panel} data-compact={overlay.bounds.compact || undefined} data-collapsed={overlay.bounds.collapsed || undefined} aria-label="Page overlay">
     <OverlayHeader begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && (error || overlay.error || overlay.content.error ? <OverlayFailure error={error || overlay.error} /> : overlay.bounds.compact ? <CompactOverlay /> : <OverlayBody />)}
     {!overlay.bounds.collapsed && !overlay.bounds.compact && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
@@ -55,20 +56,27 @@ let OverlayHeader = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;
   let close = () => void command('plugin.overlay.close')
   let configure = () => void command('plugin.overlay.configure')
   let title = overlay.content.error?.title || (overlay.ended ? overlay.error || overlay.content.status.startsWith('Browsing stopped') ? 'Browsing stopped' : 'Session complete' : overlay.content.title)
-  let compact = () => void command('plugin.overlay.bounds', { ...overlay.bounds, compact: !overlay.bounds.compact })
-  let collapse = () => void command('plugin.overlay.bounds', { ...overlay.bounds, collapsed: !overlay.bounds.collapsed })
-  return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}><div><strong>{title}</strong><span>{overlay.error || overlay.content.error ? overlay.ended ? 'Session ended' : 'Check the error below' : overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span></div><nav aria-label="Overlay controls">{overlay.ended && <button onClick={configure}>New session</button>}<button aria-label={overlay.bounds.compact ? 'Show detailed overlay' : 'Show compact overlay'} aria-pressed={!!overlay.bounds.compact} onClick={compact}>{overlay.bounds.compact ? 'Details' : 'Compact'}</button><button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Collapse page overlay'} onClick={collapse}>{overlay.bounds.collapsed ? '+' : '−'}</button><button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button></nav></header>
+  let minimize = () => void command('plugin.overlay.bounds', { ...overlay.bounds, compact: !overlay.bounds.collapsed, collapsed: overlay.bounds.compact && !overlay.bounds.collapsed })
+  let small = overlay.bounds.compact || overlay.bounds.collapsed
+  return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}>
+    {small && !overlay.ended ? <CompactInformation inline={!!overlay.bounds.collapsed} /> : <div><strong>{title}</strong><span>{overlay.error || overlay.content.error ? overlay.ended ? 'Session ended' : 'Check the error below' : overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span></div>}
+    <nav aria-label="Overlay controls">{overlay.ended && <button onClick={configure}>New session</button>}<button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Minimize page overlay'} title={overlay.bounds.collapsed ? 'Show full overlay' : overlay.bounds.compact ? 'Minimize to one line' : 'Show compact overlay'} onClick={minimize}>{overlay.bounds.collapsed ? '+' : '_'}</button><button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button></nav>
+  </header>
 }
-let CompactOverlay = () => {
-  let { overlay } = useOverlay()
-  let decisions = overlay.content.nodes.filter(node => /ai|decision/i.test(node.title)).flatMap(node => node.lines.filter(line => /\d+(?:\.\d+)?%/.test(line)))
-  let control = overlay.content.controls.find(control => control.kind === 'button' && ['pause', 'resume', 'start'].includes(control.id))
-  return <div className={css.compactBody} aria-label="Compact session status">
-    <div className={css.decisions} aria-label="AI decision percentages">{decisions.map((line, index) => <p key={index}>{line}</p>)}</div>
-    <p role="status">{overlay.error || overlay.content.error?.message || overlay.content.status}</p>
-    {!overlay.ended && control && <OverlayButton control={control} />}
+let CompactInformation = ({ inline = false }: { inline?: boolean }) => {
+  let { overlay } = useOverlay(), summary = pluginOverlaySummary(overlay.content)
+  return <div className={css.compactInformation}>
+    <span className={css.decisions} aria-label="AI decision percentages" title={summary.decisions}>{summary.decisions}</span>
+    {inline && <CompactAction />}
   </div>
 }
+let CompactAction = () => {
+  let { overlay, input, busy } = useOverlay(), summary = pluginOverlaySummary(overlay.content)
+  let control = overlay.content.controls.find(control => control.kind === 'button' && ['pause', 'resume', 'start'].includes(control.id))
+  let click = () => { if (control) void input(control.id) }
+  return <><span role="status" className={css.compactAction} title={summary.action}>{summary.action}</span>{!overlay.ended && control && <button aria-label={control.label} title={control.label} disabled={busy || control.disabled} onClick={click}><svg viewBox="0 0 12 12" aria-hidden="true">{control.id === 'pause' ? <path d="M4 2v8M8 2v8" /> : <path d="m4 2 5 4-5 4Z" />}</svg></button>}</>
+}
+let CompactOverlay = () => <div className={css.compactBody} aria-label="Compact session status"><CompactAction /></div>
 let OverlayBody = () => {
   let { overlay } = useOverlay()
   return <div className={css.body}>
@@ -85,7 +93,7 @@ let OverlayNode = ({ node, copyable }: { node:PluginOverlayState['content']['nod
     let result = await command('plugin.overlay.copy', { copy: id }) as { copied?: boolean } | undefined
     if (result?.copied) { setCopied(id); setTimeout(() => setCopied(''), 2000) }
   }
-  return <section data-tone={node.tone}><h2>{node.title}</h2>{node.lines.map((line, index) => <p key={index}>{line}</p>)}{copyable && <div className={css.copies}>{overlay.content.copies?.map(item => <button key={item.id} data-copy={item.id} onClick={copy}>{copied === item.id ? 'Copied' : item.label}</button>)}</div>}</section>
+  return <section data-tone={node.tone}><h2>{node.title}</h2>{node.lines.map(line => /\bAI\b|decision/i.test(node.title) ? conciseConfidence(line) : line).map((line, index) => <p key={index}>{line}</p>)}{copyable && <div className={css.copies}>{overlay.content.copies?.map(item => <button key={item.id} data-copy={item.id} onClick={copy}>{copied === item.id ? 'Copied' : item.label}</button>)}</div>}</section>
 }
 let OverlayButtons = ({ failed }: { failed: boolean }) => {
   let { overlay, command, busy, stop } = useOverlay()

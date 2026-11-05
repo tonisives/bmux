@@ -6,12 +6,13 @@ import css from './PanelHeader.module.css'
 export type PanelBack = { label: string; run: () => void; focus?: boolean }
 export let PanelBackContext = createContext<(back: PanelBack | null) => void>(() => undefined)
 
-export let usePanelBack = (back: PanelBack | null) => {
+export let usePanelBack = (back: PanelBack | null, enabled = true) => {
   let setBack = useContext(PanelBackContext)
   useLayoutEffect(() => {
+    if (!enabled) return
     setBack(back)
     return () => setBack(null)
-  }, [back, setBack])
+  }, [back, setBack, enabled])
 }
 
 export let BackButton = ({ back }: { back: PanelBack }) => {

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { fitPluginOverlay, pluginOverlayHeight, parsePluginOverlay, validatePluginOverlayInput } from '../src/shared/plugin-overlay'
+import { fitPluginOverlay, pluginOverlayHeight, conciseConfidence, pluginOverlaySummary, parsePluginOverlay, validatePluginOverlayInput } from '../src/shared/plugin-overlay'
 
 let content = { title: 'Feed training', nodes: [{ title: 'Post', lines: ['A local fixture'], tone: 'cyan' }], controls: [{ id: 'ads', label: 'Skip ads', kind: 'toggle', value: false }, { id: 'mode', label: 'Mode', kind: 'choice', choices: ['Browse', 'Train'], value: 'Train' }] }
 test('overlay accepts bounded text controls and rejects malformed input', () => {
@@ -16,7 +16,7 @@ test('overlay accepts bounded text controls and rejects malformed input', () => 
 test('overlay stays inside its pane after resize, drag and collapse', () => {
   let area = { x: 30, y: 40, width: 900, height: 640 }
   expect(fitPluginOverlay({ x: -100, y: 1000, width: 2000, height: 900 }, area)).toEqual({ x: 30, y: 40, width: 900, height: 640, collapsed: false })
-  expect(fitPluginOverlay({ x: 900, y: 1000, width: 320, height: 500, collapsed: true }, area)).toEqual({ x: 610, y: 632, width: 320, height: 500, collapsed: true })
+  expect(fitPluginOverlay({ x: 900, y: 1000, width: 320, height: 500, collapsed: true }, area)).toEqual({ x: 610, y: 648, width: 320, height: 500, collapsed: true })
   expect(fitPluginOverlay(undefined, { x: 0, y: 0, width: 180, height: 150 })).toEqual({ x: 0, y: 0, width: 180, height: 150, collapsed: false })
 })
 
@@ -47,8 +47,15 @@ test('overlay errors bound diagnostic text and reference existing recovery butto
 
 test('compact overlay uses a small native view and keeps its expanded size', () => {
   let bounds = fitPluginOverlay({ x: 100, y: 1000, width: 384, height: 500, compact: true }, { x: 0, y: 0, width: 900, height: 640 })
-  expect(bounds).toMatchObject({ y: 480, height: 500, compact: true })
-  expect(pluginOverlayHeight(bounds)).toBe(160)
+  expect(bounds).toMatchObject({ y: 576, height: 500, compact: true })
+  expect(pluginOverlayHeight(bounds)).toBe(64)
   expect(pluginOverlayHeight({ ...bounds, compact: false })).toBe(500)
-  expect(pluginOverlayHeight({ ...bounds, collapsed: true })).toBe(48)
+  expect(pluginOverlayHeight({ ...bounds, collapsed: true })).toBe(32)
+})
+
+test('AI confidence summaries omit duration explanations and keep the current action', () => {
+  let parsed = parsePluginOverlay({ title: 'Feed', status: 'Browsing', nodes: [{ title: 'AI answer', tone: 'neutral', lines: ['Exact duration confidence: 72% (assessment text)', 'Profile match: 98%', 'Watching: 10s remaining'] }] })
+  expect(conciseConfidence(parsed.nodes[0].lines[0])).toBe('Confidence: 72%')
+  expect(pluginOverlaySummary(parsed)).toEqual({ decisions: 'Conf: 72% · Match: 98%', action: 'Watching: 10s remaining' })
+  expect(pluginOverlaySummary({ ...parsed, status: 'Paused' }).action).toBe('Paused')
 })
