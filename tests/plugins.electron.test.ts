@@ -738,6 +738,7 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   let tree = observer.getByRole('tree', { name: 'Possible outcomes' })
   await expect(tree).toHaveAttribute('aria-busy', 'true')
   await expect(observer.getByText('A software demo', { exact: true })).toBeVisible()
+  await expect(observer.getByRole('dialog', { name: 'Overlay settings', exact: true })).toHaveCount(0)
   await observer.screenshot({ path: path.resolve('artifacts/plugin-decision-loading.png') })
   await observer.getByRole('button', { name: 'Settings', exact: true }).click()
   let settings = observer.getByRole('dialog', { name: 'Overlay settings', exact: true })

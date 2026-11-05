@@ -4,10 +4,11 @@ import type { ChangeEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react
 import type { Bridge, PublicState } from '../shared/types'
 import type { PluginOverlayControl, PluginOverlayState } from '../shared/plugin-overlay'
 import css from './PluginOverlay.module.css'
+import bmuxIcon from './bmux-icon.png'
 
 export let PluginOverlay = () => {
   let [state, setState] = useState<PublicState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [returnToSetup, setReturnToSetup] = useState(false)
-  let [setting, openSetting] = useState<{ id: string }>()
+  let [setting, openSetting] = useState<{ id: string; runId: string }>()
   let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];edge:string} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
   useEffect(() => { void bridge.state().then(setState); return bridge.subscribe(setState) }, [])
   let overlay = state?.pluginOverlay
@@ -39,7 +40,7 @@ export let PluginOverlay = () => {
     void command('plugin.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + overlay.bounds.width - width : overlay.bounds.x, width, height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) })
   }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
-  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting, openSetting }}><aside className={css.panel} data-compact={overlay.bounds.compact || undefined} data-collapsed={overlay.bounds.collapsed || undefined} aria-label="Page overlay">
+  return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting: setting?.runId === overlay.runId ? setting : undefined, openSetting: target => openSetting({ ...target, runId: overlay.runId }) }}><aside className={css.panel} data-compact={overlay.bounds.compact || undefined} data-collapsed={overlay.bounds.collapsed || undefined} aria-label="Page overlay">
     <OverlayHeader begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && (error || overlay.error || overlay.content.error ? <OverlayFailure error={error || overlay.error} /> : overlay.bounds.compact ? <CompactOverlay /> : overlay.content.decision ? <DecisionBody /> : <OverlayBody />)}
     {!overlay.bounds.collapsed && !overlay.bounds.compact && (!overlay.content.decision || Boolean(error || overlay.error || overlay.content.error)) && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
@@ -59,7 +60,7 @@ let OverlayHeader = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;
   let minimize = () => void command('plugin.overlay.bounds', { ...overlay.bounds, compact: !overlay.bounds.collapsed, collapsed: !!overlay.bounds.compact && !overlay.bounds.collapsed })
   let small = overlay.bounds.compact || overlay.bounds.collapsed
   return <header onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}>
-    {small && !overlay.ended ? <CompactInformation inline={!!overlay.bounds.collapsed} /> : <div><strong>{overlay.content.decision && !overlay.ended ? <><img className={css.brandMark} src="https://cdn.digthree.tonis.dev/bmux/website-ca1a3c8712d7/icon-512.png" alt="" width="20" height="20" /> BMUX Accounts</> : title}</strong>{!overlay.content.decision && <span>{overlay.error || overlay.content.error ? overlay.ended ? 'Session ended' : 'Check the error below' : overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span>}</div>}
+    {small && !overlay.ended ? <CompactInformation inline={!!overlay.bounds.collapsed} /> : <div><strong>{overlay.content.decision && !overlay.ended ? <><img className={css.brandMark} src={bmuxIcon} alt="" width="20" height="20" /> BMUX Accounts</> : title}</strong>{!overlay.content.decision && <span>{overlay.error || overlay.content.error ? overlay.ended ? 'Session ended' : 'Check the error below' : overlay.ended ? overlay.content.metrics : overlay.content.subtitle}</span>}</div>}
     <nav aria-label="Overlay controls">{overlay.ended && <button onClick={configure}>New session</button>}<button aria-label={overlay.bounds.collapsed ? 'Expand page overlay' : 'Minimize page overlay'} title={overlay.bounds.collapsed ? 'Show full overlay' : overlay.bounds.compact ? 'Minimize to one line' : 'Show compact overlay'} onClick={minimize}>{overlay.bounds.collapsed ? '+' : '_'}</button><button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button></nav>
   </header>
 }
