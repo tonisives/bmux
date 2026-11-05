@@ -16,6 +16,8 @@ export let RecordingPanel = ({run,context}: {run:Run;context?:string}) => {
     catch(error) { setActionError((error instanceof Error ? error.message : 'Recording request failed').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')) }
     finally { setBusy(false) }
   }
+  let changeQuery = (event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  let changeFilter = (event: React.ChangeEvent<HTMLSelectElement>) => setFilter(event.target.value)
   let openFolder = () => { void action('record.folder') }
   let recordingAction = (event: React.MouseEvent<HTMLButtonElement>) => { void action(event.currentTarget.dataset.method!,event.currentTarget.dataset.id!) }
   return <section className={css.panel} aria-label="Recordings">
@@ -23,8 +25,8 @@ export let RecordingPanel = ({run,context}: {run:Run;context?:string}) => {
     <button type="button" disabled={busy} onClick={openFolder}>Open recordings folder</button>
     {(actionError || error) && <p role="alert">{actionError || error}</p>}
     <div className={css.actions}>
-      <label>Find recording<input type="search" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Agent, purpose or run" /></label>
-      {!context && <label>Context<select value={filter} onChange={event=>setFilter(event.target.value)}><option value="">All contexts</option>{contexts.map(value=><option key={value} value={value}>{value}</option>)}</select></label>}
+      <label>Find recording<input type="search" value={query} onChange={changeQuery} placeholder="Agent, purpose or run" /></label>
+      {!context && <label>Context<select value={filter} onChange={changeFilter}><option value="">All contexts</option>{contexts.map(value=><option key={value} value={value}>{value}</option>)}</select></label>}
     </div>
     <h3>Session history</h3>
     {!items.length && <p>No recorded sessions yet. Connect an activity hook in Remote settings to record remote agents automatically.</p>}
