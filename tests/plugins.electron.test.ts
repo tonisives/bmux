@@ -717,7 +717,7 @@ test('Social Media AI subscription status and launch eligibility use the AI enti
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeDisabled()
   expect((await state()).model.sessions.flatMap((session: any) => session.windows).length).toBe(windows)
   await openSettings(dialog)
-  await dialog.getByLabel('Caption training', { exact: true }).selectOption('true')
+  await dialog.getByLabel('Caption training').selectOption('true')
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeEnabled()
   await expect(dialog.getByText('This session does not use subscription AI.', { exact: true })).toBeVisible()
   await dialog.locator(':scope > header').getByRole('button', { name: 'Back to Fixture plugin', exact: true }).click()
