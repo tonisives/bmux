@@ -67,14 +67,14 @@ let CompactInformation = ({ inline = false }: { inline?: boolean }) => {
   let { overlay } = useOverlay(), summary = pluginOverlaySummary(overlay.content)
   return <div className={css.compactInformation}>
     <span className={css.decisions} aria-label="AI decision percentages" title={summary.decisions}>{summary.decisions}</span>
-    {inline && <CompactAction />}
+    {inline && <CompactAction concise />}
   </div>
 }
-let CompactAction = () => {
+let CompactAction = ({ concise = false }: { concise?: boolean }) => {
   let { overlay, input, busy } = useOverlay(), summary = pluginOverlaySummary(overlay.content)
   let control = overlay.content.controls.find(control => control.kind === 'button' && ['pause', 'resume', 'start'].includes(control.id))
   let click = () => { if (control) void input(control.id) }
-  return <><span role="status" className={css.compactAction} title={summary.action}>{summary.action}</span>{!overlay.ended && control && <button aria-label={control.label} title={control.label} disabled={busy || control.disabled} onClick={click}><svg viewBox="0 0 12 12" aria-hidden="true">{control.id === 'pause' ? <path d="M4 2v8M8 2v8" /> : <path d="m4 2 5 4-5 4Z" />}</svg></button>}</>
+  return <><span role="status" className={css.compactAction} title={summary.action}>{concise ? summary.action.replace(/^Watching: (\d+)s remaining$/, 'Watch $1s').replace('Moving to next post', 'Next post').replace('Checking creator profile', 'Creator profile') : summary.action}</span>{!overlay.ended && control && <button aria-label={control.label} title={control.label} disabled={busy || control.disabled} onClick={click}><svg viewBox="0 0 12 12" aria-hidden="true">{control.id === 'pause' ? <path d="M4 2v8M8 2v8" /> : <path d="m4 2 5 4-5 4Z" />}</svg></button>}</>
 }
 let CompactOverlay = () => <div className={css.compactBody} aria-label="Compact session status"><CompactAction /></div>
 let OverlayBody = () => {
