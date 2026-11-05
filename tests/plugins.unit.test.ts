@@ -119,7 +119,7 @@ test('executes real scripts with pinned context and only explicit output', async
   let { plugins, browser, context } = fixture(hostScript + `console.log('PRIVATE_STDOUT'); console.error('PRIVATE_STDERR'); let context = host('context'); host('dom'); host('result', { pane: context.paneId });`)
   let { id } = plugins.run('test/run', context)
   expect((await done(plugins, id)).result).toEqual({ pane: 'original' })
-  expect(browser).toHaveBeenCalledWith('dom', {}, { ...context, agentId: 'plugin:test' }, expect.any(AbortSignal))
+  expect(browser).toHaveBeenCalledWith('dom', {}, { ...context, agentId: 'plugin:test', agentName: 'Test', agentPurpose: 'Test script', agentContext: 'test', agentData: { runId: id, action: 'run' } }, expect.any(AbortSignal))
   expect(JSON.stringify(plugins.runs())).not.toContain('PRIVATE')
 })
 test('page helper installation requires the explicit CDP capability', async () => {

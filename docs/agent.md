@@ -412,3 +412,14 @@ screenshot and inference run while the next input remains queued.
 `bmux lock-viewport -t SESSION:WINDOW --width 1512 --height 900` sets every pane in the window to that native viewport size, including when already locked. Without dimensions, the command captures the current sizes. `bmux unlock-viewport -t SESSION:WINDOW` restores automatic sizing. Sizes persist across relaunches.
 
 Each fixed viewport has a stationary hand button with a pressed state that stays the same size at every page zoom. Hover for its shortcuts. Toggle it or hold Alt or Meta and drag to pan the visible area at full scale. Drags can start in the space around a page, including when hand mode is toggled. Panning works even when the whole locked viewport fits in its pane, and either page edge can be moved to the middle of the pane. Alt scrolling zooms the page in or out. Scroll while holding Meta or in hand mode to pan with a wheel or trackpad. Escape exits hand mode. Normal scrolling, including Shift scrolling, belongs to the website.
+
+### Recording context
+
+Scrapers can supply `agentContext` on RPC commands or `--agent-context x`
+(`BMUX_AGENT_CONTEXT=x`) through the CLI. Use the social plugin ID or its short
+platform name, for example `bmux.tiktok` or `tiktok`. Recordings appear in that
+Social Media plugin's Recordings tab and in the combined Recordings list.
+
+Include `agentName`, `agentPurpose`, and `agentData` with run IDs or request details.
+Activity hooks retain this metadata with the saved recording. Older recordings
+without context remain in the combined list.

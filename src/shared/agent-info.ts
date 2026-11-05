@@ -1,10 +1,10 @@
 export type AgentOrigin = { type: 'tmux'; paneId: string; panePid: string; socketPath?: string; threadId?: string }
-export type AgentInfo = { agentId?: string; agentName?: string; agentPurpose?: string; agentType?: string; agentData?: Record<string, string>; agentOrigin?: AgentOrigin }
+export type AgentInfo = { agentId?: string; agentName?: string; agentPurpose?: string; agentContext?: string; agentType?: string; agentData?: Record<string, string>; agentOrigin?: AgentOrigin }
 export type AgentField = { label: string; type?: 'text' | 'session' | 'window' | 'pane'; required?: boolean }
 export type AgentDefinition = { fields: Record<string, AgentField>; identifierField?: string; focusCommand?: string }
 export type AgentSettings = { requireId: boolean; requireType: boolean; definitions: Record<string, AgentDefinition> }
 export let DEFAULT_AGENTS: AgentSettings = { requireId: true, requireType: false, definitions: {} }
-export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentType', 'agentData', 'agentOrigin'] as const
+export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentContext', 'agentType', 'agentData', 'agentOrigin'] as const
 export let agentIdentifier = (actor: AgentInfo, definition?: AgentDefinition): { label: string; value: string } => {
   let data = actor.agentData
   if (actor.agentType === 'tmux' || actor.agentOrigin?.type === 'tmux') {
@@ -37,7 +37,7 @@ let agentRequirementError = (reason: string, actor: AgentInfo, settings: AgentSe
   return new Error(`${reason}. Expected JSON: ${JSON.stringify(example)}${choices}`)
 }
 export let validateAgentInfo = (value: AgentInfo) => {
-  for (let [key, maximum] of [['agentId', 128], ['agentName', 128], ['agentPurpose', 1000], ['agentType', 128]] as const) {
+  for (let [key, maximum] of [['agentId', 128], ['agentName', 128], ['agentPurpose', 1000], ['agentContext', 128], ['agentType', 128]] as const) {
     let text = value[key]
     if (text !== undefined && (typeof text !== 'string' || !text.trim() || text.length > maximum || /[\x00-\x1f\x7f]/.test(text))) throw new Error(`${key} must be nonempty text of at most ${maximum} characters`)
   }
@@ -47,7 +47,7 @@ export let validateAgentInfo = (value: AgentInfo) => {
 }
 export let agentInfo = (value: AgentInfo): AgentInfo => Object.fromEntries(AGENT_KEYS.filter(key => value[key] !== undefined).map(key => [key, value[key]]))
 export let updateAgentInfo = (pane: AgentInfo, value: AgentInfo) => {
-  if (value.agentId !== undefined && value.agentId !== pane.agentId) { delete pane.agentName; delete pane.agentPurpose; delete pane.agentType; delete pane.agentData; delete pane.agentOrigin }
+  if (value.agentId !== undefined && value.agentId !== pane.agentId) { delete pane.agentName; delete pane.agentPurpose; delete pane.agentContext; delete pane.agentType; delete pane.agentData; delete pane.agentOrigin }
   if (value.agentType !== undefined && value.agentType !== pane.agentType) { delete pane.agentData; delete pane.agentOrigin }
   Object.assign(pane, agentInfo(value))
 }

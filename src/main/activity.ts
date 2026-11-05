@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { agentInfo } from '../shared/agent-info'
 import type { ActivityEpisode, ActivityEvent, ActivityTarget } from '../shared/activity'
 
 type Stored = { episodes: ActivityEpisode[]; events: ActivityEvent[]; sequence: number }
@@ -15,14 +16,14 @@ export let createActivity = (file: string, now = Date.now, idleMs = 30000) => {
   let end = (episode: ActivityEpisode, reason: string) => {
     if (episode.endedAt !== undefined) return
     episode.endedAt = now(); episode.reason = reason
-    emit(episode, { sessionId: episode.sessionId, agentId: episode.agentId, paneId: episode.panes[0], profileId: episode.profileId ?? '' }, 'agent.session.end', { reason })
+    emit(episode, { ...episode.agent, sessionId: episode.sessionId, agentId: episode.agentId, paneId: episode.panes[0], profileId: episode.profileId ?? '' }, 'agent.session.end', { reason })
   }
   for (let episode of stored.episodes) if (episode.endedAt === undefined) { episode.pending = 0; end(episode, 'host-restarted') }
   persist()
   let begin = (target: ActivityTarget, method: string) => {
     let episode = stored.episodes.find(item => item.endedAt === undefined && item.sessionId === target.sessionId && item.agentId === target.agentId)
     if (!episode) {
-      episode = { id: randomUUID(), profileId: target.profileId, sessionId: target.sessionId, agentId: target.agentId, panes: [], startedAt: now(), lastActivityAt: now(), pending: 0 }
+      episode = { agent: structuredClone(agentInfo(target)), id: randomUUID(), profileId: target.profileId, sessionId: target.sessionId, agentId: target.agentId, panes: [], startedAt: now(), lastActivityAt: now(), pending: 0 }
       stored.episodes.push(episode); emit(episode, target, 'agent.session.start')
     }
     if (!episode.panes.includes(target.paneId)) episode.panes.push(target.paneId)

@@ -74,7 +74,7 @@ Automation: automation status | automation safety | automation acquire -t PANE -
             remote attention-verify -t PANE --episode STABLE_ID --attempt ID --outcome verified|verification-failed
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
             Browser commands require --agent-id ID or BMUX_AGENT_ID by default.
-            Add --agent-name NAME, --agent-purpose REASON, --agent-type TYPE and --agent-data JSON for agent details.
+            Add --agent-name NAME, --agent-purpose REASON, --agent-context PLATFORM, --agent-type TYPE and --agent-data JSON for agent details.
             agent context prints verified tmux context for the calling agent.
 Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
             extension install-bitwarden --profile PROFILE
@@ -93,9 +93,9 @@ let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process
 let socketPath = controlSocketPath(dataDirectory)
 
 let parse = () => {
-  let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
+  let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentContext: process.env.BMUX_AGENT_CONTEXT, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
   let explicit = new Set()
-  let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-type': 'agentType', '--agent-data': 'agentData' }
+  let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-context': 'agentContext', '--agent-type': 'agentType', '--agent-data': 'agentData' }
   let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'no-start', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break

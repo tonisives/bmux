@@ -20,7 +20,7 @@ test('agent identifiers reach browser, creation, RPC and movement commands witho
     })
   })
   let invoke = async (args: string[], agentId?: string, environment: NodeJS.ProcessEnv = {}) => {
-    let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, TMUX: undefined, TMUX_PANE: undefined, CODEX_THREAD_ID: undefined, CODEX_SESSION_ID: undefined, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: agentId, BMUX_AGENT_NAME: undefined, BMUX_AGENT_PURPOSE: undefined, BMUX_AGENT_TYPE: undefined, BMUX_AGENT_DATA: undefined, ...environment }, timeout: 5000 })
+    let { stdout } = await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, TMUX: undefined, TMUX_PANE: undefined, CODEX_THREAD_ID: undefined, CODEX_SESSION_ID: undefined, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: agentId, BMUX_AGENT_NAME: undefined, BMUX_AGENT_PURPOSE: undefined, BMUX_AGENT_CONTEXT: undefined, BMUX_AGENT_TYPE: undefined, BMUX_AGENT_DATA: undefined, ...environment }, timeout: 5000 })
     return JSON.parse(stdout).result
   }
   try {
@@ -28,6 +28,8 @@ test('agent identifiers reach browser, creation, RPC and movement commands witho
     await listenSocket(server, socket)
     expect(await invoke(['--agent-id', '%42', 'navigate', '-t', '%3', 'http://fixture.test/'])).toEqual({ method: 'navigate', args: { pane: '%3', url: 'http://fixture.test/', agentId: '%42' } })
     expect(await invoke(['dom', '-t', '%3', '--agent-id', '%42', '--agent-name=Research agent', '--agent-purpose', 'Compare browser features'])).toMatchObject({ args: { pane: '%3', agentId: '%42', agentName: 'Research agent', agentPurpose: 'Compare browser features' } })
+    expect(await invoke(['dom', '-t', '%3', '--agent-context', 'x'])).toMatchObject({ args: { agentContext: 'x' } })
+    expect(await invoke(['dom', '-t', '%3'], undefined, { BMUX_AGENT_CONTEXT: 'tiktok' })).toMatchObject({ args: { agentContext: 'tiktok' } })
     expect(await invoke(['dom', '-t', '%3', '--agent-type', 'tmux', '--agent-data', '{"sessionId":"$1","windowId":"@2","paneId":"%42"}'])).toMatchObject({ args: { agentType: 'tmux', agentData: { sessionId: '$1', windowId: '@2', paneId: '%42' } } })
     expect(await invoke(['lock-viewport', '-t', 'work:3', '--width', '1512', '--height', '900'])).toEqual({ method: 'lock-viewport', args: { window: 'work:3', width: '1512', height: '900' } })
     expect(await invoke(['new-window', '-t', 'work', '--agent-id=worker'])).toEqual({ method: 'new-window', args: { session: 'work', agentId: 'worker' } })

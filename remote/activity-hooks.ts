@@ -3,6 +3,7 @@ import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import https from 'node:https'
 import type { Pool } from 'pg'
+import { agentInfo, validateAgentInfo } from '../src/shared/agent-info'
 import type { ActivityEvent } from '../src/shared/activity'
 
 type Source = { owner: string; id: string; service: string; generation: string }
@@ -37,8 +38,9 @@ let request: Send = async (value,method,headers,body) => {
 }
 export let createActivityHooks = (pool: Pool,send: Send = request) => {
   let record = async (source: Source, event: ActivityEvent) => {
-    if (!event || event.version !== 1 || !/^[a-f0-9-]{36}$/.test(event.id) || !/^[a-f0-9-]{36}$/.test(event.episodeId) || !['agent.session.start','agent.action','agent.session.end'].includes(event.type) || !Number.isSafeInteger(event.sequence) || event.sequence < 1 || !Number.isFinite(event.occurredAt) || !event.target || ['sessionId','paneId','profileId','agentId'].some(k => typeof event.target[k as keyof typeof event.target] !== 'string' || event.target[k as keyof typeof event.target].length > 128)) throw new Error('Invalid activity event')
-    let payload = { version:1,id:event.id,episodeId:event.episodeId,sequence:event.sequence,type:event.type,occurredAt:event.occurredAt,target:{sessionId:event.target.sessionId,paneId:event.target.paneId,profileId:event.target.profileId,agentId:event.target.agentId},method:typeof event.method === 'string' ? event.method.slice(0,128) : undefined,outcome:['success','error'].includes(event.outcome ?? '') ? event.outcome : undefined,durationMs:Number.isFinite(event.durationMs) ? event.durationMs : undefined,reason:typeof event.reason === 'string' ? event.reason.slice(0,64) : undefined,hostId:source.id,generation:source.generation,serviceId:source.service }
+    if (!event || event.version !== 1 || !/^[a-f0-9-]{36}$/.test(event.id) || !/^[a-f0-9-]{36}$/.test(event.episodeId) || !['agent.session.start','agent.action','agent.session.end'].includes(event.type) || !Number.isSafeInteger(event.sequence) || event.sequence < 1 || !Number.isFinite(event.occurredAt) || !event.target || (['sessionId','paneId','profileId','agentId'] as const).some(k => typeof event.target[k] !== 'string' || event.target[k].length > 128)) throw new Error('Invalid activity event')
+    validateAgentInfo(event.target)
+    let payload = { version:1,id:event.id,episodeId:event.episodeId,sequence:event.sequence,type:event.type,occurredAt:event.occurredAt,target:{...agentInfo(event.target),sessionId:event.target.sessionId,paneId:event.target.paneId,profileId:event.target.profileId,agentId:event.target.agentId},method:typeof event.method === 'string' ? event.method.slice(0,128) : undefined,outcome:['success','error'].includes(event.outcome ?? '') ? event.outcome : undefined,durationMs:Number.isFinite(event.durationMs) ? event.durationMs : undefined,reason:typeof event.reason === 'string' ? event.reason.slice(0,64) : undefined,hostId:source.id,generation:source.generation,serviceId:source.service }
     let client = await pool.connect()
     try {
       await client.query('BEGIN')

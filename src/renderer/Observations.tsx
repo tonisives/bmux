@@ -1,26 +1,41 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { AgentInfo } from '../shared/agent-info'
+import { recordingContext } from '../shared/recording-context'
 import type { Bridge } from '../shared/types'
 import css from './Observations.module.css'
 
 type Run = (method: string,args?: Record<string,unknown>) => Promise<unknown>
-type Recording = { id: string; state: string; startedAt: number; finishedAt?: number; error?: string; directory: string; options: {pane?: string;sourcePane?:string}; clips: {pane:string;file:string;state:string}[] }
-export let RecordingPanel = ({run}: {run:Run}) => {
-  let {items,error,refresh} = useRecordings(run), [actionError,setActionError] = useState(''), [busy,setBusy] = useState(false)
+type Recording = { id: string; state: string; startedAt: number; finishedAt?: number; error?: string; directory: string; options: AgentInfo & {pane?: string;sourcePane?:string}; clips: {pane:string;file:string;state:string}[] }
+export let RecordingPanel = ({run,context}: {run:Run;context?:string}) => {
+  let {items,error,refresh} = useRecordings(run), [actionError,setActionError] = useState(''), [busy,setBusy] = useState(false), [query,setQuery] = useState(''), [filter,setFilter] = useState('')
+  let contexts = [...new Set(items.map(item => recordingContext(item.options.agentContext)).filter(Boolean))].sort()
+  let visible = items.filter(item => (!context || recordingContext(item.options.agentContext) === recordingContext(context)) && (!filter || recordingContext(item.options.agentContext) === filter) && `${item.options.agentName ?? ''} ${item.options.agentId ?? ''} ${item.options.agentPurpose ?? ''} ${item.options.agentContext ?? ''} ${Object.values(item.options.agentData ?? {}).join(' ')} ${item.id}`.toLowerCase().includes(query.toLowerCase())).sort((a,b) => b.startedAt-a.startedAt)
   let action = async (method:string,id?:string) => {
     setBusy(true); setActionError('')
     try { await run(method,id ? {id} : {}); await refresh() }
     catch(error) { setActionError((error instanceof Error ? error.message : 'Recording request failed').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')) }
     finally { setBusy(false) }
   }
+  let changeQuery = (event: React.ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)
+  let changeFilter = (event: React.ChangeEvent<HTMLSelectElement>) => setFilter(event.target.value)
   let openFolder = () => { void action('record.folder') }
   let recordingAction = (event: React.MouseEvent<HTMLButtonElement>) => { void action(event.currentTarget.dataset.method!,event.currentTarget.dataset.id!) }
   return <section className={css.panel} aria-label="Recordings">
     <p>Remote agent sessions are saved on this computer with the agent pointer visible.</p>
     <button type="button" disabled={busy} onClick={openFolder}>Open recordings folder</button>
     {(actionError || error) && <p role="alert">{actionError || error}</p>}
+    <div className={css.actions}>
+      <label>Find recording<input type="search" value={query} onChange={changeQuery} placeholder="Agent, purpose or run" /></label>
+      {!context && <label>Context<select value={filter} onChange={changeFilter}><option value="">All contexts</option>{contexts.map(value=><option key={value} value={value}>{value}</option>)}</select></label>}
+    </div>
     <h3>Session history</h3>
     {!items.length && <p>No recorded sessions yet. Connect an activity hook in Remote settings to record remote agents automatically.</p>}
-    {[...items].reverse().map(item=><article key={item.id} className={css.item}>
+    {!!items.length && !visible.length && <p>No recordings match this context or search.</p>}
+    {visible.map(item=><article key={item.id} className={css.item}>
+      {(item.options.agentName || item.options.agentId) && <strong>{item.options.agentName ?? item.options.agentId}</strong>}
+      {item.options.agentContext && <span>{recordingContext(item.options.agentContext)}</span>}
+      {item.options.agentPurpose && <p>{item.options.agentPurpose}</p>}
+      {item.options.agentData && <dl className={css.metadata}>{Object.entries(item.options.agentData).map(([key,value])=><div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>}
       <strong>{new Date(item.startedAt).toLocaleString()} · {item.state}</strong>
       {item.directory && <code>{item.directory}</code>}
       <span>{item.clips.length} {item.clips.length === 1 ? 'pane' : 'panes'}</span>

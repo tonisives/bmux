@@ -9,9 +9,11 @@ import { createFrameCapture } from './frame-capture'
 import { remoteWebPreferences } from '../shared/remote-web-preferences'
 import type { createRuntime } from './runtime'
 import type { createLocalRemote } from './remote-client'
+import { agentInfo, validateAgentInfo } from '../shared/agent-info'
+import type { AgentInfo } from '../shared/agent-info'
 import type { ActivityEpisode } from '../shared/activity'
 
-type Options = { sourcePane?: string; pane?: string; host?: string; session?: string; generation?: string; episode?: string; id?: string; output?: string }
+type Options = AgentInfo & { sourcePane?: string; pane?: string; host?: string; session?: string; generation?: string; episode?: string; id?: string; output?: string }
 type Clip = { pane: string; file: string; state: string; window: BrowserWindow; writer: fs.WriteStream; stop?: () => void; timer?: ReturnType<typeof setTimeout>; closed?: boolean }
 type Recording = { id: string; options: Options; startedAt: number; finishedAt?: number; state: string; error?: string; gaps?: {pane:string;at:number;open:boolean}[]; directory: string; clips: Clip[]; timer?: ReturnType<typeof setTimeout> }
 export let createRecordings = (directory: string, runtime: ReturnType<typeof createRuntime>, remote: ReturnType<typeof createLocalRemote>) => {
@@ -94,7 +96,8 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
     }
   })
   let start=async(input:Options)=>{
-    let options:Options={pane:input.pane,sourcePane:input.sourcePane,host:input.host,session:input.session,generation:input.generation,episode:input.episode,id:input.id,output:input.output}
+    validateAgentInfo(input)
+    let options:Options={...agentInfo(input),pane:input.pane,sourcePane:input.sourcePane,host:input.host,session:input.session,generation:input.generation,episode:input.episode,id:input.id,output:input.output}
     let id=options.id??options.episode??randomUUID()
     if(!/^[a-zA-Z0-9_-]{1,128}$/.test(id))throw new Error('Invalid recording ID')
     let existing=list().find(item=>item.id===id)??previous.find(item=>item.id===id);if(existing)return existing
@@ -108,5 +111,5 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
     return list().find(item=>item.id===id)
   }
   let activitySubscription=runtime.activity.subscribe(()=>{for(let record of records.values())if(!record.options.host&&record.options.episode&&!record.finishedAt){let episode=runtime.activity.episodes().find(item=>item.id===record.options.episode);if(!episode||episode.endedAt!==undefined)stop(record.id);else for(let pane of episode.panes)void openClip(record,pane).catch(()=>{record.error='Additional pane capture failed';save()})}})
-  return {start,stop,folder,skip:(id:string)=>{if(!/^[a-f0-9-]{36}$/.test(id))throw new Error('Invalid episode');let existing=history().find(item=>item.id===id);if(existing)return stop(id);let receipt={id,options:{episode:id},startedAt:Date.now(),finishedAt:Date.now(),state:'skipped',error:undefined,gaps:undefined,directory:'',clips:[]};previous.push(receipt);save();return receipt},play:async(id:string)=>{let record=history().find(item=>item.id===id),clip=record?.clips.find(clip=>['saved','saved-webm'].includes(clip.state));if(!clip)throw new Error('No completed video');let error=await shell.openPath(clip.state==='saved'?clip.file.replace(/\.webm$/,'.mp4'):clip.file);if(error)throw new Error(error)},list:history,reveal:(id:string)=>{let record=list().find(item=>item.id===id)??previous.find(item=>item.id===id);if(!record)throw new Error('Recording not found');shell.showItemInFolder(record.directory)},close:async()=>{activitySubscription();for(let record of records.values())stop(record.id);await new Promise(resolve=>setTimeout(resolve,1200));for(let record of records.values())for(let clip of record.clips)finalize(record,clip)}}
+  return {start,stop,folder,skip:(id:string,actor:AgentInfo={})=>{validateAgentInfo(actor);if(!/^[a-f0-9-]{36}$/.test(id))throw new Error('Invalid episode');let existing=history().find(item=>item.id===id);if(existing)return stop(id);let receipt={id,options:{...agentInfo(actor),episode:id},startedAt:Date.now(),finishedAt:Date.now(),state:'skipped',error:undefined,gaps:undefined,directory:'',clips:[]};previous.push(receipt);save();return receipt},play:async(id:string)=>{let record=history().find(item=>item.id===id),clip=record?.clips.find(clip=>['saved','saved-webm'].includes(clip.state));if(!clip)throw new Error('No completed video');let error=await shell.openPath(clip.state==='saved'?clip.file.replace(/\.webm$/,'.mp4'):clip.file);if(error)throw new Error(error)},list:history,reveal:(id:string)=>{let record=list().find(item=>item.id===id)??previous.find(item=>item.id===id);if(!record)throw new Error('Recording not found');shell.showItemInFolder(record.directory)},close:async()=>{activitySubscription();for(let record of records.values())stop(record.id);await new Promise(resolve=>setTimeout(resolve,1200));for(let record of records.values())for(let clip of record.clips)finalize(record,clip)}}
 }

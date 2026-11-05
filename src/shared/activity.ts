@@ -1,3 +1,4 @@
-export type ActivityTarget = { sessionId: string; paneId: string; profileId: string; agentId: string }
-export type ActivityEpisode = { id: string; sessionId: string; agentId: string; panes: string[]; startedAt: number; lastActivityAt: number; pending: number; profileId?: string; endedAt?: number; reason?: string }
+import type { AgentInfo } from './agent-info'
+export type ActivityTarget = AgentInfo & { sessionId: string; paneId: string; profileId: string; agentId: string }
+export type ActivityEpisode = { agent?: AgentInfo; id: string; sessionId: string; agentId: string; panes: string[]; startedAt: number; lastActivityAt: number; pending: number; profileId?: string; endedAt?: number; reason?: string }
 export type ActivityEvent = { version: 1; id: string; episodeId: string; sequence: number; type: 'agent.session.start' | 'agent.action' | 'agent.session.end'; occurredAt: number; target: ActivityTarget; method?: string; outcome?: 'success' | 'error'; durationMs?: number; reason?: string }
