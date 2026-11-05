@@ -335,7 +335,9 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       await expect.poll(() => application.evaluate(() => (globalThis as any).stressData), { timeout: 15000 }).toEqual(panes.map((_pane, index) => `round-${round}-${index}`))
       expect(await application.evaluate(() => (globalThis as any).stressClosed)).toBe(0)
       await step(`Close all transports and the viewer for round ${round}`, async () => {
-        await application.evaluate(() => (globalThis as any).stressCaptures.forEach((capture: { close: () => void }) => capture.close()))
+        // Inspector calls can interrupt Node's async-task notification before a
+        // timer runs. Cancel capture timers only after that callback returns.
+        await application.evaluate(() => { setImmediate(() => (globalThis as any).stressCaptures.forEach((capture: { close: () => void }) => capture.close())) })
         await expect.poll(() => viewer.evaluate(() => (window as any).stressChannels.filter((channel: RTCDataChannel) => channel.readyState === 'closed').length)).toBe(7)
         // Finish WebRTC shutdown before destroying its native viewer window.
         await viewer.evaluate(() => {

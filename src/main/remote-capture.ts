@@ -64,8 +64,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   let destroy = () => {
     clearTimeout(shutdown)
     ipcMain.off('remote-message', receive)
-    // Native destruction can pump AppKit. Leave timer and IPC dispatch first.
-    setImmediate(() => { if (!window.isDestroyed()) window.destroy() })
+    if (!window.isDestroyed()) window.destroy()
   }
   let close = () => {
     if (disposed) return
