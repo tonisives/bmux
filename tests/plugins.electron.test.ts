@@ -175,6 +175,10 @@ test('viewport screenshots preserve visible and hidden device pages without CDP 
       for (let hidden of [false, true]) {
         if (hidden) await application.evaluate(({ app }) => app.hide())
         else await activate()
+        await expect.poll(async () => {
+          let current = await windows()
+          return hidden ? current.every(window => !window.visible && !window.focused) : current.some(window => window.visible && window.focused)
+        }).toBe(true)
         let beforeWindows = await windows(), beforeSelection = (await state()).model.clients
         let beforePage = await page.evaluate(() => {
           let state = window as any
