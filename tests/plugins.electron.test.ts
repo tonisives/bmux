@@ -625,7 +625,6 @@ test('browsing profiles switch saved settings in place without starting a window
   await expect(selector).toHaveValue('default')
   expect((await state()).pluginPrompt.runId).toBe(id)
   await expect(dialog.getByLabel('AI source')).toHaveValue('included')
-  await expect(dialog.getByLabel('AI source')).toHaveValue('included')
   await expect(dialog.getByLabel('Browsing preset', { exact: true })).toHaveCount(0)
   let edit = dialog.getByRole('button', { name: 'Edit browsing profile', exact: true })
   let selectionBounds = (await selector.boundingBox())!, editBounds = (await edit.boundingBox())!
@@ -713,6 +712,7 @@ test('Social Media AI subscription status and launch eligibility use the AI enti
   await openSettings(dialog)
   await dialog.getByLabel('Caption training', { exact: true }).selectOption('true')
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeEnabled()
+  await expect(dialog.getByText('This session does not use subscription AI.', { exact: true })).toBeVisible()
   await dialog.locator(':scope > header').getByRole('button', { name: 'Back to Fixture plugin', exact: true }).click()
   await completed(id, 'cancelled')
   await application.evaluate(() => { (globalThis as any).__pluginAIUsage.active = true })

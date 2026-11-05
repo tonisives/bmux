@@ -1872,11 +1872,11 @@ let dismissPluginPrompt = (request: NonNullable<PublicState['pluginPrompt']>) =>
 let PluginParameterPresets = ({ presets, preset, choosePreset }: { presets: NonNullable<PluginPrompt['presets']>; preset: string; choosePreset: (event: ChangeEvent<HTMLSelectElement>) => void }) => <section aria-label="Browsing presets" className={css.pluginPresetSection}>
   <label className={css.settingsRow}><span>Apply preset</span><select aria-label="Browsing preset" value={preset} onChange={choosePreset}><option value="">Custom settings</option>{presets.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
 </section>
-let PluginSubscription = ({ busy, manage, access, children }: { busy: boolean; manage: () => void; access: ReturnType<typeof usePluginAI>; children: ReactNode }) => {
+let PluginSubscription = ({ busy, manage, access, idle, children }: { busy: boolean; idle: boolean; manage: () => void; access: ReturnType<typeof usePluginAI>; children: ReactNode }) => {
   let status = access.problem || `BMUX AI active · ${access.usage!.remaining} requests left`
   return <section aria-label="AI subscription" className={css.pluginSubscription}>
     <div className={css.pluginSettingsHeading}><span role="status">{status}</span><button type="button" disabled={busy} onClick={manage}>Manage subscription</button><button type="button" onClick={access.refresh} disabled={busy}>Refresh</button></div>
-    {children}
+    {children}{idle && <p>This session does not use subscription AI.</p>}
   </section>
 }
 let pluginParameterLabels: Record<string, string> = { auto: 'Auto continue', confirm: 'Ask before each action', 'observed-fast': 'Fast', 'observed-balanced': 'Balanced', remote: 'Instant', included: 'BMUX subscription', personal: 'Personal OpenAI API key', true: 'On', false: 'Off' }
@@ -1974,7 +1974,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     <div className={css.pluginParameterBody}>
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <>{presets}<div role="group" aria-label="Profile settings">{profileFields.map(field)}</div><div className={css.pluginSettingsRows}>{sections}</div></> : <>
-      {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access}>{sourceFields.map(field)}</PluginSubscription>}
+      {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access} idle={values.ai_source === 'included' && !usesIncludedAI(values)}>{sourceFields.map(field)}</PluginSubscription>}
       {!request.profiles && <section aria-label="Browsing profile"><h3>Browsing profile</h3>{presets}</section>}
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
       </>}
