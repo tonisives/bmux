@@ -3087,7 +3087,7 @@ let ScopedSessionLimit = ({ profileId, host, jobId }: { profileId: string; host:
     setBusy(true)
     try { await run('automation.safety.set', { profile: profileId, ...(jobId ? { jobId } : { host }), key: 'maxSessionMinutes', value: null }) } finally { setBusy(false) }
   }
-  return <section className={css.profileSection} aria-label={jobId ? `Job ${jobId}` : 'Website session limit'}>
+  return <section className={css.scopedSessionLimit} aria-label={jobId ? `Job ${jobId}` : 'Website session limit'}>
     <h2>{jobId ? `Job: ${jobId}` : host}</h2>
     <div className={css.antiBotLimitFields}><AutomationLimitInput profileId={profileId} host={jobId ? undefined : host} jobId={jobId} setting="maxSessionMinutes" label={jobId ? 'Job session limit (minutes)' : 'Website session limit (minutes)'} description={jobId ? 'Applies to this ClawTab job across websites' : 'Default for bots using this website in this profile'} value={automationSessionMinutes(limits, profileId, host, jobId)} maximum={1440} /></div>
     {override !== undefined && <button type="button" disabled={busy} onClick={reset}>{jobId ? 'Use website limit' : 'Use profile limit'}</button>}

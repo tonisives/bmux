@@ -493,6 +493,10 @@
 .siteExclusion > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .siteExclusion small { display: block; margin-top: 4px; color: #999; }
 .antiBotStatus { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.scopedSessionLimit h2 { margin: 0 0 12px; font: inherit; font-weight: 600; }
+.scopedSessionLimit .antiBotLimitFields { grid-template-columns: minmax(0, 1fr); margin-top: 0; }
+.scopedSessionLimit .antiBotLimitFields label { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.scopedSessionLimit .antiBotLimitFields input { flex: 0 0 80px; min-width: 0; }
 .antiBotLimitFields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 12px; }
 .antiBotLimitFields label { display: grid; gap: 6px; }
 .antiBotLimitFields input { width: 100%; max-width: 120px; }
