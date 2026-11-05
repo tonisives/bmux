@@ -52,7 +52,7 @@ test('recordings built-in plugin opens its folder and preserves playable session
     await chrome.keyboard.press('Escape');await chrome.keyboard.press('Escape')
     await rpc('navigate',{pane,url,agentId:'fixture',agentName:'Workflow discovery',agentPurpose:'Find manual billing workflows',agentContext:'x',agentData:{runId:'run-one'}})
     let observed:Buffer[]=[]
-    observer=spawn(process.execPath,[path.resolve('bin/bmux.mjs'),'observe','-t',pane,'--output',output,'--id','fixture-recording'],{env:{...process.env,BMUX_DATA_DIR:directory}})
+    observer=spawn(process.execPath,[path.resolve('bin/bmux.mjs'),'observe','-t',pane,'--output',output,'--id','fixture-recording','--agent-id','fixture','--agent-name','Workflow discovery','--agent-purpose','Find manual billing workflows','--agent-context','x','--agent-data',JSON.stringify({runId:'run-one'})],{env:{...process.env,BMUX_DATA_DIR:directory}})
     observer.stdout!.on('data',chunk=>observed.push(chunk))
     let observedDone=new Promise<number|null>((resolve,reject)=>{observer!.once('exit',resolve);observer!.once('error',reject)})
     await expect.poll(async()=>((await rpc('record.list')) as any[]).some(item=>item.id==='fixture-recording')).toBe(true)
