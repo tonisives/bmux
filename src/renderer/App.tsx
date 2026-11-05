@@ -494,7 +494,8 @@ let PaneAgentButton = ({ paneId }: { paneId: string }) => {
   return actor ? <AgentButton agents={[actor]} paneId={paneId} active={actor.active} lastUsed={actor.lastUsed} /> : null
 }
 
-let NotificationAgent = ({ actor }: { actor: AutomationActor }) => {
+let NotificationAgent = ({ actors }: { actors: AutomationActor[] }) => {
+  let actor = actors[0]
   let { state, run } = useUI()
   let [focusing, setFocusing] = useState(false)
   let definition = actor.agentType ? state.automationAgents?.definitions[actor.agentType] : undefined
@@ -504,10 +505,25 @@ let NotificationAgent = ({ actor }: { actor: AutomationActor }) => {
     try { await run('agent.focus', { pane: actor.paneId, agentId: actor.agentId, agentOrigin: actor.agentOrigin }) } finally { setFocusing(false) }
   }
   return <span className={css.notificationSegments} role="group" aria-label={`Agent ${identifier.value}`}>
-    <AgentButton agents={[actor]} />
+    <AgentButton agents={actors} />
     <NotificationIdentifier value={identifier.value} title={`${identifier.label}: ${identifier.value}`} />
     {definition?.focusCommand && <button type="button" aria-label="Focus agent" title={`Focus agent ${identifier.value}`} disabled={focusing} onClick={() => { void focus() }}><FocusAgentIcon /></button>}
   </span>
+}
+
+let NotificationAgents = ({ actors }: { actors: AutomationActor[] }) => {
+  let groups = new Map<string, AutomationActor[]>()
+  for (let actor of actors) {
+    let key = JSON.stringify([actor.agentType, actor.agentId ?? actor.agentName ?? actor.paneId, actor.agentOrigin])
+    let group = groups.get(key) ?? []
+    group.push(actor)
+    groups.set(key, group)
+  }
+  if (actors.length < 2) return actors.length ? <NotificationAgent actors={actors} /> : null
+  return <details className={css.notificationBots}>
+    <summary><AgentStatusIcon /><span>{groups.size} {groups.size === 1 ? 'bot' : 'bots'}</span><AlertChevron collapsed /></summary>
+    <ul aria-label="Website bots">{[...groups].map(([key, group]) => <li key={key}><NotificationAgent actors={group} /></li>)}</ul>
+  </details>
 }
 
 let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; collapseAlerts: () => void }) => {
@@ -526,7 +542,7 @@ let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; col
       {notice.siteExclusion && <AutomationWebsiteSelect {...notice.siteExclusion} resetSession={!!notice.cooldown} />}
       <span className={css.notificationText}>{notice.text}</span>
       {notice.actions?.map(action => <button type="button" key={action.label} className={css.notificationAction} title={action.title} disabled={action.disabled} onClick={action.run}>{action.label}</button>)}
-      {notice.agents?.map(actor => <NotificationAgent key={`${actor.paneId}:${actor.agentId}`} actor={actor} />)}
+      {notice.agents && <NotificationAgents actors={notice.agents} />}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
       {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
     </div>)}

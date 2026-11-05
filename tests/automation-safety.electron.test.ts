@@ -319,6 +319,12 @@ test('automation and permission notices identify agent panes while personal brow
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'default · Session limit' })
     await expect(alert).not.toContainText('Manual browsing is unaffected')
     await expect(alert.getByRole('combobox')).toHaveCount(1)
+    let botList = alert.locator('details')
+    await expect(botList.locator('summary')).toHaveText('2 bots')
+    await expect(alert.getByRole('group', { name: 'Agent %145', exact: true })).toBeHidden()
+    await botList.locator('summary').focus()
+    await botList.locator('summary').press('Enter')
+    await expect(botList.getByRole('list', { name: 'Website bots' }).getByRole('listitem')).toHaveCount(2)
     await expect(alert.getByRole('button', { name: `Go to pane agents:2 · ${first.id} (%45)`, exact: true })).toBeVisible()
     await expect(alert.getByRole('button', { name: `Go to pane agents:3 · ${second.id} (%46)`, exact: true })).toBeVisible()
     for (let [pane, window, agentId] of [[first, 2, '%45'], [second, 3, '%46']] as const) {
@@ -380,7 +386,9 @@ test('automation and permission notices identify agent panes while personal brow
     await expect(alert.getByText(`agents:2 · ${first.id}`, { exact: true })).toBeVisible()
     await expect(alert.getByText(`agents:3 · ${second.id}`, { exact: true })).toBeVisible()
     expect((await alert.getByText('default · Session limit', { exact: true }).boundingBox())!.height).toBeLessThanOrEqual(32)
+    await botList.locator('summary').click()
     expect((await alert.boundingBox())!.height).toBeLessThanOrEqual(80)
+    await botList.locator('summary').click()
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await chrome.screenshot({ path: path.resolve('artifacts/automation-agent-notice-compact.png') })
     await expect(alert.getByText(personal.paneId, { exact: true })).toHaveCount(0)
@@ -1145,6 +1153,7 @@ for (let warning of [false, true]) test(`closed browser panes retain agent detai
     let actors = [
       { paneId: '%9000', hosts: ['one.example.com'], agentId: 'saved-codex', agentName: 'Saved research', agentType: 'terminal', agentData: { paneId: '%145' }, agentOrigin: { type: 'tmux', paneId: '%145', panePid: '12345', threadId } },
       { paneId: '%9001', hosts: ['one.example.com'], agentId: 'bookmarks', agentType: 'clawtab', agentData: { jobId: 'research-screenshots' } },
+      { paneId: '%9002', hosts: ['one.example.com'], agentId: 'bookmarks', agentType: 'clawtab', agentData: { jobId: 'research-screenshots' } },
     ]
     await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ fixture: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt + 1000, activeMs: 600_000, limitReachedAt: startedAt + 600_000, actors, ...(warning ? { warning: 'account-warning', warningHost: 'one.example.com', warningAt: startedAt } : {}) } }))
     await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false }, automation: { agents: { definitions: { terminal: { fields: { paneId: { label: 'Terminal pane', type: 'pane' } }, focusCommand: `node -e 'require("node:fs").writeFileSync(process.argv[1], process.env.BMUX_AGENT_ID)' "${marker}"` } } } } }))
@@ -1155,7 +1164,10 @@ for (let warning of [false, true]) test(`closed browser panes retain agent detai
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await address.pressSequentially(url); await address.press('Enter')
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: warning ? 'default · Account warning' : 'default · Session limit' })
-    for (let id of ['%9000', '%9001']) {
+    await expect(alert.locator('summary')).toHaveText('2 bots')
+    await alert.locator('summary').click()
+    await expect(alert.getByRole('list', { name: 'Website bots' }).getByRole('listitem')).toHaveCount(2)
+    for (let id of ['%9000', '%9001', '%9002']) {
       let closed = alert.getByRole('button', { name: `Browser pane ${id} closed`, exact: true })
       await expect(closed).toBeDisabled()
       await expect(closed).toHaveText(`${id} · closed`)
@@ -1176,6 +1188,8 @@ for (let warning of [false, true]) test(`closed browser panes retain agent detai
     await info.press('Escape')
     await alert.getByRole('group', { name: 'Agent bookmarks', exact: true }).getByRole('button', { name: 'Agent information', exact: true }).click()
     await expect(info).toContainText('research-screenshots')
+    await expect(info).toContainText('%9001 · closed')
+    await expect(info).toContainText('%9002 · closed')
     await expect(info.getByRole('button', { name: 'Copy resume command', exact: true })).toHaveCount(0)
     await info.press('Escape')
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })

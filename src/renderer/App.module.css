@@ -103,6 +103,14 @@
 .notificationSegmentLabel { display: inline-flex; align-items: center; max-width: 160px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 22px; user-select: text; }
 .notificationLocation { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .notificationPaneId { flex: 0 0 auto; }
+.notificationBots { flex: 0 0 auto; max-width: 100%; align-self: flex-start; }
+.notificationBots > summary { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; border: 1px solid #76565a; color: #f2c1bb; cursor: pointer; list-style: none; }
+.notificationBots > summary::-webkit-details-marker { display: none; }
+.notificationBots > summary:hover, .notificationBots > summary:active { background: #463137; }
+.notificationBots > summary:focus-visible { outline: 2px solid #f2c1bb; outline-offset: 2px; }
+.notificationBots[open] > summary > .alertChevron { transform: rotate(180deg); }
+.notificationBots > ul { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+.notificationBots > ul > li { display: flex; }
 .notificationGeneral { min-height: 26px; padding-top: 3px; padding-bottom: 3px; background: #2a2022; border-color: #493638; color: #e6a69c; }
 .notificationGeneral .notificationAction { border-color: #735052; color: #e6a69c; }
 .notificationGeneral svg { width: 14px; height: 14px; }
