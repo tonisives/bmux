@@ -381,6 +381,11 @@ export let createPlugins = (options: Options) => {
     }
   }
   let invalidate = (paneId: string) => {
+    let removedOverlay = false
+    for (let run of runs.values()) if (run.context.paneId === paneId && run.overlay && !live(run)) {
+      run.overlay = undefined; run.overlayInputs = undefined; removedOverlay = true
+    }
+    if (removedOverlay) (options.overlayChanged ?? options.changed)()
     for (let run of runs.values()) if (run.context.paneId === paneId && (run.public.hook || run.pending && !(run.action.launch_url && run.pending.prompt.kind === 'form'))) finish(run, 'cancelled')
   }
   let reload = () => {

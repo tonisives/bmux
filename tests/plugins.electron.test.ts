@@ -442,6 +442,32 @@ test('plugin overlays detach when switching panes and windows during and after b
   await rpc('kill-window', { window: otherWindow.id, confirm: true })
 })
 
+test('completed plugin overlays disappear when opening a different page in the same pane', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let pane = client.paneId
+  let id = await run('overlay', { tab: pane })
+  let attached = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay')).length)
+  await expect.poll(attached).toBe(1)
+  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
+  await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await rpc('navigate', { pane, url: url + '/active-overlay' })
+  await rpc('wait', { pane, selector: '#username' })
+  await expect.poll(async () => (await state()).pluginOverlay?.runId).toBe(id)
+  await expect.poll(attached).toBe(1)
+  await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
+  await completed(id)
+  await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
+  await rpc('navigate', { pane, url: url + '/after-overlay' })
+  await rpc('wait', { pane, selector: '#username' })
+  await expect.poll(async () => (await state()).pluginOverlay).toBeUndefined()
+  await expect.poll(attached).toBe(0)
+  await rpc('back', { pane })
+  await rpc('wait', { pane, selector: '#username' })
+  await expect.poll(async () => (await state()).pluginOverlay).toBeUndefined()
+  await expect.poll(attached).toBe(0)
+})
+
 test('Social Media details launch one settings form and a muted window with the active profile', async () => {
   let before = await state(), client = before.model.clients.find((client: any) => client.id === before.clientId)
   let profile = (await rpc('profile.create', { name: 'Feed launch fixture' })).id
