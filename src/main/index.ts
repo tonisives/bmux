@@ -1,3 +1,5 @@
+import type { ActivityTarget } from '../shared/activity'
+import { agentInfo } from '../shared/agent-info'
 import { app, ipcMain, Menu } from 'electron'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -40,13 +42,13 @@ let recordingCommand = async (command: Command) => {
   let args=command.args??{}
   if(command.method==='record.start'){let target=typeof args.pane==='string'&&!args.host?runtime!.recordingTarget(args.pane):{};return recordings!.start({...args,...target,sourcePane:typeof args.pane === 'string' ? args.pane : undefined})}
   if(command.method==='record.event') {
-    let event=args.event as {test?:boolean;episodeId?:string;type?:string;hostId?:string;generation?:string;target?:{paneId?:string;sessionId?:string}} | undefined
+    let event=args.event as {test?:boolean;episodeId?:string;type?:string;hostId?:string;generation?:string;target?:ActivityTarget} | undefined
     if(event?.test === true)return {tested:true}
     if(!event || !/^[a-f0-9-]{36}$/.test(event.episodeId ?? ''))throw new Error('Invalid activity episode')
     if(event.type==='agent.session.end')return recordings!.skip(event.episodeId!)
     if(event.type!=='agent.session.start')return {ignored:true}
     if(!/^[a-f0-9-]{36}$/.test(event.hostId ?? '') || !/^[a-f0-9-]{36}$/.test(event.generation ?? '') || !event.target?.paneId || !event.target.sessionId)throw new Error('Invalid recording target')
-    return recordings!.start({id:event.episodeId,episode:event.episodeId,host:event.hostId,generation:event.generation,pane:event.target.paneId,session:event.target.sessionId})
+    return recordings!.start({id:event.episodeId,episode:event.episodeId,host:event.hostId,generation:event.generation,...agentInfo(event.target),pane:event.target.paneId,session:event.target.sessionId})
   }
   if(command.method==='record.play')return recordings!.play(String(args.id))
   if(command.method==='record.folder')return recordings!.folder()

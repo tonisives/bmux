@@ -7,6 +7,7 @@ import type { PaneLayout } from './pane-layout'
 import { buildInfo } from '../shared/build-info'
 import { focusAgent } from './agent-focus'
 import { createAgentRegistry } from './agent-registry'
+import type { AgentInfo } from '../shared/agent-info'
 import { AGENT_KEYS, DEFAULT_AGENTS, agentInfo, updateAgentInfo, validateAgentInfo, validateAgentRequirements } from '../shared/agent-info'
 import type { RemoteView, RemoteViewAction, RemoteViewUpdate } from '../shared/remote'
 import { removeProfile } from '../shared/profile-management'
@@ -425,7 +426,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
   let activity = createActivity(path.join(dataDirectory, 'agent-activity.json'))
   let activityTimer = setInterval(() => activity.tick(), 1000); activityTimer.unref()
-  let trackActivity = (paneId: string, agentId: string, method: string) => { let { pane, session } = paneById(model, paneId); return activity.begin({ paneId, sessionId: session.id, profileId: pane.profileId, agentId }, method) }
+  let trackActivity = (paneId: string, agentId: string, method: string, actor?: AgentInfo) => { let { pane, session } = paneById(model, paneId); return activity.begin({ ...agentInfo(actor ?? pane), paneId, sessionId: session.id, profileId: pane.profileId, agentId }, method) }
   let agentRegistry = createAgentRegistry(model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)))
   let agentFeedback = () => configuration?.agentFeedback ?? DEFAULT_AGENT_FEEDBACK
   let virtualMouse = createVirtualMouse(undefined, undefined, paneId => resolveAgentFeedback(agentFeedback(), currentPane(paneId)?.profileId))
@@ -482,7 +483,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!tabId) return { clientId: client?.id }
     let { tab, pane, window, session } = tabById(model, tabId)
     let contents = tabs.get(tabId)?.contents
-    return { clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, agentId: target.agentId ?? pane.agentId, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
+    return { ...agentInfo(pane), ...agentInfo(target), clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, agentId: target.agentId ?? pane.agentId, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
   }
   let pluginSelected = (context: PluginContext) => {
     let client = model.clients.find(client => client.id === context.clientId)
@@ -2600,7 +2601,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let actionOutcome: 'success' | 'error' = 'error'
     let result: unknown
     try {
-      finishActivity = activity && targetPane ? trackActivity(targetPane.id, String(command.args?.agentId ?? targetPane.agentId ?? 'agent'), command.method) : undefined
+      finishActivity = activity && targetPane ? trackActivity(targetPane.id, String(command.args?.agentId ?? targetPane.agentId ?? 'agent'), command.method, activity) : undefined
       let read = () => { if (targetPane) assertAgentTarget(targetPane.id); return perform(command, sourceClientId) }
       let automationPane = !sourceClientId && !remoteActor.getStore() && typeof paneId === 'string' ? paneId : undefined
       let operation = () => automationPane && readsPage(command.method, command.args) ? readAutomationPage(automationPane, read) : read()
@@ -4254,7 +4255,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ overlayChanged: publish, decisions: account ? (method, args) => method === 'usage' ? account('/api/ai/usage') : account(method === 'memory' ? '/api/ai/memory' : '/api/ai/decisions', args) : undefined, activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run') : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, prepare: async (context, title, signal) => {
+    plugins = createPlugins({ overlayChanged: publish, decisions: account ? (method, args) => method === 'usage' ? account('/api/ai/usage') : account(method === 'memory' ? '/api/ai/memory' : '/api/ai/decisions', args) : undefined, activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run', context) : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, prepare: async (context, title, signal) => {
       signal.throwIfAborted()
       if (!pluginSelected(context) || !context.profileId || !context.sessionId || !context.clientId) throw new Error('Selected profile unavailable')
       let window = await execute({ method: 'new-window', args: { session: context.sessionId, client: context.clientId, profile: context.profileId, name: title, agentId: context.agentId, _skipInitialAddress: true } }, context.clientId) as InternalWindow
@@ -4262,8 +4263,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       live.contents.setAudioMuted(true)
       audio[pane.id] = { playing: false, muted: true }
       publish()
-      return pluginContext({ clientId: context.clientId, paneId: pane.id, agentId: context.agentId })
-    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
+      return pluginContext({ ...agentInfo(context), clientId: context.clientId, paneId: pane.id })
+    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method, context) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
       await guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
       if (context.paneId) tabs.get(context.paneId)?.inputLock?.showCommand(agentCommandLabel(method, args))
     } }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
@@ -4487,5 +4488,5 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return remoteViewport(pane)
     },
   }
-  return { activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane,...agentInfo(paneById(model,pane).pane)} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }

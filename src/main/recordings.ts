@@ -9,9 +9,11 @@ import { createFrameCapture } from './frame-capture'
 import { remoteWebPreferences } from '../shared/remote-web-preferences'
 import type { createRuntime } from './runtime'
 import type { createLocalRemote } from './remote-client'
+import { agentInfo, validateAgentInfo } from '../shared/agent-info'
+import type { AgentInfo } from '../shared/agent-info'
 import type { ActivityEpisode } from '../shared/activity'
 
-type Options = { sourcePane?: string; pane?: string; host?: string; session?: string; generation?: string; episode?: string; id?: string; output?: string }
+type Options = AgentInfo & { sourcePane?: string; pane?: string; host?: string; session?: string; generation?: string; episode?: string; id?: string; output?: string }
 type Clip = { pane: string; file: string; state: string; window: BrowserWindow; writer: fs.WriteStream; stop?: () => void; timer?: ReturnType<typeof setTimeout>; closed?: boolean }
 type Recording = { id: string; options: Options; startedAt: number; finishedAt?: number; state: string; error?: string; gaps?: {pane:string;at:number;open:boolean}[]; directory: string; clips: Clip[]; timer?: ReturnType<typeof setTimeout> }
 export let createRecordings = (directory: string, runtime: ReturnType<typeof createRuntime>, remote: ReturnType<typeof createLocalRemote>) => {
@@ -94,7 +96,8 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
     }
   })
   let start=async(input:Options)=>{
-    let options:Options={pane:input.pane,sourcePane:input.sourcePane,host:input.host,session:input.session,generation:input.generation,episode:input.episode,id:input.id,output:input.output}
+    validateAgentInfo(input)
+    let options:Options={...agentInfo(input),pane:input.pane,sourcePane:input.sourcePane,host:input.host,session:input.session,generation:input.generation,episode:input.episode,id:input.id,output:input.output}
     let id=options.id??options.episode??randomUUID()
     if(!/^[a-zA-Z0-9_-]{1,128}$/.test(id))throw new Error('Invalid recording ID')
     let existing=list().find(item=>item.id===id)??previous.find(item=>item.id===id);if(existing)return existing

@@ -12,7 +12,7 @@ it('rejects local and mapped hook destinations',()=>{
 })
 describe.skipIf(!process.env.BMUX_HOOKS_TEST_DATABASE_URL).sequential('durable relay hooks',()=>{
   let schema=`hook_test_${randomUUID().replaceAll('-','')}`, admin:Pool, pool:Pool
-  let source={owner:'owner',id:randomUUID(),service:'fixture',generation:randomUUID()}, target={sessionId:'session',paneId:'pane',profileId:'profile',agentId:'agent'}
+  let source={owner:'owner',id:randomUUID(),service:'fixture',generation:randomUUID()}, target={sessionId:'session',paneId:'pane',profileId:'profile',agentId:'agent',agentName:'Discovery',agentContext:'x',agentPurpose:'Find workflow problems',agentData:{runId:'run-one'}}
   let event=(type:ActivityEvent['type'],episodeId:string=randomUUID(),sequence=1):ActivityEvent=>({version:1,id:randomUUID(),episodeId,sequence,type,occurredAt:Date.now(),target})
   beforeAll(async()=>{
     process.env.BMUX_HOOKS_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64')
@@ -27,6 +27,7 @@ describe.skipIf(!process.env.BMUX_HOOKS_TEST_DATABASE_URL).sequential('durable r
     let hooks=createActivityHooks(pool), hook=await hooks.api('owner','POST','/api/hooks',config()) as {id:string}, start=event('agent.session.start')
     await Promise.all([hooks.record(source,start),hooks.record(source,start)])
     expect((await pool.query('SELECT * FROM bmux_hook_deliveries')).rows).toHaveLength(1)
+    expect((await pool.query('SELECT payload FROM bmux_activity_events')).rows[0].payload.target).toMatchObject(target)
     let listed=await hooks.api('owner','GET','/api/hooks');expect(JSON.stringify(listed)).not.toContain('fixture-token');expect(JSON.stringify((await pool.query('SELECT secret FROM bmux_activity_hooks')).rows)).not.toContain('fixture-token')
     await expect(hooks.api('other','POST',`/api/hooks/${hook.id}`,{enabled:false})).rejects.toThrow('not found')
     await hooks.record({...source,generation:randomUUID()},event('agent.session.end',start.episodeId,2))

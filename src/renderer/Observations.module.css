@@ -15,3 +15,9 @@
 .form label { display: flex; flex-direction: column; gap: 4px; }
 .form fieldset { display: flex; flex-direction: column; gap: 8px; border: 1px solid #8885; padding: 12px; }
 .form .checkbox { flex-direction: row; align-items: center; gap: 8px; }
+
+.actions label { display: flex; flex-direction: column; gap: 4px; }
+.metadata { margin: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.metadata div { min-width: 0; }
+.metadata dt { opacity: .7; }
+.metadata dd { margin: 0; overflow-wrap: anywhere; }

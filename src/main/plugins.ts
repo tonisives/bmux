@@ -327,7 +327,7 @@ export let createPlugins = (options: Options) => {
     if ([...runs.values()].filter(run => live(run)).length >= 256) throw new Error('Plugin queue is full')
     for (let [id, run] of runs) if (!live(run) && runs.size >= 200) runs.delete(id)
     let id = randomUUID()
-    let run: Run = { public: { id, pluginId: definition.manifest.id, actionId: action.id, title: action.title, hook, status: 'queued' }, definition, action, context: { ...context, agentId: `plugin:${definition.manifest.id}` }, parameters: { ...parameters }, restartParameters: Object.fromEntries(Object.entries(parameters).filter(([key]) => action.parameters.find(parameter => parameter.name === key)?.kind !== 'password')), interactive, token: randomBytes(32).toString('hex'), controller: new AbortController() }
+    let run: Run = { public: { id, pluginId: definition.manifest.id, actionId: action.id, title: action.title, hook, status: 'queued' }, definition, action, context: { ...context, agentId: `plugin:${definition.manifest.id}`, agentName: definition.manifest.name, agentPurpose: action.description ?? action.title, agentContext: definition.manifest.id, agentData: { runId: id, action: action.id } }, parameters: { ...parameters }, restartParameters: Object.fromEntries(Object.entries(parameters).filter(([key]) => action.parameters.find(parameter => parameter.name === key)?.kind !== 'password')), interactive, token: randomBytes(32).toString('hex'), controller: new AbortController() }
     runs.set(id, run); options.changed(); pump(); return { id }
   }
   let runAction = (target: string, context: PluginContext, parameters: Record<string, unknown> = {}, interactive = false) => {
