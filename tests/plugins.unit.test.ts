@@ -11,7 +11,7 @@ import type { PluginSettings, PluginContext } from '../src/shared/plugins'
 
 let cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (let dispose of cleanup.splice(0)) await dispose() })
-let fixture = (script: string, overrides: Record<string, unknown> = {}, decisions?: (method: 'usage' | 'create', args: Record<string, unknown>) => Promise<unknown>, prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>) => {
+let fixture = (script: string, overrides: Record<string, unknown> = {}, decisions?: (method: 'usage' | 'create' | 'memory', args: Record<string, unknown>) => Promise<unknown>, prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>) => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-plugin-test-'))
   let folder = path.join(directory, 'plugins', 'test')
   fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, 'run.mjs'), script)
@@ -210,6 +210,16 @@ test('subscription AI host calls require their own capability and keep authentic
   let allowed = fixture(hostScript + `host('result',host('decisions.usage'));`, { capabilities: ['ai.decisions'] }, decisions)
   expect((await done(allowed.plugins, allowed.plugins.run('test/run', allowed.context).id)).result).toEqual({ remaining: 10 })
   expect(decisions).toHaveBeenCalledWith('usage', {})
+})
+
+test('daily memory host calls require the AI capability and forward bounded data', async () => {
+  let memory = vi.fn(async () => ({ day: '2026-11-05', entries: [] }))
+  let script = hostScript + `host('result',host('decisions.memory',{operation:'read',profile:'a'.repeat(64)}));`
+  let denied = fixture(script, {}, memory)
+  expect((await done(denied.plugins, denied.plugins.run('test/run', denied.context).id)).status).toBe('failed')
+  let allowed = fixture(script, { capabilities: ['ai.decisions'] }, memory)
+  expect((await done(allowed.plugins, allowed.plugins.run('test/run', allowed.context).id)).result).toEqual({ day: '2026-11-05', entries: [] })
+  expect(memory).toHaveBeenCalledWith('memory', { operation: 'read', profile: 'a'.repeat(64) })
 })
 
 test('one settings form validates atomically, hides CLI session IDs, and pins launch to the active profile', async () => {

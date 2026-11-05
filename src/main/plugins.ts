@@ -17,7 +17,7 @@ type Run = { profiles?: PluginSettingsProfiles; saving?: Promise<unknown>; overl
 type Options = {
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
-  decisions?: (method: 'usage' | 'create', args: Record<string, unknown>) => Promise<unknown>
+  decisions?: (method: 'usage' | 'create' | 'memory', args: Record<string, unknown>) => Promise<unknown>
   settings: () => PluginSettings
   overlayChanged?: () => void
   changed: () => void
@@ -205,10 +205,11 @@ export let createPlugins = (options: Options) => {
       if (method === 'overlay.update') { run.overlay = parsePluginOverlay(args); (options.overlayChanged ?? options.changed)(); return { updated: true, copyPayloads: true } }
       return run.overlayInputs?.splice(0) ?? []
     }
-    if (method === 'decisions.usage' || method === 'decisions.create') {
+    if (method === 'decisions.usage' || method === 'decisions.create' || method === 'decisions.memory') {
       if (!run.action.capabilities.includes('ai.decisions') || run.public.hook || !options.decisions) throw new Error('AI decisions capability unavailable')
       if (method === 'decisions.create' && (JSON.stringify(args).length > 255000 || typeof args.requestId !== 'string' || !/^[a-f0-9-]{36}$/.test(args.requestId))) throw new Error('Invalid decision request')
-      return options.decisions(method === 'decisions.usage' ? 'usage' : 'create', args)
+      if (method === 'decisions.memory' && JSON.stringify(args).length > 2048) throw new Error('Invalid feed memory request')
+      return options.decisions(method === 'decisions.usage' ? 'usage' : method === 'decisions.memory' ? 'memory' : 'create', args)
     }
     if (method === 'progress') {
       if (typeof args.percent !== 'number' || !Number.isFinite(args.percent) || args.percent < 0 || args.percent > 100) throw new Error('Invalid progress')
