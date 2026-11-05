@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { closeTestApplication } from './electron-fixture'
+import { observeNativeFocus, recordNativeFocus } from './native-focus'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,7 +10,7 @@ import { promisify } from 'node:util'
 
 let exec = promisify(execFile)
 
-test('contextual zoom preserves native undo and accessibility focus in browser text inputs', async () => {
+test('contextual zoom preserves native undo and accessibility focus in browser text inputs', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-text-input-'))
   let config = path.join(directory, 'config.yaml')
   await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  shortcuts:\n    Cmd+Z: { action: toggle-pane-zoom, when: pane-not-editing }\n')
@@ -20,6 +21,8 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/ug-url`
   let application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: config, BMUX_BACKGROUND: '0' } })
+  await observeNativeFocus(application)
+  if (process.env.BMUX_TEST_TRACE === '1') await application.context().tracing.start({ screenshots: true, snapshots: true })
   let focusedRole = async () => {
     try { return (await exec('/usr/bin/osascript', ['-e', `tell application "System Events" to tell first application process whose unix id is ${application.process().pid} to get role of (value of attribute "AXFocusedUIElement")`])).stdout.trim() }
     catch (error) { if (String(error).includes('(-1728)')) return ''; throw error }
@@ -244,7 +247,10 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await modifier()
     expect(await zoomed()).toBe(false)
   } finally {
+    await recordNativeFocus(application, info)
+    if (process.env.BMUX_TEST_TRACE === '1') await application.context().tracing.stop({ path: info.outputPath('trace.zip') })
     await closeTestApplication(application)
+    server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
