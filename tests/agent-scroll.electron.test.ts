@@ -15,7 +15,7 @@ test('agent scrolls animate and share a domain lock within each profile', async 
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html' })
-    response.end(`<!doctype html><title>Agent scroll fixture</title><style>body{margin:0;min-height:6000px;background:linear-gradient(#e8eef8,#7194ba);font:20px system-ui}h1{padding:100px 30px}button{position:fixed;top:24px;left:24px;padding:12px}</style><h1>Smooth agent scrolling</h1><button id="fixture-action">Record action</button><script>window.positions=[];window.clicks=[];addEventListener('scroll',()=>positions.push({y:scrollY,at:Date.now()}));document.querySelector('#fixture-action').onclick=()=>clicks.push(Date.now());</script>`)
+    response.end(`<!doctype html><title>Agent scroll fixture</title><style>body{margin:0;min-height:6000px;background:linear-gradient(#e8eef8,#7194ba);font:20px system-ui}h1{padding:100px 30px}button{position:fixed;top:24px;left:24px;padding:12px}</style><h1>Smooth agent scrolling</h1><button id="fixture-action">Record action</button><script>window.positions=[];window.wheels=[];window.clicks=[];addEventListener('wheel',event=>wheels.push({delta:event.deltaY,at:Date.now()}),{passive:true});addEventListener('scroll',()=>positions.push({y:scrollY,at:Date.now()}));document.querySelector('#fixture-action').onclick=()=>clicks.push(Date.now());</script>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://example.com:${(server.address() as { port: number }).port}`
@@ -51,6 +51,10 @@ test('agent scrolls animate and share a domain lock within each profile', async 
     let positions = await first.evaluate(() => (window as any).positions as { y: number; at: number }[])
     expect(positions.length).toBeGreaterThan(3)
     expect(positions.at(-1)!.y).toBeCloseTo(await first.evaluate(() => Math.round(innerHeight / 2)), -1)
+    let wheels = await first.evaluate(() => (window as any).wheels as { delta: number; at: number }[])
+    expect(wheels.length).toBeGreaterThan(10)
+    expect(Math.max(...wheels.map(wheel => wheel.delta))).toBeGreaterThan(wheels[0].delta * 2)
+    expect(Math.max(...wheels.map(wheel => wheel.delta))).toBeGreaterThan(wheels.at(-1)!.delta * 2)
     let clickedAt = await second.evaluate(() => (window as any).clicks[0] as number)
     expect(clickedAt - positions.at(-1)!.at).toBeGreaterThanOrEqual(800)
     let independentUrl = `${url}/independent`

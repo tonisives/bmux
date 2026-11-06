@@ -6,16 +6,21 @@ export let smoothAgentScroll = async (send: Send, params: Record<string, unknown
   if (!deltaX && !deltaY) return {}
   if (params.modifiers) return send('Input.dispatchMouseEvent', params)
   let motion = await send('Runtime.evaluate', { expression: "matchMedia('(prefers-reduced-motion: reduce)').matches", returnByValue: true })
+  if (motion.result?.value) return send('Input.dispatchMouseEvent', { ...params, type: 'mouseWheel', deltaX, deltaY })
   let distance = Math.hypot(deltaX, deltaY)
-  let segments = motion.result?.value ? 1 : Math.min(8, Math.max(1, Math.ceil(distance / (110 + Math.random() * 90))))
-  let weights = Array.from({ length: segments }, () => .65 + Math.random() * .7)
+  let duration = Math.min(1100, 280 + Math.sqrt(distance) * (15 + Math.random() * 7))
+  let frames = Math.max(12, Math.round(duration / 20)), exponent = .9 + Math.random() * .4
+  // One sine-shaped velocity envelope; small variations keep the peak and cadence individual.
+  let weights = Array.from({ length: frames }, (_, index) => Math.pow(Math.sin(Math.PI * (index + .5) / frames), exponent) * (.94 + Math.random() * .12))
   let total = weights.reduce((sum, weight) => sum + weight, 0), traversed = 0, sentX = 0, sentY = 0, result
   for (let [index, weight] of weights.entries()) {
     traversed += weight
-    let nextX = index === segments - 1 ? deltaX : Math.round(deltaX * traversed / total)
-    let nextY = index === segments - 1 ? deltaY : Math.round(deltaY * traversed / total)
-    result = await send('Input.synthesizeScrollGesture', { x, y, xDistance: sentX - nextX, yDistance: sentY - nextY, gestureSourceType: 'mouse', preventFling: true, speed: motion.result?.value ? 10_000_000 : Math.round(850 + Math.random() * 650) })
+    let nextX = index === frames - 1 ? deltaX : Math.round(deltaX * traversed / total)
+    let nextY = index === frames - 1 ? deltaY : Math.round(deltaY * traversed / total)
+    if (nextX !== sentX || nextY !== sentY) result = await send('Input.dispatchMouseEvent', { ...params, type: 'mouseWheel', x, y, deltaX: nextX - sentX, deltaY: nextY - sentY })
     sentX = nextX; sentY = nextY
+    // Space input after acknowledgement so a busy page never receives a catch-up burst.
+    await new Promise(resolve => setTimeout(resolve, duration / frames * (.94 + Math.random() * .12)))
   }
   return result
 }

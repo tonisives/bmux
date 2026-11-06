@@ -1,39 +1,56 @@
 import { expect, test, vi } from 'vitest'
 import { agentScrollParams, smoothAgentScroll } from '../src/main/agent-scroll'
 
-test('uses varied mouse scroll bursts, preserves distance, and waits for the final burst', async () => {
-  let calls: { method: string; params: Record<string, unknown> }[] = [], finish!: () => void, completed = false
-  let random = vi.spyOn(Math, 'random')
-  let sample = 0
-  random.mockImplementation(() => (sample++ % 5) / 5)
+test('mouse wheel follows a sine velocity curve and awaits the final input', async () => {
+  vi.useFakeTimers()
+  let calls: { method: string; params: Record<string, unknown>; at: number }[] = [], finish!: () => void, completed = false
+  let random = vi.spyOn(Math, 'random').mockReturnValue(.5)
   try {
     let scrolling = smoothAgentScroll(async (method, params) => {
-      calls.push({ method, params })
-      if (method === 'Input.synthesizeScrollGesture' && calls.filter(call => call.method === method).reduce((sum, call) => sum + Number(call.params.yDistance), 0) === -600) await new Promise<void>(resolve => { finish = resolve })
+      calls.push({ method, params, at: Date.now() })
+      if (method === 'Input.dispatchMouseEvent' && calls.filter(call => call.method === method).reduce((sum, call) => sum + Number(call.params.deltaY), 0) === 600) await new Promise<void>(resolve => { finish = resolve })
       return { result: { value: false } }
     }, { x: 400, y: 300, deltaX: -80, deltaY: 600 }).then(() => { completed = true })
-    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
-    let bursts = calls.filter(call => call.method === 'Input.synthesizeScrollGesture')
-    expect(bursts.length).toBeGreaterThan(1)
-    expect(bursts.reduce((sum, call) => sum + Number(call.params.yDistance), 0)).toBe(-600)
-    expect(bursts.reduce((sum, call) => sum + Number(call.params.xDistance), 0)).toBe(80)
-    expect(new Set(bursts.map(call => call.params.speed)).size).toBeGreaterThan(1)
-    for (let burst of bursts) {
-      expect(burst.params).toMatchObject({ x: 400, y: 300, gestureSourceType: 'mouse', preventFling: true })
-      expect(Number(burst.params.speed)).toBeGreaterThanOrEqual(850)
-      expect(Number(burst.params.speed)).toBeLessThan(1500)
-    }
+    await vi.advanceTimersByTimeAsync(2000)
+    let wheels = calls.filter(call => call.method === 'Input.dispatchMouseEvent')
+    expect(finish).toBeTypeOf('function')
+    expect(wheels.reduce((sum, call) => sum + Number(call.params.deltaY), 0)).toBe(600)
+    expect(wheels.reduce((sum, call) => sum + Number(call.params.deltaX), 0)).toBe(-80)
+    let middle = Number(wheels[Math.floor(wheels.length / 2)].params.deltaY)
+    expect(middle).toBeGreaterThan(Number(wheels[0].params.deltaY) * 4)
+    expect(middle).toBeGreaterThan(Number(wheels.at(-1)!.params.deltaY) * 4)
+    expect(wheels.at(-1)!.at - wheels[0].at).toBeGreaterThan(500)
+    expect(wheels.every(call => call.params.type === 'mouseWheel' && call.params.x === 400 && call.params.y === 300)).toBe(true)
     expect(completed).toBe(false)
-    finish(); await scrolling
+    finish(); await vi.runAllTimersAsync(); await scrolling
     expect(completed).toBe(true)
-  } finally { random.mockRestore() }
+  } finally { random.mockRestore(); vi.useRealTimers() }
+})
+
+test('successive scrolls vary the sine envelope and timing without drifting the endpoint', async () => {
+  vi.useFakeTimers()
+  let sample = 0, random = vi.spyOn(Math, 'random').mockImplementation(() => (sample++ % 17) / 17)
+  try {
+    let runs: { delta: number; at: number }[][] = []
+    for (let index = 0; index < 2; index++) {
+      let inputs: { delta: number; at: number }[] = []
+      let scroll = smoothAgentScroll(async (method, params) => {
+        if (method === 'Input.dispatchMouseEvent') inputs.push({ delta: Number(params.deltaY), at: Date.now() })
+        return { result: { value: false } }
+      }, { x: 40, y: 30, deltaY: -400 })
+      await vi.runAllTimersAsync(); await scroll
+      expect(inputs.reduce((sum, input) => sum + input.delta, 0)).toBe(-400)
+      runs.push(inputs.map(input => ({ ...input, at: input.at - inputs[0].at })))
+    }
+    expect(runs[0]).not.toEqual(runs[1])
+  } finally { random.mockRestore(); vi.useRealTimers() }
 })
 
 test('honors reduced motion, preserves modified wheels, and skips zero-distance scrolling', async () => {
   let calls: { method: string; params: Record<string, unknown> }[] = []
   let send = async (method: string, params: Record<string, unknown>) => { calls.push({ method, params }); return { result: { value: true } } }
   await smoothAgentScroll(send, { x: 0, y: 0, deltaX: -50 })
-  expect(calls.at(-1)).toMatchObject({ params: { xDistance: 50, speed: 10_000_000 } })
+  expect(calls.at(-1)).toMatchObject({ params: { type: 'mouseWheel', deltaX: -50, deltaY: 0 } })
   await smoothAgentScroll(send, { type: 'mouseWheel', x: 0, y: 0, deltaY: 100, modifiers: 2 })
   expect(calls.at(-1)).toMatchObject({ method: 'Input.dispatchMouseEvent', params: { modifiers: 2 } })
   let count = calls.length
