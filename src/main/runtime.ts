@@ -4042,8 +4042,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         await loadPage(contents, 'about:blank')
         return true
       }
-      let unloaded = await (live.unloadGuard?.run(unload, false) ?? unload())
-      if (!unloaded) throw new Error('Site data clearing was cancelled')
+      await (live.unloadGuard?.run(unload, false) ?? unload())
+      // did-navigate releases the unload guard, including on successful loads.
+      if (contents.isDestroyed() || contents.getURL() !== 'about:blank') throw new Error('Site data clearing was cancelled')
       let document = documents.get(tabId)
       await contents.session.clearData({ origins: [url.origin], dataTypes: ['cookies', 'localStorage', 'indexedDB', 'fileSystems', 'serviceWorkers', 'cache', 'backgroundFetch', 'webSQL'] })
       await contents.session.cookies.flushStore()
