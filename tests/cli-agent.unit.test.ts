@@ -58,7 +58,7 @@ test('agent identifiers reach browser, creation, RPC and movement commands witho
       expect(actual).toMatchObject({ method: 'dom', args: { pane: '%31', agentId: 'publishing-thread', agentType: 'tmux', agentData: { sessionId: '$5', sessionName: 'publishing', windowId: '@52', windowIndex: '7', paneId: '%70' }, agentOrigin: { paneId: '%70', panePid: '64428', threadId: 'publishing-thread' } } })
       let context = await invoke(['agent', 'context'], undefined, env)
       expect(context.agentData.paneId).toBe('%70')
-      await expect(invoke(['dom', '-t', '%31', '--agent-type', 'tmux', '--agent-data', '{"paneId":"%76"}'], undefined, env)).rejects.toThrow('paneId is %70, but supplied %76')
+      await expect(invoke(['dom', '-t', '%31', '--agent-type', 'tmux', '--agent-data', '{"paneId":"%76"}'], undefined, env)).rejects.toThrow('The recorded agent terminal pane has changed')
     }
   } finally {
     if (server.listening) await new Promise<void>(resolve => server.close(() => resolve()))
