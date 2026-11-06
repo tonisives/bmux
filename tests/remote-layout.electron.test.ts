@@ -28,7 +28,8 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
   let pendingImages = new Set<http.ServerResponse>()
   let server = http.createServer((request, response) => {
     if (request.url === '/pending-image') { pendingImages.add(response); response.on('close', () => pendingImages.delete(response)); return }
-    response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style>html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1><div id="horizontal" style="position:absolute;left:20px;top:160px;width:260px;height:80px;overflow:auto"><div style="width:1800px;height:40px">Horizontal content</div></div>' + (request.url === '/pending' ? '<img src="/pending-image">' : ''))
+    response.setHeader('Content-Security-Policy', "style-src-elem 'nonce-fixture'; style-src-attr 'unsafe-inline'")
+    response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Viewport lock</title><style nonce="fixture">html,body{margin:0;min-width:2400px;min-height:2400px;background:rgb(207,61,89)}</style><h1>Viewport lock</h1><div id="horizontal" style="position:absolute;left:20px;top:160px;width:260px;height:80px;overflow:auto"><div style="width:1800px;height:40px">Horizontal content</div></div>' + (request.url === '/pending' ? '<img src="/pending-image">' : ''))
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
@@ -357,7 +358,10 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       for (let phase of [0, 1, 3]) await application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { x: button.x + 16, y: button.y + 16, phase, modifier: 0 })
     } else await fittedHand.click()
     await expect(fittedHand).toHaveAttribute('aria-pressed', 'true')
-    await expect.poll(() => first.locator('#bmux-viewport-pan').evaluate(element => (element.shadowRoot!.querySelector('div') as HTMLElement).style.pointerEvents)).toBe('auto')
+    await expect.poll(() => first.locator('#bmux-viewport-pan').evaluate(element => {
+      let surface = element.shadowRoot!.querySelector('div')!
+      return { position: getComputedStyle(surface).position, height: surface.getBoundingClientRect().height > 0, pointer: getComputedStyle(surface).pointerEvents }
+    }))).toEqual({ position: 'absolute', height: true, pointer: 'auto' })
     await first.mouse.move(120, 120); await first.mouse.down(); await first.mouse.move(100, 100); await first.mouse.up()
     await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft - Number(element.dataset.panOriginX), y: element.scrollTop - Number(element.dataset.panOriginY) }))).toEqual({ x: 20, y: 20 })
     let stationaryHand = await controlBounds(client.paneId)

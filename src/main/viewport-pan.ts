@@ -13,7 +13,9 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
   host.popover = 'manual'
   host.style.cssText = 'all:initial;position:fixed;inset:auto;z-index:2147483647;pointer-events:none'
   let root = host.attachShadow({ mode: 'open' })
-  root.innerHTML = `<style>
+  // Constructed stylesheets keep the browser control styled under page CSP.
+  let sheet = new CSSStyleSheet()
+  sheet.replaceSync(`
     button { position:absolute;display:flex;align-items:center;justify-content:center;right:12px;top:12px;box-sizing:border-box;width:32px;height:32px;padding:0;transform-origin:top right;border:1px solid #666;border-radius:4px;background:#272727;color:white;cursor:pointer;pointer-events:auto }
     button:hover:not([aria-pressed="true"]) { background:#444 }
     button[aria-pressed="true"] { background:#c2ceb9;color:#111318;border-color:#c2ceb9;box-shadow:inset 0 0 0 1px #111318 }
@@ -21,7 +23,9 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
     button:focus-visible { outline:2px solid white;outline-offset:2px }
     svg { display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round }
     div { position:absolute;inset:0;pointer-events:none;cursor:grab;touch-action:none }
-  </style><div></div><button type="button" aria-label="Pan viewport" aria-pressed="false" title="Pan viewport (Alt or Meta + drag; Escape to exit)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a1.5 1.5 0 0 1 3 0v6-8a1.5 1.5 0 0 1 3 0v8-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v6c0 4-3 7-7 7h-1c-2 0-3-1-4-2l-4-5a1.5 1.5 0 0 1 2-2l2 2"/></svg></button>`
+  `)
+  root.adoptedStyleSheets = [sheet]
+  root.innerHTML = `<div></div><button type="button" aria-label="Pan viewport" aria-pressed="false" title="Pan viewport (Alt or Meta + drag; Escape to exit)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a1.5 1.5 0 0 1 3 0v6-8a1.5 1.5 0 0 1 3 0v8-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v6c0 4-3 7-7 7h-1c-2 0-3-1-4-2l-4-5a1.5 1.5 0 0 1 2-2l2 2"/></svg></button>`
   let surface = root.querySelector('div')!, button = root.querySelector('button')!
   let toggled = area?.toggled ?? false, modifier = false, dragging: { id: number; x: number; y: number } | undefined
   let report = console.debug.bind(console)

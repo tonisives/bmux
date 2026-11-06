@@ -9,15 +9,15 @@ let fixture = () => {
     return { style: {}, isConnected: false, listeners, attributes, setAttribute: (key: string, value: string) => attributes.set(key, value), addEventListener: (type: string, listener: (event: any) => void) => listeners.set(type, listener), setPointerCapture: (id: number) => captured.add(id), hasPointerCapture: (id: number) => captured.has(id), releasePointerCapture: (id: number) => captured.delete(id) }
   }
   let host = element(), surface = element(), button = element(), window = element(), reports: string[] = [], modes: boolean[] = []
-  let root = { innerHTML: '', querySelector: (selector: string) => selector === 'div' ? surface : button }
-  let context = vm.createContext({ window, document: { createElement: () => Object.assign(host, { attachShadow: () => root }), documentElement: { append: () => { host.isConnected = true } } }, console: { debug: (value: string) => { let data = JSON.parse(value.slice(4)); if (typeof data.mode === 'boolean') modes.push(data.mode); else reports.push(value) } } })
+  let root = { innerHTML: '', adoptedStyleSheets: [] as { css: string }[], querySelector: (selector: string) => selector === 'div' ? surface : button }
+  let context = vm.createContext({ window, CSSStyleSheet: class { css = ''; replaceSync(css: string) { this.css = css } }, document: { createElement: () => Object.assign(host, { attachShadow: () => root }), documentElement: { append: () => { host.isConnected = true } } }, console: { debug: (value: string) => { let data = JSON.parse(value.slice(4)); if (typeof data.mode === 'boolean') modes.push(data.mode); else reports.push(value) } } })
   let configure = (area: unknown) => vm.runInContext(`(${observeViewportPan.toString()})('pan:', ${JSON.stringify(area)}, ${viewportPanDelta.toString()})`, context)
   let fire = (target: typeof surface, type: string, properties = {}) => {
     let event = { isTrusted: true, button: 0, pointerId: 1, screenX: 100, screenY: 100, altKey: false, metaKey: false, prevented: false, stopped: false, preventDefault: () => { event.prevented = true }, stopPropagation: () => { event.stopped = true }, stopImmediatePropagation: () => { event.stopped = true }, ...properties }
     target.listeners.get(type)?.(event)
     return event
   }
-  return { host, surface, button, window, reports, modes, configure, fire }
+  return { host, root, surface, button, window, reports, modes, configure, fire }
 }
 
 test('hand mode, modifier dragging, cancellation and clipping updates preserve page input', () => {
@@ -60,6 +60,14 @@ test('hand mode, modifier dragging, cancellation and clipping updates preserve p
   f.fire(f.button, 'click')
   expect(f.button.attributes.get('aria-pressed')).toBe('false')
   expect(f.modes.slice(-2)).toEqual([true, false])
+})
+
+test('pan styles use a constructed stylesheet independent of page style CSP', () => {
+  let f = fixture()
+  f.configure({ x: 0, y: 0, width: 320, height: 200 })
+  expect(f.root.adoptedStyleSheets).toHaveLength(1)
+  expect(f.root.adoptedStyleSheets[0].css).toContain('position:absolute;inset:0')
+  expect(f.root.innerHTML).not.toContain('<style>')
 })
 
 test('pan wheels preserve both axes and normalize line and page deltas', () => {
