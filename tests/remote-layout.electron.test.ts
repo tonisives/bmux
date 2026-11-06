@@ -446,6 +446,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await settingsPage.mouse.move(100, 100)
     await expect(settingsButton).toBeHidden()
     await settingsHand.focus()
+    await settingsHand.press('ArrowRight')
     await expect(settingsButton).toBeVisible()
     await settingsHand.press('Tab')
     await expect(settingsButton).toBeFocused()

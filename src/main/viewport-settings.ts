@@ -10,7 +10,7 @@ export let observeViewportSettings = (marker: string, settings: ViewportSettings
     button[aria-label="Pan viewport"] { right:40px !important }
     .settings { right:0;top:0;visibility:hidden;pointer-events:none }
     :host(:hover) { pointer-events:auto !important }
-    :host(:hover) .settings,:host(:focus-within) .settings,.settings[aria-expanded="true"] { visibility:visible;pointer-events:auto }
+    :host(:hover) .settings,button[aria-label="Pan viewport"]:focus-visible ~ .settings,.settings:focus-visible,.settings[aria-expanded="true"] { visibility:visible;pointer-events:auto }
     form { position:absolute;box-sizing:border-box;top:40px;right:0;width:288px;padding:16px;border:1px solid #666;border-radius:8px;background:#272727;color:white;font:14px/20px system-ui;pointer-events:auto }
     form[hidden] { display:none }
     form div { position:static;inset:auto;pointer-events:auto;cursor:auto }
