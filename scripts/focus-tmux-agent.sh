@@ -13,12 +13,10 @@ tmux_agent() {
 }
 client=${BMUX_AGENT_FIELD_CLIENT_TTY:-}
 if [ -n "$client" ]; then
-  tmux_agent switch-client -c "$client" -t "$pane"
+  tmux_agent switch-client -c "$client" -t "$pane" \; select-window -t "$pane" \; select-pane -t "$pane"
 else
-  tmux_agent switch-client -t "$pane"
+  tmux_agent switch-client -t "$pane" \; select-window -t "$pane" \; select-pane -t "$pane"
 fi
-tmux_agent select-window -t "$pane"
-tmux_agent select-pane -t "$pane"
 
 if [ "$(uname -s)" = Darwin ]; then
   window=${BMUX_AGENT_FIELD_TERMINAL_WINDOW_ID:-}

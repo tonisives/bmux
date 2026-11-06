@@ -161,8 +161,9 @@ Click the address-bar **Active agent** or **Last agent** button to open that
 pane's **Agent information**, then click **Focus agent** to go to its terminal.
 Page input stays locked during automation; browser controls remain available.
 
-The tmux helper uses the recorded origin to verify the terminal before focusing
-it. Origin is added by automatic CLI context and stored separately from visible
+The tmux helper queries only the recorded pane to verify the terminal before focusing
+it. A missing, recycled, or changed target fails; focus does not search other panes
+or follow a conversation into a new pane. Origin is added by automatic CLI context and stored separately from visible
 fields. Supplying just the three terminal IDs through raw RPC does not add a
 verified origin. Send a browser command through the CLI with type `tmux` to
 refresh it. Focus runs only when requested through the UI.

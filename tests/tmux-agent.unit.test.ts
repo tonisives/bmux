@@ -3,8 +3,17 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { findAgentPane, resolveTmuxAgent, identifyTmuxAgent, focusTmuxPane } from '../bin/tmux-agent.mjs'
+import { findAgentPane, resolveTmuxAgent, identifyTmuxAgent, focusTmuxPane as directFocusTmuxPane } from '../bin/tmux-agent.mjs'
 import type { AgentPane } from '../bin/tmux-agent.mjs'
+
+let focusTmuxPane: typeof directFocusTmuxPane = (data, origin, options = {}) => directFocusTmuxPane(data, origin, {
+  ...options,
+  execute: async (command, args) => {
+    expect(args).toContain('display-message'); expect(args).not.toContain('list-panes');
+    let output = await options.execute!(command, args);
+    return output.split('\n').find(line => line.split('\t')[2] === origin?.paneId) ?? '';
+  },
+})
 
 let thread = { id: 'publishing-thread', name: 'Publishing videos', cwd: '/fixtures/movies' }
 let publishing: AgentPane = { sessionId: '$5', sessionName: 'publishing', windowId: '@52', windowIndex: '7', paneId: '%70', panePid: '64428', command: 'codex', title: '[ ! ] Action Required | Publishing videos | movies', cwd: '/fixtures/movies', clientTty: '/dev/ttys000' }
@@ -58,11 +67,11 @@ test('focus verifies the agent thread again and never falls back to an unrelated
   let execute = async () => list(), threadForId = async () => thread
   expect(await focusTmuxPane(context.agentData, context.agentOrigin, { execute, threadForId })).toBe('%70')
   let moved = { ...publishing, paneId: '%80', panePid: '88888' }
-  expect(await focusTmuxPane(context.agentData, context.agentOrigin, { execute: async () => [moved, hacking].map(p => [p.sessionId, p.windowId, p.paneId, p.panePid, p.command, p.title, p.cwd].join('\t')).join('\n'), threadForId })).toBe('%80')
+  await expect(focusTmuxPane(context.agentData, context.agentOrigin, { execute: async () => [moved, hacking].map(p => [p.sessionId, p.windowId, p.paneId, p.panePid, p.command, p.title, p.cwd].join('\t')).join('\n'), threadForId })).rejects.toThrow('changed')
   await expect(focusTmuxPane({ paneId: '%76' }, context.agentOrigin, { execute, threadForId })).rejects.toThrow('unverified')
   await expect(focusTmuxPane({ paneId: '%76' }, undefined, { execute, threadForId })).rejects.toThrow('unverified')
   await expect(focusTmuxPane(context.agentData, { ...context.agentOrigin, threadId: undefined, panePid: '99999' }, { execute })).rejects.toThrow('changed')
-  await expect(focusTmuxPane(context.agentData, context.agentOrigin, { execute: async () => '', threadForId })).rejects.toThrow('unique')
+  await expect(focusTmuxPane(context.agentData, context.agentOrigin, { execute: async () => '', threadForId })).rejects.toThrow('changed')
 })
 
 test('thread lookup ignores offline saved names and rejects conflicting live panes', async () => {
@@ -91,7 +100,7 @@ test('thread lookup ignores offline saved names and rejects conflicting live pan
     }
     let execute = async () => liveList('codex', '0')
     await expect(resolveTmuxAgent({ env, execute })).rejects.toThrow('unique tmux pane')
-    await expect(focusTmuxPane(context.agentData, context.agentOrigin, { env, execute })).rejects.toThrow('unique tmux pane')
+    expect(await focusTmuxPane(context.agentData, context.agentOrigin, { env, execute })).toBe('%70')
     await expect(resolveTmuxAgent({ env, execute: async () => list().replace(publishing.title, 'Other thread | movies') })).rejects.toThrow('unique tmux pane')
   } finally { database.close(); await fs.rm(directory, { recursive: true, force: true }) }
 })

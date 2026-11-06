@@ -79,13 +79,16 @@ export let identifyTmuxAgent = async (command, env = process.env, resolve = reso
 
 export let focusTmuxPane = async (data, origin, { env = process.env, execute = run, threadForId = readThread } = {}) => {
   if (origin?.type !== 'tmux' || origin.paneId !== data.paneId) throw new Error('Agent terminal context is unverified; refresh it with bmux agent context')
-  let panes = await listPanes(origin.socketPath, execute)
+  let fields = ['session_id', 'window_id', 'pane_id', 'pane_pid', 'pane_current_command', 'pane_title', 'pane_current_path', 'client_tty', 'session_name', 'window_index', 'pane_dead']
+  let output = await execute('tmux', [...(origin.socketPath ? ['-S', origin.socketPath] : []), 'display-message', '-p', '-t', origin.paneId, fields.map(field => `#{${field}}`).join('\t')])
+  let [sessionId, windowId, paneId, panePid, command, title, cwd, clientTty, sessionName, windowIndex, dead] = output.trimEnd().split('\t')
+  let pane = { sessionId, windowId, paneId, panePid, command, title, cwd, clientTty, sessionName, windowIndex, dead: dead === '1' }
+  if (paneId !== origin.paneId || panePid !== origin.panePid || pane.dead) throw new Error('The agent terminal pane has changed; refresh its context')
   if (origin.threadId) {
     let thread = await threadForId(origin.threadId, env)
-    return findAgentPane(panes, [], 0, thread).paneId
+    try { findAgentPane([pane], [], 0, thread) }
+    catch { throw new Error('The recorded agent conversation has changed; refresh its context') }
   }
-  let pane = panes.find(pane => pane.paneId === origin.paneId && pane.panePid === origin.panePid)
-  if (!pane) throw new Error('The agent terminal pane has changed; refresh its context')
   return pane.paneId
 }
 
