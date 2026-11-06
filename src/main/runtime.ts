@@ -2211,12 +2211,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           owner.tabTooltip.setBounds({ x: Math.max(8, Math.min(window.width - width - 8, button.x + button.width - width)), y: Math.min(window.height - 28, button.y + 36), width, height: 28 })
           owner.tabTooltip.webContents.send('link-preview', 'Pan viewport · Alt/Meta + drag · Alt + scroll to zoom')
           owner.window.contentView.addChildView(owner.tabTooltip); owner.tabTooltip.setVisible(true)
+        }, () => ({ ...fixedViewport(tabId)!, zoom: pane.zoom || 1 }), settings => {
+          let { window } = paneById(model, tabId)
+          window.lockedViewports ??= {}
+          window.lockedViewports[tabId] = { width: settings.width, height: settings.height }
+          pane.zoom = settings.zoom; live.contents.setZoomFactor(settings.zoom)
+          remoteSizes.delete(tabId)
+          changed()
         })
         let page = live.view.getBounds(), frame = live.remoteFrame?.getBounds()
         let left = frame?.x ?? page.x
         let top = frame?.y ?? page.y
         let width = frame?.width ?? page.width
-        live.panControl.mount(live.parent.contentView, { x: Math.round(left + width - 44), y: Math.round(top + 12), width: 32, height: 32 })
+        live.panControl.mount(live.parent.contentView, { x: Math.round(left + width - 84), y: Math.round(top + 12), width: 72, height: 32 })
         live.panControl.refresh(viewportPanModes.has(tabId))
       } else if (live.panControl) {
         live.panControl.dispose(); live.panControl = undefined
