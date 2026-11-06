@@ -88,7 +88,10 @@ test('cursor appearance and feedback timers save and apply live without renewing
     await dialog.getByLabel('Maximum action pause', { exact: true }).fill('0')
     await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(dialog.getByRole('status')).toHaveText('Saved')
-    await expect.poll(() => chrome.evaluate(async () => (await (window as any).bmux.state()).lockedAgentPanes)).toEqual([])
+    await expect.poll(() => chrome.evaluate(async () => {
+      let state = await (window as any).bmux.state()
+      return { inputUnlockMs: state.agentFeedback.inputUnlockMs, locked: state.lockedAgentPanes }
+    })).toEqual({ inputUnlockMs: 0, locked: [] })
     let saved = await fs.readFile(config, 'utf8')
     expect(saved).toContain('# preserve this comment')
     expect(parse(saved).agentFeedback).toMatchObject({ color: '#76beff', cursorSize: 40, idleRotationDegrees: 25, cursorHideMs: 0, commandDisplayMs: 1000, inputUnlockMs: 0, actionDelayMinMs: 0, actionDelayMaxMs: 0 })

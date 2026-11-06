@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ChangeEvent, FormEvent, MouseEvent } from 'react'
 import { AGENT_FEEDBACK_RANGES, DEFAULT_AGENT_FEEDBACK, parseAgentFeedback, resolveAgentFeedback } from '../shared/agent-feedback'
 import type { AgentFeedbackSettings as Feedback } from '../shared/agent-feedback'
@@ -11,23 +11,25 @@ export let FeedbackTabIcon = ({ tab }: { tab: 'protection' | FeedbackSection }) 
 
 export let AgentFeedbackSettings = ({ value, save, profileId, section }: { value: Feedback; profileId?: string; section?: FeedbackSection; save: (value: Feedback) => Promise<unknown> }) => {
   let saved = JSON.stringify(value)
+  let editing = useRef(false)
   let [draft, setDraft] = useState(() => fields(value)), [selected, setSelected] = useState<FeedbackSection>('appearance'), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
   let tab = section ?? selected
   let selectTab = (event: MouseEvent<HTMLButtonElement>) => setSelected(event.currentTarget.dataset.section as FeedbackSection)
-  useEffect(() => { setDraft(fields(JSON.parse(saved))) }, [saved])
+  useEffect(() => { if (!editing.current) setDraft(fields(JSON.parse(saved))) }, [saved])
   let parsed = () => {
     if (Object.values(draft).some(amount => !amount.trim())) throw new Error('Enter a value for every setting')
     return parseAgentFeedback(Object.fromEntries(Object.entries(draft).map(([key, amount]) => [key, key === 'color' ? amount : seconds.has(key) ? Math.round(Number(amount) * 1000) : Number(amount)])))
   }
-  let changeValues = (values: Record<string, string>) => { setDraft(current => ({ ...current, ...values })); setError(''); setNotice('') }
+  let changeValues = (values: Record<string, string>) => { editing.current = true; setDraft(current => ({ ...current, ...values })); setError(''); setNotice('') }
   let changeField = (name: string, value: string) => changeValues({ [name]: value })
   let change = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => changeField(event.target.name, event.target.value)
   let colorSource = (event: ChangeEvent<HTMLSelectElement>) => {
+    editing.current = true
     setDraft(current => ({ ...current, color: event.target.value === 'profile' ? 'profile' : resolveAgentFeedback({ ...value, color: 'profile' }, profileId).color })); setError(''); setNotice('')
   }
   let apply = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setNotice(''); setBusy(true)
-    try { if (await save(parsed())) setNotice('Saved') } catch (error) { setError(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
+    try { if (await save(parsed())) { editing.current = false; setNotice('Saved') } } catch (error) { setError(error instanceof Error ? error.message : String(error)) } finally { setBusy(false) }
   }
   let reset = () => {
     let defaults = fields(DEFAULT_AGENT_FEEDBACK), keys: string[] = numericFields.filter(([, , , group]) => group === tab).map(([key]) => key)
