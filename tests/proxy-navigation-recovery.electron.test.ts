@@ -50,8 +50,8 @@ test('recovers failed tunnel panes on their retained connection without reloadin
     let initial = await state(), profile = initial.model.profiles[0], session = initial.model.sessions[0]
     let saved = await command('profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: (proxy.address() as net.AddressInfo).port, authenticated: false })
     await application.evaluate(({ session }, connection: string) => { session.fromPartition(`persist:${connection}`).setCertificateVerifyProc((_request, callback) => callback(0)) }, saved.connectionId)
-    let window = await command('new-window', { session: session.id, profile: profile.id, client: initial.clientId })
-    let healthy = window.panes[0], first = await command('split-window', { pane: healthy.id, client: initial.clientId }), second = await command('split-window', { pane: first.id, client: initial.clientId })
+    let created = await command('new-window', { session: session.id, profile: profile.id, client: initial.clientId })
+    let healthy = created.panes[0], first = await command('split-window', { pane: healthy.id, client: initial.clientId }), second = await command('split-window', { pane: first.id, client: initial.clientId })
     let origin = `https://localhost:${(destination.address() as net.AddressInfo).port}`
     await command('navigate', { pane: healthy.id, url: `${origin}/healthy` })
     expect(healthyRequests).toBe(1)
