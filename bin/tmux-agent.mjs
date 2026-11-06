@@ -49,17 +49,24 @@ let listPanes = async (socket, execute) => {
   })
 }
 
-export let resolveTmuxAgent = async ({ env = process.env, pid = process.pid, execute = run, threadForId = readThread } = {}) => {
+export let resolveTmuxAgent = async ({ env = process.env, pid = process.pid, paneId, execute = run, threadForId = readThread } = {}) => {
   let socketPath = env.TMUX?.split(',')[0]
-  let panes = await listPanes(socketPath, execute)
+  let panes
+  if (paneId) {
+    let fields = ['session_id', 'window_id', 'pane_id', 'pane_pid', 'pane_current_command', 'pane_title', 'pane_current_path', 'client_tty', 'session_name', 'window_index', 'pane_dead']
+    let output = await execute('tmux', [...(socketPath ? ['-S', socketPath] : []), 'display-message', '-p', '-t', paneId, fields.map(field => `#{${field}}`).join('\t')])
+    let [sessionId, windowId, found, panePid, command, title, cwd, clientTty, sessionName, windowIndex, dead] = output.trimEnd().split('\t')
+    if (found !== paneId || dead === '1') throw new Error('The recorded agent terminal pane has changed')
+    panes = [{ sessionId, windowId, paneId: found, panePid, command, title, cwd, clientTty, sessionName, windowIndex, dead: false }]
+  } else panes = await listPanes(socketPath, execute)
   let threadId = env.CODEX_THREAD_ID ?? env.CODEX_SESSION_ID
   let thread = threadId ? await threadForId(threadId, env) : undefined
   let processes = []
-  if (!thread) {
+  if (!thread && !paneId) {
     let output = await execute('ps', ['-Ao', 'pid=,ppid='])
     processes = output.trim().split('\n').map(line => { let [pid, parent] = line.trim().split(/\s+/).map(Number); return { pid, parent } })
   }
-  let pane = findAgentPane(panes, processes, pid, thread)
+  let pane = paneId && !thread ? panes[0] : findAgentPane(panes, processes, pid, thread)
   let agentData = { sessionId: pane.sessionId, windowId: pane.windowId, paneId: pane.paneId, ...(pane.clientTty ? { clientTty: pane.clientTty } : {}), ...(pane.sessionName ? { sessionName: pane.sessionName } : {}), ...(pane.windowIndex ? { windowIndex: pane.windowIndex } : {}) }
   let agentOrigin = { type: 'tmux', paneId: pane.paneId, panePid: pane.panePid, ...(socketPath ? { socketPath } : {}), ...(threadId ? { threadId } : {}) }
   return { agentId: threadId ?? pane.paneId, agentType: 'tmux', agentData, agentOrigin }
@@ -69,8 +76,8 @@ export let identifyTmuxAgent = async (command, env = process.env, resolve = reso
   let methods = ['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run', 'automation.acquire', 'new-window', 'new-pane', 'split-window', 'tab.create']
   if (!methods.includes(command.method) || command.args?.agentType && command.args.agentType !== 'tmux' || !env.TMUX) return command
   if (!command.args?.agentType && !env.CODEX_THREAD_ID && !env.CODEX_SESSION_ID) return command
-  let context = await resolve({ env })
   let args = command.args ?? {}
+  let context = await resolve({ env, paneId: args.agentData?.paneId })
   for (let key of ['sessionId', 'windowId', 'paneId']) {
     if (args.agentData?.[key] !== undefined && args.agentData[key] !== context.agentData[key]) throw new Error(`Agent terminal ${key} is ${context.agentData[key]}, but supplied ${args.agentData[key]}; run bmux agent context for the actual tmux IDs`)
   }

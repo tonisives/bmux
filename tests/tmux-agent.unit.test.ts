@@ -119,3 +119,13 @@ test('terminal lookup and focus tolerate soft hyphens removed by tmux without ac
   expect(() => findAgentPane([pane, { ...pane, paneId: '%71', title: 'Refresh server-price-\u00ad= | movies' }], [], 999, saved)).toThrow('unique')
   expect(() => findAgentPane([{ ...pane, title: 'Refresh server-price-other | movies' }], [], 999, saved)).toThrow('unique')
 })
+
+
+test('explicit tmux context validates one pane without listing agents', async () => {
+  let calls: string[][] = []
+  let result = await resolveTmuxAgent({ env: { TMUX: '/tmp/agent-tmux,123,5', CODEX_THREAD_ID: thread.id }, paneId: '%70', execute: async (_command, args) => { calls.push(args); return list().split('\n')[0] }, threadForId: async () => thread })
+  expect(result).toEqual(context)
+  expect(calls).toHaveLength(1)
+  expect(calls[0]).toContain('display-message')
+  expect(calls[0]).not.toContain('list-panes')
+})
