@@ -164,7 +164,7 @@ test('shows verified TLS details, rejects invalid certificates, and follows redi
   let panel = chrome.getByRole('dialog', { name: 'Site information', exact: true })
   await expect(panel).toContainText('localhost')
   await expect(panel).toContainText('Valid until')
-  await expect(panel).toContainText('It does not establish that a website is trustworthy.')
+  await expect(panel).not.toContainText('It does not establish that a website is trustworthy.')
   await fs.mkdir(path.resolve('artifacts'), { recursive: true })
   await chrome.screenshot({ path: path.resolve('artifacts/site-information.png') })
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
