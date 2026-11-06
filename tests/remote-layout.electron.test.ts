@@ -434,7 +434,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     let settingsHand = settingsPage.getByRole('button', { name: 'Pan viewport', exact: true })
     let openSettings = async () => { await settingsHand.hover(); await settingsButton.click() }
     await rpc('zoom', { tab: third.id, factor: .5 })
-    await otherChrome.getByRole('button', { name: 'Command prompt', exact: true }).hover()
+    await settingsPage.mouse.move(100, 100)
     await expect(settingsButton).toBeHidden()
     await settingsHand.hover()
     await expect(settingsButton).toBeVisible()
@@ -443,7 +443,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect(settingsButton).toBeVisible()
     await settingsButton.hover()
     await expect(settingsButton).toBeVisible()
-    await otherChrome.getByRole('button', { name: 'Command prompt', exact: true }).hover()
+    await settingsPage.mouse.move(100, 100)
     await expect(settingsButton).toBeHidden()
     await settingsHand.focus()
     await expect(settingsButton).toBeVisible()
