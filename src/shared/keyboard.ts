@@ -18,6 +18,7 @@ export let DEFAULT_KEYBOARD: KeyboardConfig = {
     Tab: { action: 'next-window', when: 'pane-not-editing' },
     'Shift+Tab': { action: 'previous-window', when: 'pane-not-editing' },
     'Ctrl+Tab': 'next-window', 'Ctrl+Shift+Tab': 'previous-window',
+    'Cmd+Z': { action: 'toggle-pane-zoom', when: 'pane-not-editing' },
     'Cmd+=': 'zoom-in', 'Cmd+Shift+=': 'zoom-in', 'Cmd+-': 'zoom-out', 'Cmd+0': 'zoom-reset',
     'Cmd+Shift+D': 'toggle-dark', 'Cmd+,': 'settings', 'CmdOrCtrl+.': 'toggle-window-pin', F1: 'help', Escape: 'stop',
   },

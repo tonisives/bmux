@@ -2212,10 +2212,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           owner.tabTooltip.setBounds({ x: Math.max(8, Math.min(window.width - width - 8, button.x + button.width - width)), y: Math.min(window.height - 28, button.y + 36), width, height: 28 })
           owner.tabTooltip.webContents.send('link-preview', 'Pan viewport · Alt/Meta + drag · Alt + scroll to zoom')
           owner.window.contentView.addChildView(owner.tabTooltip); owner.tabTooltip.setVisible(true)
-        }, () => ({ ...fixedViewport(tabId)!, zoom: pane.zoom || 1 }), settings => {
+        }, () => ({ ...fixedViewport(tabId)!, zoom: pane.zoom || 1, recent: model.recentViewports ?? [] }), settings => {
           let { window } = paneById(model, tabId)
           window.lockedViewports ??= {}
           window.lockedViewports[tabId] = { width: settings.width, height: settings.height }
+          model.recentViewports = [{ width: settings.width, height: settings.height, zoom: settings.zoom }, ...(model.recentViewports ?? []).filter(item => item.width !== settings.width || item.height !== settings.height || item.zoom !== settings.zoom)].slice(0, 3)
           pane.zoom = settings.zoom; live.contents.setZoomFactor(settings.zoom)
           remoteSizes.delete(tabId)
           changed()
@@ -2879,13 +2880,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (token) tabAutomation.set(args.tab, token)
     }
     if (!sourceClientId && automation && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
-      let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).pane.profileId : ''
+      let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).session.defaultProfileId : ''
       let searchApp = method === 'new-window' ? searchAppForSession(resolve(model.sessions, args.session, 'Session')) : typeof args.pane === 'string' ? searchAppForSession(paneById(model, args.pane).session) : undefined
       if (matchingAutomationGroup(configuration?.automation ?? DEFAULT_AUTOMATION, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
     }
     if (!sourceClientId && !remoteActor.getStore() && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let session = method === 'new-window' ? resolve(model.sessions, args.session, 'Session') : paneById(model, args.pane).session
-      let profileId = resolve(model.profiles, args.profile ?? (method === 'new-window' ? session.defaultProfileId : paneById(model, args.pane).pane.profileId), 'Profile').id
+      let profileId = resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id
       await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)), true, { paneId: '', ...agentInfo(args) }, false)
     }
     if (method === 'window.audio.toggle' || method === 'session.audio.toggle') {
@@ -3485,9 +3486,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       save(); return session
     }
     if (method === 'pane.profile.set') {
-      let { pane } = paneById(model, args.pane)
+      let { pane, session } = paneById(model, args.pane)
       let profile = resolve(model.profiles, args.profile, 'Profile')
-      if (!paneIsUnvisited(pane)) throw new Error('Pane profile can only change before a page loads')
+      if (session.private) throw new Error('Private pane profiles cannot be changed')
+      if (!paneIsUnvisited(pane) && args.reload !== true) throw new Error('Changing this pane profile requires reload: true')
       if (pane.profileId === profile.id) return pane
       disposeTab(pane.id)
       pane.profileId = profile.id
@@ -3783,7 +3785,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let client = model.clients.find(client => client.id === args.client) ?? model.clients.find(client => client.windowId === window.id)
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
       if (method === 'break-pane' && !parent) throw new Error('Use break-pane with a pane')
-      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
+      let pane = method === 'break-pane' ? parent!.pane : newPane(resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
       if (method === 'new-pane') updateAgentInfo(pane, args)
       if (method === 'new-pane' && !sourceClientId && args.url) automatedNavigations.set(pane.id, { paneId: pane.id, ...agentInfo(pane) })
       if (method === 'new-pane' && session.device) pane.device = session.device
@@ -3804,7 +3806,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let parent = args.pane ? paneById(model, args.pane) : undefined
       let window = parent?.window ?? resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = parent?.session ?? model.sessions.find(session => session.windows.includes(window))!
-      let pane = newPane(resolve(model.profiles, args.profile ?? parent?.pane.profileId ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
+      let pane = newPane(resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id, args.url ? normalizeUrl(String(args.url), searchAppForSession(session)) : undefined, model)
       updateAgentInfo(pane, args)
       if (!sourceClientId && args.url) automatedNavigations.set(pane.id, { paneId: pane.id, ...agentInfo(pane) })
       if (session.device) pane.device = session.device
@@ -4032,8 +4034,18 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let url = new URL(contents.getURL())
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Open a website to clear its data')
       if (url.origin !== required(args, 'origin')) throw new Error('The page changed. Reopen Site information and try again')
-      await contents.session.clearData({ origins: [url.origin], dataTypes: ['cookies', 'localStorage', 'indexedDB', 'fileSystems', 'serviceWorkers', 'cache', 'backgroundFetch', 'webSQL'] })
-      if (!contents.isDestroyed() && contents.getURL() === url.href) guardedNavigation(live, () => contents.reload())
+      let clear = async () => {
+        // Stop the old document from restoring cookies or storage while clearing.
+        live.initialNavigation = undefined
+        contents.stop()
+        await loadPage(contents, 'about:blank')
+        await contents.session.clearData({ origins: [url.origin], dataTypes: ['cookies', 'localStorage', 'indexedDB', 'fileSystems', 'serviceWorkers', 'cache', 'backgroundFetch', 'webSQL'] })
+        await contents.session.cookies.flushStore()
+        await loadPage(contents, url.href)
+        return true
+      }
+      let reloaded = await (live.unloadGuard?.run(clear, false) ?? clear())
+      if (!reloaded) throw new Error('Site data clearing was cancelled')
       return { origin: url.origin }
     }
     if (method === 'reload' || method === 'hard-reload') {

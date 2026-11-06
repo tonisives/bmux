@@ -2,15 +2,14 @@
 
 A profile stores cookies, site storage, history, bookmarks, extensions,
 permissions, and connection settings. Sessions organize windows; they are not
-profiles. A pane keeps its profile after a page is loaded.
+profiles. Loaded panes keep their profile until you explicitly change it.
 
 ## Choose a profile
 
 Open profile details from the profile icon beside the pane address. Panes with
 the same profile share settings and logins. Click the profile name to edit it,
 and press Enter or **Save**. Escape or **Cancel** discards the edit.
-A split inherits its source profile unless another is specified. Create a new
-pane when you need a different profile:
+A split uses the session default profile unless another is specified:
 
 ```sh
 bmux profile create review
@@ -112,3 +111,5 @@ reproduce all hardware behavior. Check engine- and hardware-specific behavior on
 the actual target device.
 
 See the illustrated [profile proxy guide](https://bmux.cc/articles/profile-proxies/).
+
+New panes use the session default profile unless a profile is explicitly supplied. In Profile settings, **Profile for this pane** changes only that pane and reloads its current URL using the selected profile.

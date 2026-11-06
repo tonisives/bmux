@@ -13,7 +13,7 @@ let exec = promisify(execFile)
 test('contextual zoom preserves native undo and accessibility focus in browser text inputs', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-text-input-'))
   let config = path.join(directory, 'config.yaml')
-  await fs.writeFile(config, 'accessibility: true\nkeyboard:\n  shortcuts:\n    Cmd+Z: { action: toggle-pane-zoom, when: pane-not-editing }\n')
+  await fs.writeFile(config, 'accessibility: true\nkeyboard: {}\n')
   let server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html' })
     response.end('<!doctype html><title>Text input fixture</title><button id="surface">Page content</button><label>Text<input id="text"></label><label>Notes<textarea id="notes"></textarea></label><div contenteditable="true" role="textbox" aria-label="Editor">Editable text</div>')

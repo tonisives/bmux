@@ -296,3 +296,5 @@ Window numbers stay with their windows when reordered, pinned, or closed. Numeri
 Use `switchc -t %29` in the command prompt to select a pane across sessions.
 See [switch-client](switch-client.md) for session cycling, zoom, read-only mode
 and one-key tables.
+
+Cmd+Z toggles pane zoom when a page is focused outside text fields. Text fields keep native undo.

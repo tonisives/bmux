@@ -1668,7 +1668,6 @@ let SiteInformation = () => {
     {security.error && <p>{security.error}</p>}
     {security.status === 'certificate-error' && <p>This connection was blocked because its certificate could not be verified.</p>}
     {security.status === 'mixed' && <p>This page includes or requests content over an unencrypted connection.</p>}
-    <p>Encryption protects the connection. It does not establish that a website is trustworthy.</p>
     {certificate && <dl><dt>Subject</dt><dd>{certificate.subject || 'Unavailable'}</dd><dt>Issuer</dt><dd>{certificate.issuer || 'Unavailable'}</dd><dt>Valid from</dt><dd>{date(certificate.validFrom)}</dd><dt>Valid until</dt><dd>{date(certificate.validTo)}</dd>{certificate.protocol && <><dt>Protocol</dt><dd>{certificate.protocol}</dd></>}</dl>}
     {/^https?:\/\//i.test(origin) && <button onClick={clearSiteData} disabled={busy}>{busy ? 'Clearing…' : 'Clear cookies and site data'}</button>}
     {notice && <p role="status">{notice}</p>}
@@ -3273,7 +3272,7 @@ let ProfileManagementRow = ({ profile }: { profile: Profile }) => {
 }
 
 let ProfileSelectActions = () => {
-  let { state, run, onMessage } = useUI(), { session, profile } = selection(state)
+  let { state, run, onMessage } = useUI(), { session, pane, profile } = selection(state)
   let [creating, setCreating] = useState(false), [managing, setManaging] = useState(false)
   let [name, setName] = useState(''), [busy, setBusy] = useState(false)
   let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
@@ -3285,6 +3284,11 @@ let ProfileSelectActions = () => {
     setBusy(true)
     try { await run('session.profile.set', { session: session.id, profile: event.target.value }) } finally { setBusy(false) }
   }
+  let changePane = async (event: ChangeEvent<HTMLSelectElement>) => {
+    if (!pane || busy) return
+    setBusy(true)
+    try { await run('pane.profile.set', { pane: pane.id, profile: event.target.value, reload: true }) } finally { setBusy(false) }
+  }
   let create = async (event: FormEvent) => {
     event.preventDefault()
     if (!session || busy || !name.trim()) return
@@ -3295,7 +3299,8 @@ let ProfileSelectActions = () => {
     } finally { setBusy(false) }
   }
   return <>
-    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows<select aria-label="Default profile for new windows" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className={css.profileManageButton} onClick={manage} aria-label="Manage profiles" title="Manage profiles" aria-expanded={managing} disabled={busy}><SettingsIcon /></button></div>
+    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows and panes<select aria-label="Default profile for new windows and panes" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className={css.profileManageButton} onClick={manage} aria-label="Manage profiles" title="Manage profiles" aria-expanded={managing} disabled={busy}><SettingsIcon /></button></div>
+    {pane && <label className={css.sessionProfileChange}>Profile for this pane<select aria-label="Profile for this pane" value={pane.profileId} onChange={changePane} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
     {managing && <div className={css.profileManager} role="group" aria-label="Manage profiles"><div className={css.profileManageHeading}><span>Profiles</span><button type="button" onClick={add} aria-label="New profile" title="New profile" disabled={busy || creating}>+</button></div>
     {creating && <form className={css.sessionCreate} onSubmit={create} aria-label="Create profile"><label>Profile name<input value={name} onChange={changeName} autoFocus disabled={busy} required /></label><div className={css.sessionCreateActions}><button type="submit" disabled={busy || !name.trim()}>Create profile</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form>}
     {state.model.profiles.map(item => <ProfileManagementRow key={item.id} profile={item} />)}</div>}
@@ -3314,7 +3319,7 @@ let ProfileInfo = () => {
   let currentProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
   let canChangeProfile = !!session && !session.private
   let overview = () => setTab('overview'), paneTab = () => setTab('pane'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
-  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="New windows"><ProfileSelectActions /></ProfileSection>}
+  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="Profiles"><ProfileSelectActions /></ProfileSection>}
     <ProfileSection title="HTTP cache">
       <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
       <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>

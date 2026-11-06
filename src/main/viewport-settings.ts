@@ -1,4 +1,4 @@
-export type ViewportSettings = { width: number; height: number; zoom: number }
+export type ViewportSettings = { width: number; height: number; zoom: number; recent?: { width: number; height: number; zoom: number }[] }
 
 // Runs only in the browser-owned stationary control.
 export let observeViewportSettings = (marker: string, settings: ViewportSettings, open: boolean) => {
@@ -33,12 +33,26 @@ export let observeViewportSettings = (marker: string, settings: ViewportSettings
   let width = form.elements.namedItem('width') as HTMLInputElement, height = form.elements.namedItem('height') as HTMLInputElement, zoom = form.elements.namedItem('zoom') as HTMLInputElement
   let preset = form.querySelector('select')!
   let report = console.debug.bind(console), shown = false
+  let recent: NonNullable<ViewportSettings['recent']> = []
   let update = (next: ViewportSettings, expanded: boolean) => {
+    if (JSON.stringify(recent) !== JSON.stringify(next.recent ?? [])) {
+      recent = next.recent ?? []
+      preset.querySelector('optgroup')?.remove()
+      let group = document.createElement('optgroup')
+      group.label = 'Recently used'
+      recent.slice(0, 3).forEach((item, index) => {
+        let option = document.createElement('option')
+        option.value = `recent:${index}`; option.textContent = `${item.width} × ${item.height} · ${Math.round(item.zoom * 100)}%`
+        group.append(option)
+      })
+      if (group.childElementCount) preset.insertBefore(group, preset.options[1])
+    }
     // Preserve edits during unrelated page state refreshes.
     if (!shown || !expanded) {
       width.value = String(next.width); height.value = String(next.height); zoom.value = String(Math.round(next.zoom * 10000) / 100)
       let value = `${next.width}x${next.height}`
-      preset.value = [...preset.options].some(option => option.value === value) ? value : 'custom'
+      let index = recent.findIndex(item => item.width === next.width && item.height === next.height && item.zoom === next.zoom)
+      preset.value = index >= 0 ? `recent:${index}` : [...preset.options].some(option => option.value === value) ? value : 'custom'
     }
     shown = expanded; form.hidden = !expanded
     gear.setAttribute('aria-expanded', String(expanded))
@@ -48,6 +62,10 @@ export let observeViewportSettings = (marker: string, settings: ViewportSettings
   form.querySelector('button')!.addEventListener('click', () => report(marker + JSON.stringify({ open: false })))
   preset.addEventListener('change', () => {
     if (preset.value === 'custom') return
+    if (preset.value.startsWith('recent:')) {
+      let item = recent[Number(preset.value.slice(7))]
+      width.value = String(item.width); height.value = String(item.height); zoom.value = String(Math.round(item.zoom * 10000) / 100); return
+    }
     let [w, h] = preset.value.split('x'); width.value = w; height.value = h; zoom.value = '100'
   })
   for (let input of [width, height]) input.addEventListener('input', () => { preset.value = 'custom' })
