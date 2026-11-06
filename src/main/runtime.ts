@@ -1403,6 +1403,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       else void execute({ method: 'tab.close', args: { tab: tab.id } }).catch(reportError)
     })
     contents.on('render-process-gone', () => { invalidate() })
+    contents.setZoomMode('isolated')
     contents.setZoomFactor(tab.zoom || 1)
     installKeys(contents)
     let panArea = (shield = false) => {
