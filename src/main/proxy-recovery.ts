@@ -1,12 +1,12 @@
 type Recovery = { timer?: ReturnType<typeof setTimeout>; running?: Promise<void>; attempt: number }
 
 // One probe per connection, with a bounded backoff after each recovery request.
-export let createProxyRecovery = (check: (profileId: string) => Promise<boolean>) => {
+export let createProxyRecovery = (check: (profileId: string) => Promise<boolean>, repeatDelay?: number) => {
   let pending = new Map<string, Recovery>()
   let delays = [2000, 5000, 10000]
   let schedule = (profileId: string, recovery: Recovery) => {
-    if (pending.get(profileId) !== recovery || recovery.attempt >= delays.length) return
-    recovery.timer = setTimeout(() => { recovery.timer = undefined; void probe(profileId, recovery) }, delays[recovery.attempt++])
+    if (pending.get(profileId) !== recovery || recovery.attempt >= delays.length && repeatDelay === undefined) return
+    recovery.timer = setTimeout(() => { recovery.timer = undefined; void probe(profileId, recovery) }, delays[recovery.attempt++] ?? repeatDelay)
     recovery.timer.unref?.()
   }
   let probe = (profileId: string, recovery: Recovery): Promise<void> => {

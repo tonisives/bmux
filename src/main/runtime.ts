@@ -71,6 +71,7 @@ import { normalizeUrl } from './url'
 import { createProfileProxyRelays, testProxyRelay, createProxyCredentialStore, parseProfileProxy, requiredHostProxy } from './profile-proxy'
 import type { ProxyCredentials } from './profile-proxy'
 import { createProxyRecovery } from './proxy-recovery'
+import { createProxyNavigationRecovery } from './proxy-navigation-recovery'
 import { createNavigationProxyHints } from './navigation-proxy-hints'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createControlLeases } from '../shared/remote'
@@ -344,9 +345,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let setNavigationError = (tabId: string, error: string, url?: string) => {
     crashes[tabId] = error
     let pane = walkPanes(model).find(item => item.pane.id === tabId)?.pane
-    navigationProxyHints.record(tabId, error, url ?? pane?.url ?? '', !!pane && !!(hostProxy ?? connectionProfile(model, paneConnectionId(pane)).proxy), !!hostProxy)
+    let connection = pane && paneConnectionId(pane), proxied = !!connection && !!(hostProxy ?? connectionProfile(model, connection).proxy)
+    navigationProxyHints.record(tabId, error, url ?? pane?.url ?? '', proxied, !!hostProxy)
+    if (pane && connection) proxyNavigationRecovery.record(tabId, connection, url ?? pane.url, error, proxied)
   }
-  let clearNavigationError = (tabId: string) => { delete crashes[tabId]; navigationProxyHints.clear(tabId) }
+  let clearNavigationError = (tabId: string) => { delete crashes[tabId]; navigationProxyHints.clear(tabId); proxyNavigationRecovery.clear(tabId) }
   let loading: Record<string, boolean> = {}
   let audio: PublicState['audio'] = {}
   let audibleMedia = new Set<string>()
@@ -709,6 +712,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       }
       return false
     }
+  })
+  let proxyNavigationRecovery = createProxyNavigationRecovery(async connection => {
+    if (shuttingDown) return false
+    await testProfileProxy(connection)
+    return true
+  }, async (pane, url) => {
+    let live = tabs.get(pane)
+    if (!live || !isLiveTabOpen(live) || !crashes[pane] || shuttingDown) { proxyNavigationRecovery.clear(pane); return }
+    await guardedLoad(live, url)
   })
   let browserSession = (profileId: string, privateSessionId?: string) => {
     let profile = connectionProfile(model, profileId)
@@ -1872,6 +1884,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     return closing
   }
   let disposeTab = (tabId: string) => {
+    proxyNavigationRecovery.clear(tabId)
     viewportPanModes.delete(tabId)
     previewRefresh.remove(tabId)
     activeAgents.delete(tabId)
@@ -2452,6 +2465,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     window.on('focus', () => {
       if (shuttingDown) return
       for (let profileId of Object.keys(profileProxyFailures)) void proxyRecovery.retry(profileId)
+      proxyNavigationRecovery.retry()
       focusedClientId = client.id
       updateRemoteMenu()
       model.lastFocusedClientId = client.id
@@ -4321,6 +4335,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     agentUnlockTimers.clear()
     agentInputOverrides.clear()
     proxyRecovery.close()
+    proxyNavigationRecovery.close()
     clearInterval(memoryTimer)
     clearInterval(idleUnloadTimer)
     clearTimeout(pageLimitTimer)
