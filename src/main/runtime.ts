@@ -4034,6 +4034,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let url = new URL(contents.getURL())
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Open a website to clear its data')
       if (url.origin !== required(args, 'origin')) throw new Error('The page changed. Reopen Site information and try again')
+      let history = contents.navigationHistory, entries = history.getAllEntries(), index = history.getActiveIndex()
       let clear = async () => {
         // Stop the old document from restoring cookies or storage while clearing.
         live.initialNavigation = undefined
@@ -4041,12 +4042,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         await loadPage(contents, 'about:blank')
         await contents.session.clearData({ origins: [url.origin], dataTypes: ['cookies', 'localStorage', 'indexedDB', 'fileSystems', 'serviceWorkers', 'cache', 'backgroundFetch', 'webSQL'] })
         await contents.session.cookies.flushStore()
-        await loadPage(contents, url.href)
+        // Restore entries into a fresh controller so Back/Forward keep their places
+        // without reviving the document whose storage was cleared.
+        await history.restore({ entries: [...entries, { url: 'about:blank', title: '' }], index: entries.length })
+        await settlePageNavigation(contents, goToPageHistory(contents, index))
+        history.removeEntryAtIndex(entries.length)
         return true
       }
       let reloaded = await (live.unloadGuard?.run(clear, false) ?? clear())
       if (!reloaded) throw new Error('Site data clearing was cancelled')
-      return { origin: url.origin }
+      return { origin: url.origin, url: contents.getURL() }
     }
     if (method === 'reload' || method === 'hard-reload') {
       let tabId = required(args, 'tab'), { tab } = tabById(model, tabId)

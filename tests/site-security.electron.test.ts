@@ -86,6 +86,7 @@ test('clears cookies and site storage from the lock panel without affecting othe
     await session.fromPartition('site-data-other-profile').cookies.set({ url, name: 'fixture', value: 'keep' })
   }, { url: urls.http, otherUrl })
   let beforeReload = await page.evaluate(() => performance.timeOrigin)
+  let beforeHistory = (await state()).navigation[tab.id]
   await page.evaluate(async () => {
     localStorage.setItem('fixture', 'clear')
     await new Promise<void>((resolve, reject) => {
@@ -108,6 +109,7 @@ test('clears cookies and site storage from the lock panel without affecting othe
   await expect.poll(async () => (await state()).loading[tab.id] ?? false).toBe(false)
   await expect(page.locator('h1')).toHaveText('Connection fixture')
   expect(await page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(beforeReload)
+  expect((await state()).navigation[tab.id]).toEqual(beforeHistory)
   expect(await page.evaluate(async () => ({ local: localStorage.getItem('fixture'), databases: await indexedDB.databases(), caches: await caches.keys() }))).toEqual({ local: null, databases: [], caches: [] })
   let cookies = await application.evaluate(async ({ session }, { url, otherUrl }) => ({
     cleared: await session.fromPartition('persist:profile_default').cookies.get({ url: `${url}/account` }),

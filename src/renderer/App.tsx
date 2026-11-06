@@ -1658,7 +1658,7 @@ let SiteInformation = () => {
     setBusy(true); setNotice(undefined)
     try {
       let result = await run('site-data.clear', { tab: tab.id, origin })
-      if (result !== undefined) setNotice({ tab: tab.id, url: tab.url })
+      if (result !== undefined) setNotice({ tab: tab.id, url: (result as { url: string }).url })
     } finally { setBusy(false) }
   }
   return <section aria-label="Connection details">
