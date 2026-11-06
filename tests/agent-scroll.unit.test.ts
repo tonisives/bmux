@@ -1,21 +1,32 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { agentScrollParams, smoothAgentScroll } from '../src/main/agent-scroll'
 
-test('uses a bounded smooth gesture and returns only after scrolling completes', async () => {
+test('uses varied mouse scroll bursts, preserves distance, and waits for the final burst', async () => {
   let calls: { method: string; params: Record<string, unknown> }[] = [], finish!: () => void, completed = false
-  let scrolling = smoothAgentScroll(async (method, params) => {
-    calls.push({ method, params })
-    if (method === 'Input.synthesizeScrollGesture') await new Promise<void>(resolve => { finish = resolve })
-    return { result: { value: false } }
-  }, { x: 400, y: 300, deltaY: 600 }).then(() => { completed = true })
-  await Promise.resolve()
-  expect(calls.at(-1)).toMatchObject({ method: 'Input.synthesizeScrollGesture', params: { x: 400, y: 300, yDistance: -600, preventFling: true } })
-  expect(Number.isInteger(calls.at(-1)!.params.speed)).toBe(true)
-  expect(Number(calls.at(-1)!.params.speed)).toBeGreaterThan(1000)
-  expect(Number(calls.at(-1)!.params.speed)).toBeLessThan(1500)
-  expect(completed).toBe(false)
-  finish(); await scrolling
-  expect(completed).toBe(true)
+  let random = vi.spyOn(Math, 'random')
+  let sample = 0
+  random.mockImplementation(() => (sample++ % 5) / 5)
+  try {
+    let scrolling = smoothAgentScroll(async (method, params) => {
+      calls.push({ method, params })
+      if (method === 'Input.synthesizeScrollGesture' && calls.filter(call => call.method === method).reduce((sum, call) => sum + Number(call.params.yDistance), 0) === -600) await new Promise<void>(resolve => { finish = resolve })
+      return { result: { value: false } }
+    }, { x: 400, y: 300, deltaX: -80, deltaY: 600 }).then(() => { completed = true })
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    let bursts = calls.filter(call => call.method === 'Input.synthesizeScrollGesture')
+    expect(bursts.length).toBeGreaterThan(1)
+    expect(bursts.reduce((sum, call) => sum + Number(call.params.yDistance), 0)).toBe(-600)
+    expect(bursts.reduce((sum, call) => sum + Number(call.params.xDistance), 0)).toBe(80)
+    expect(new Set(bursts.map(call => call.params.speed)).size).toBeGreaterThan(1)
+    for (let burst of bursts) {
+      expect(burst.params).toMatchObject({ x: 400, y: 300, gestureSourceType: 'mouse', preventFling: true })
+      expect(Number(burst.params.speed)).toBeGreaterThanOrEqual(850)
+      expect(Number(burst.params.speed)).toBeLessThan(1500)
+    }
+    expect(completed).toBe(false)
+    finish(); await scrolling
+    expect(completed).toBe(true)
+  } finally { random.mockRestore() }
 })
 
 test('honors reduced motion, preserves modified wheels, and skips zero-distance scrolling', async () => {
