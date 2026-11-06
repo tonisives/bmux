@@ -106,6 +106,7 @@ test('clears cookies and site storage from the lock panel without affecting othe
   let panel = chrome.getByRole('dialog', { name: 'Site information', exact: true })
   await panel.getByRole('button', { name: 'Clear cookies and site data', exact: true }).click()
   await expect(panel).toContainText('Cookies and site data cleared.')
+  page = application.context().pages().find(page => page.url() === `${urls.http}/`)!
   await expect.poll(async () => (await state()).loading[tab.id] ?? false).toBe(false)
   await expect(page.locator('h1')).toHaveText('Connection fixture')
   expect(await page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(beforeReload)
@@ -146,6 +147,7 @@ test('clears parent-domain cookies and stops the old document restoring site dat
   let panel = chrome.getByRole('dialog', { name: 'Site information', exact: true })
   await panel.getByRole('button', { name: 'Clear cookies and site data', exact: true }).click()
   await expect(panel).toContainText('Cookies and site data cleared. Page reloaded.')
+  page = application.context().pages().find(page => page.url() === `${url}/`)!
   expect(await page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(beforeReload)
   expect(await page.evaluate(() => localStorage.getItem('old-document'))).toBeNull()
   expect(await application.evaluate(async ({ session }, url) => session.fromPartition('persist:profile_default').cookies.get({ url: `${url}/checkpoint` }), url)).toEqual([])
