@@ -361,7 +361,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect.poll(() => first.locator('#bmux-viewport-pan').evaluate(element => {
       let surface = element.shadowRoot!.querySelector('div')!
       return { position: getComputedStyle(surface).position, height: surface.getBoundingClientRect().height > 0, pointer: getComputedStyle(surface).pointerEvents }
-    }))).toEqual({ position: 'absolute', height: true, pointer: 'auto' })
+    })).toEqual({ position: 'absolute', height: true, pointer: 'auto' })
     await first.mouse.move(120, 120); await first.mouse.down(); await first.mouse.move(100, 100); await first.mouse.up()
     await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft - Number(element.dataset.panOriginX), y: element.scrollTop - Number(element.dataset.panOriginY) }))).toEqual({ x: 20, y: 20 })
     let stationaryHand = await controlBounds(client.paneId)
