@@ -126,6 +126,29 @@ test('clears cookies and site storage from the lock panel without affecting othe
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
 })
 
+test('clears parent-domain cookies and stops the old document restoring site data before reloading', async () => {
+  let url = urls.http.replace('localhost', 'www.bmux.test')
+  await open(url)
+  let page = application.context().pages().find(page => page.url() === `${url}/`)!
+  await expect(page.locator('h1')).toHaveText('Connection fixture')
+  let beforeReload = await page.evaluate(() => performance.timeOrigin)
+  await application.evaluate(async ({ session }, url) => {
+    await session.fromPartition('persist:profile_default').cookies.set({ url, domain: '.bmux.test', path: '/checkpoint', name: 'parent-session', value: 'clear', httpOnly: true })
+  }, url)
+  await page.evaluate(() => {
+    let write = () => { localStorage.setItem('old-document', 'clear'); document.cookie = 'old-document=clear; path=/' }
+    write(); setInterval(write, 1)
+  })
+  await chrome.locator(`[data-pane-id="${pane.id}"]`).getByRole('button', { name: 'Site information: Connection is not encrypted' }).click()
+  let panel = chrome.getByRole('dialog', { name: 'Site information', exact: true })
+  await panel.getByRole('button', { name: 'Clear cookies and site data', exact: true }).click()
+  await expect(panel).toContainText('Cookies and site data cleared. Page reloaded.')
+  expect(await page.evaluate(() => performance.timeOrigin)).toBeGreaterThan(beforeReload)
+  expect(await page.evaluate(() => localStorage.getItem('old-document'))).toBeNull()
+  expect(await application.evaluate(async ({ session }, url) => session.fromPartition('persist:profile_default').cookies.get({ url: `${url}/checkpoint` }), url)).toEqual([])
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+})
+
 test('shows verified TLS details, rejects invalid certificates, and follows redirects and panes', async () => {
   test.setTimeout(120000)
   await open(urls.valid)
