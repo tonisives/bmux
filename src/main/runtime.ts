@@ -2208,9 +2208,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           if (!owner || owner.window.isDestroyed()) return
           if (!visible) { owner.tabTooltip.setVisible(false); return }
           let button = live.panControl!.view.getBounds(), window = owner.window.getContentBounds()
-          let width = Math.min(400, window.width - 16)
+          let width = Math.min(160, window.width - 16)
           owner.tabTooltip.setBounds({ x: Math.max(8, Math.min(window.width - width - 8, button.x + button.width - width)), y: Math.min(window.height - 28, button.y + 36), width, height: 28 })
-          owner.tabTooltip.webContents.send('link-preview', 'Pan viewport · Alt/Meta + drag · Alt + scroll to zoom')
+          owner.tabTooltip.webContents.send('link-preview', 'Pan viewport')
           owner.window.contentView.addChildView(owner.tabTooltip); owner.tabTooltip.setVisible(true)
         }, () => ({ ...fixedViewport(tabId)!, zoom: pane.zoom || 1, recent: model.recentViewports ?? [] }), settings => {
           let { window } = paneById(model, tabId)
