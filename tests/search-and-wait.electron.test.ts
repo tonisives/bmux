@@ -2220,7 +2220,7 @@ test('new sessions use the saved preference and loaded panes keep their profile 
   await rpc('kill-pane', { pane: explicit.id })
   let nextWindow = await rpc('new-window', { session: created.id }) as { panes: { profileId: string }[] }
   expect(nextWindow.panes[0].profileId).toBe(fresh.id)
-  await chrome.getByRole('button', { name: `Profile: ${model.profiles[1].name}` }).click()
+  await chrome.locator(`[data-pane-id="${blank}"]`).getByRole('button', { name: `Profile: ${model.profiles[1].name}`, exact: true }).click()
   await expect(chrome.getByRole('dialog', { name: 'Profile' }).getByRole('combobox', { name: 'Default profile for new windows and panes' })).toHaveValue(fresh.id)
   await rpc('session.new-profile.set', { profile: model.profiles[0].id })
 })

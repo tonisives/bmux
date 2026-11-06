@@ -1648,18 +1648,17 @@ let SiteInformation = () => {
   let { state, run } = useUI()
   let { tab, profile } = selection(state)
   let [busy, setBusy] = useState(false)
-  let [notice, setNotice] = useState('')
-  useEffect(() => { setNotice('') }, [tab?.id, tab?.url])
+  let [notice, setNotice] = useState<{ tab: string; url: string }>()
   if (!tab) return <p>Open a page to see its connection.</p>
   let security = state.security?.[tab.id] ?? initialSecurity(tab.url)
   let origin = (() => { try { let parsed = new URL(security.url); return parsed.origin === 'null' ? parsed.protocol : parsed.origin } catch { return security.url } })()
   let certificate = security.certificate
   let date = (seconds: number) => Number.isFinite(seconds) ? new Date(seconds * 1000).toLocaleString() : 'Unavailable'
   let clearSiteData = async () => {
-    setBusy(true); setNotice('')
+    setBusy(true); setNotice(undefined)
     try {
       let result = await run('site-data.clear', { tab: tab.id, origin })
-      if (result !== undefined) setNotice('Cookies and site data cleared. Page reloaded.')
+      if (result !== undefined) setNotice({ tab: tab.id, url: tab.url })
     } finally { setBusy(false) }
   }
   return <section aria-label="Connection details">
@@ -1670,7 +1669,7 @@ let SiteInformation = () => {
     {security.status === 'mixed' && <p>This page includes or requests content over an unencrypted connection.</p>}
     {certificate && <dl><dt>Subject</dt><dd>{certificate.subject || 'Unavailable'}</dd><dt>Issuer</dt><dd>{certificate.issuer || 'Unavailable'}</dd><dt>Valid from</dt><dd>{date(certificate.validFrom)}</dd><dt>Valid until</dt><dd>{date(certificate.validTo)}</dd>{certificate.protocol && <><dt>Protocol</dt><dd>{certificate.protocol}</dd></>}</dl>}
     {/^https?:\/\//i.test(origin) && <button onClick={clearSiteData} disabled={busy}>{busy ? 'Clearing…' : 'Clear cookies and site data'}</button>}
-    {notice && <p role="status">{notice}</p>}
+    {notice?.tab === tab.id && notice.url === tab.url && <p role="status">Cookies and site data cleared. Page reloaded.</p>}
   </section>
 }
 let ExtensionInfoIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg>

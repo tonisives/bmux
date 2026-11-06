@@ -129,6 +129,7 @@ test('clears cookies and site storage from the lock panel without affecting othe
 test('clears parent-domain cookies and stops the old document restoring site data before reloading', async () => {
   let url = urls.http.replace('localhost', 'www.bmux.test')
   await open(url)
+  await expect.poll(() => application.context().pages().some(page => page.url() === `${url}/`)).toBe(true)
   let page = application.context().pages().find(page => page.url() === `${url}/`)!
   await expect(page.locator('h1')).toHaveText('Connection fixture')
   let beforeReload = await page.evaluate(() => performance.timeOrigin)
