@@ -7,8 +7,8 @@ export let observeViewportSettings = (marker: string, settings: ViewportSettings
   let root = document.querySelector('#bmux-viewport-pan')!.shadowRoot!
   let sheet = new CSSStyleSheet()
   sheet.replaceSync(`
-    button[aria-label="Pan viewport"] { right:40px !important }
-    .settings { right:0;top:0;opacity:0;pointer-events:none }
+    button[aria-label="Pan viewport"] { right:0 !important }
+    .settings { right:40px;top:0;opacity:0;pointer-events:none }
     :host(:hover) { pointer-events:auto !important }
     :host(:hover) .settings,button[aria-label="Pan viewport"]:focus-visible ~ .settings,.settings:focus-visible,.settings[aria-expanded="true"] { opacity:1;pointer-events:auto }
     form { position:absolute;box-sizing:border-box;top:40px;right:0;width:288px;padding:16px;border:1px solid #666;border-radius:8px;background:#272727;color:white;font:14px/20px system-ui;pointer-events:auto }

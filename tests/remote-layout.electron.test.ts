@@ -208,7 +208,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       let anchoredControl = await controlBounds(client.paneId)
       await hand.hover()
       let tooltip = application.context().pages().find(page => page.url().endsWith('#tab-tooltip'))!
-      await expect(tooltip.getByText('Pan viewport · Alt/Meta + drag · Alt + scroll to zoom', { exact: true })).toBeVisible()
+      await expect(tooltip.getByText('Pan viewport', { exact: true })).toBeVisible()
       for (let modifier of ['Alt', 'Meta']) {
         await first.keyboard.down(modifier)
         await first.mouse.move(120, 120)
@@ -355,7 +355,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     let fittedHand = (await controlPage(client.paneId)).getByRole('button', { name: 'Pan viewport', exact: true })
     if (process.platform === 'darwin') {
       let button = (await controlBounds(client.paneId))!
-      for (let phase of [0, 1, 3]) await application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { x: button.x + 16, y: button.y + 16, phase, modifier: 0 })
+      for (let phase of [0, 1, 3]) await application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { x: button.x + button.width - 16, y: button.y + 16, phase, modifier: 0 })
     } else await fittedHand.click()
     await expect(fittedHand).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => first.locator('#bmux-viewport-pan').evaluate(element => {
@@ -439,10 +439,13 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await settingsHand.hover()
     await expect(settingsButton).toHaveCSS('opacity', '1')
     let handBounds = (await settingsHand.boundingBox())!
-    await settingsPage.mouse.move(handBounds.x + handBounds.width + 4, handBounds.y + 16)
+    await settingsPage.mouse.move(handBounds.x - 4, handBounds.y + 16)
     await expect(settingsButton).toHaveCSS('opacity', '1')
     await settingsButton.hover()
     await expect(settingsButton).toHaveCSS('opacity', '1')
+    let gearBounds = (await settingsButton.boundingBox())!
+    expect(gearBounds.x + gearBounds.width).toBeLessThan(handBounds.x)
+    expect(handBounds.x + handBounds.width).toBe((await controlBounds(third.id))!.width)
     await settingsPage.mouse.move(100, 100)
     await expect(settingsButton).toHaveCSS('opacity', '0')
     await settingsHand.focus()

@@ -25,7 +25,7 @@ export let observeViewportPan = (marker: string, area: ViewportPanArea | undefin
     div { position:absolute;inset:0;pointer-events:none;cursor:grab;touch-action:none }
   `)
   root.adoptedStyleSheets = [sheet]
-  root.innerHTML = `<div></div><button type="button" aria-label="Pan viewport" aria-pressed="false" title="Pan viewport (Alt or Meta + drag; Escape to exit)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a1.5 1.5 0 0 1 3 0v6-8a1.5 1.5 0 0 1 3 0v8-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v6c0 4-3 7-7 7h-1c-2 0-3-1-4-2l-4-5a1.5 1.5 0 0 1 2-2l2 2"/></svg></button>`
+  root.innerHTML = `<div></div><button type="button" aria-label="Pan viewport" aria-pressed="false" title="Pan viewport"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V6a1.5 1.5 0 0 1 3 0v6-8a1.5 1.5 0 0 1 3 0v8-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v6c0 4-3 7-7 7h-1c-2 0-3-1-4-2l-4-5a1.5 1.5 0 0 1 2-2l2 2"/></svg></button>`
   let surface = root.querySelector('div')!, button = root.querySelector('button')!
   let toggled = area?.toggled ?? false, modifier = false, dragging: { id: number; x: number; y: number } | undefined
   let report = console.debug.bind(console)

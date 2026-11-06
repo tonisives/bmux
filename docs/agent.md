@@ -411,9 +411,9 @@ screenshot and inference run while the next input remains queued.
 
 `bmux lock-viewport -t SESSION:WINDOW --width 1512 --height 900` sets every pane in the window to that native viewport size, including when already locked. Without dimensions, the command captures the current sizes. `bmux unlock-viewport -t SESSION:WINDOW` restores automatic sizing. Sizes persist across relaunches.
 
-Hover or focus the hand to reveal the settings button beside it. The button stays visible while using its popup, which has a viewport preset, custom width and height, and page zoom. Changes apply only to that pane and persist across relaunches. The MacBook Pro 14″ preset uses 1512 × 982 logical pixels at 100% zoom.
+Hover or focus the hand to reveal the settings button to its left. The button stays visible while using its popup, which has a viewport preset, custom width and height, and page zoom. Changes apply only to that pane and persist across relaunches. The MacBook Pro 14″ preset uses 1512 × 982 logical pixels at 100% zoom.
 
-Each fixed viewport has a stationary hand button with a pressed state that stays the same size at every page zoom. Hover for its shortcuts. Toggle it or hold Alt or Meta and drag to pan the visible area at full scale. Drags can start in the space around a page, including when hand mode is toggled. Panning works even when the whole locked viewport fits in its pane, and either page edge can be moved to the middle of the pane. Alt scrolling zooms the page in or out. Scroll while holding Meta or in hand mode to pan with a wheel or trackpad. Escape exits hand mode. Normal scrolling, including Shift scrolling, belongs to the website.
+Each fixed viewport has a stationary hand button with a pressed state that stays the same size at every page zoom. Toggle it or hold Alt or Meta and drag to pan the visible area at full scale. Drags can start in the space around a page, including when hand mode is toggled. Panning works even when the whole locked viewport fits in its pane, and either page edge can be moved to the middle of the pane. Alt scrolling zooms the page in or out. Scroll while holding Meta or in hand mode to pan with a wheel or trackpad. Escape exits hand mode. Normal scrolling, including Shift scrolling, belongs to the website.
 
 ### Recording context
 
