@@ -37,7 +37,7 @@ export let PluginOverlay = () => {
     let dx = event.key === 'ArrowRight' ? 24 : event.key === 'ArrowLeft' ? -24 : 0
     let left = event.currentTarget.dataset.edge?.includes('left')
     let width = Math.max(280, overlay.bounds.width + (left ? -dx : dx))
-    void command('pane.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + (overlay.bounds.width - width) * overlay.zoom : overlay.bounds.x, width, height: Math.max(240, overlay.bounds.height + (event.key === 'ArrowDown' ? -24 : event.key === 'ArrowUp' ? 24 : 0)), y: overlay.bounds.y + (event.key === 'ArrowDown' ? Math.min(24, (overlay.bounds.height - 240) * overlay.zoom) : event.key === 'ArrowUp' ? -24 * overlay.zoom : 0) })
+    void command('pane.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + (overlay.bounds.width - width) * overlay.zoom : overlay.bounds.x, width, height: Math.max(240, overlay.bounds.height + (event.key === 'ArrowDown' ? -24 : event.key === 'ArrowUp' ? 24 : 0)), y: overlay.bounds.y + (event.key === 'ArrowDown' ? Math.min(24 * overlay.zoom, (overlay.bounds.height - 240) * overlay.zoom) : event.key === 'ArrowUp' ? -24 * overlay.zoom : 0) })
   }
   let panelKeys = (event: KeyboardEvent) => { if (event.key === 'Escape' && overlay && !overlay.bounds.collapsed) { event.stopPropagation(); void command('pane.overlay.bounds', { ...overlay.bounds, collapsed: true, compact: false }) } }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>

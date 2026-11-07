@@ -377,7 +377,8 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await rpc('activate-client', { client: client.id })
       await expect.poll(() => application.evaluate(({ BaseWindow }, id) => BaseWindow.getFocusedWindow()?.id === id, nativeWindowId)).toBe(true)
       let button = (await controlBounds(client.paneId))!
-      let point = { x: button.x + button.width - 16, y: button.y + 16 }
+      let handRect = (await fittedHand.boundingBox())!, zoom = await fittedHand.page().evaluate(() => (window as any).bmux.overlayState().then((overlay: any) => overlay.zoom))
+      let point = { x: button.x + (handRect.x + handRect.width / 2) * zoom, y: button.y + (handRect.y + handRect.height / 2) * zoom }
       await expect.poll(() => application.evaluate((_electron, points) => (globalThis as any).remoteLayoutHits(points), [point])).toEqual([`{${button.width}, ${button.height}}`])
       let input = (phase: number) => application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { ...point, phase, modifier: 0, direct: true })
       for (let phase of [0, 1, 3]) await input(phase)
