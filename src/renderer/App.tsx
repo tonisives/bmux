@@ -2019,7 +2019,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
-      {editingProfile ? <>{presets}<div role="group" aria-label="Profile settings">{profileFields.map(field)}</div><div className={css.pluginSettingsRows}>{sections}</div></> : <>
+      {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access} idle={values.ai_source === 'included' && !usesIncludedAI(values)}>{sourceFields.map(field)}</PluginSubscription>}
       {!request.profiles && <section aria-label="Browsing profile"><h3>Browsing profile</h3>{presets}</section>}
       <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
