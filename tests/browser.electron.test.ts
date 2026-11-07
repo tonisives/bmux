@@ -70,10 +70,7 @@ let rendererForClient = async (clientId: string, expected?: { sessionId: string;
 }
 // Native interaction fixtures must not renew an agent input lock while inspecting readiness.
 let ui = (chrome: Page, method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
-let launch = async () => {
-  let packaged = process.env.BMUX_TEST_PACKAGED === '1'
-  application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
-  application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
+let waitForServer = async () => {
   // The public CLI auto-starts a server. During a slow restore that can launch the
   // installed build against this same fixture before the test app starts listening.
   let socket = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(directory).digest('hex').slice(0, 16)}.sock`)
@@ -87,6 +84,12 @@ let launch = async () => {
     connection.on('end', () => { try { resolve(JSON.parse(response).result.pid) } catch (error) { reject(error) } })
   })
   await expect.poll(() => serverPid().catch(() => null), { timeout: 20000 }).toBe(application.process().pid)
+}
+let launch = async () => {
+  let packaged = process.env.BMUX_TEST_PACKAGED === '1'
+  application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
+  application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
+  await waitForServer()
   // Let startup finish before entering the main process through the inspector.
   await observeNativeFocus(application)
 }
@@ -1324,6 +1327,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   await closeTestApplication(application)
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
+  await waitForServer()
   await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
   expect((await cli('list-clients'))[0].windowId).toBe(sourceWindow.id)
   await cli('detach-client', { client: client.id })
@@ -1347,6 +1351,7 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: false }))
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
+  await waitForServer()
   await expect.poll(async () => (await cli('state')).startupNotice).toBe('Removed a pane after chromewebstore.google.com crashed bmux during navigation.')
   expect((await cli('list-panes', { window: session.windows[0].id })).map((pane: { id: string }) => pane.id)).toEqual([retained.id])
   expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).paneId).toBe(retained.id)
