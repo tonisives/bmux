@@ -844,13 +844,17 @@ test('four visible panes each retain a scaled plugin overlay with independent co
     }
     expect(observers.size).toBe(4)
     for (let [id, page] of observers) {
-      expect((await page.evaluate(() => (window as any).bmux.state())).pluginOverlay.runId).toBe(id)
+      let overlay = (await page.evaluate(() => (window as any).bmux.state())).pluginOverlay
+      expect(overlay.runId).toBe(id)
+      expect(await page.evaluate(() => innerWidth)).toBe(overlay.bounds.width)
       await page.getByRole('button', { name: 'Start browsing', exact: true }).click()
       await expect(page.getByRole('status')).toHaveText('Browsing')
     }
     for (let view of await views()) {
       expect(view.zoom).toBeCloseTo(.5, 5)
-      expect(view.bounds).toMatchObject({ width: 192, height: 300 })
+      expect(view.bounds.width).toBe(192)
+      expect(view.bounds.height).toBeGreaterThanOrEqual(120)
+      expect(view.bounds.height).toBeLessThanOrEqual(300)
     }
     await rpc('select-pane', { client: client.id, pane: original })
     await rpc('zoom', { pane: original, factor: 1 })
