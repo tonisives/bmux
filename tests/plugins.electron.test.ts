@@ -820,7 +820,10 @@ test('plugin decision tree highlights answers and moves settings and usage into 
 
 test('four visible panes each retain a scaled plugin overlay with independent controls', async () => {
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
-  let original = client.paneId, panes = [original], ids: string[] = []
+  let previousWindow = client.windowId
+  let window = await rpc('new-window', { client: client.id, session: client.sessionId, url: url + '/four-overlays' })
+  await rpc('wait', { pane: window.panes[0].id, selector: '#username' })
+  let original = window.panes[0].id, panes = [original], ids: string[] = []
   let views = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()).map((view: any) => ({ id: view.webContents.id, bounds: view.getBounds(), zoom: view.webContents.getZoomFactor() })))
   try {
     for (let index = 1; index < 4; index++) {
@@ -828,7 +831,7 @@ test('four visible panes each retain a scaled plugin overlay with independent co
       panes.push(pane.id)
       await rpc('wait', { pane: pane.id, selector: '#username' })
     }
-    await rpc('select-layout', { window: client.windowId, layout: 'tiled' })
+    await rpc('select-layout', { window: window.id, layout: 'tiled' })
     for (let pane of panes) {
       await rpc('zoom', { pane, factor: .5 })
       ids.push(await run('overlay', { pane }))
@@ -863,8 +866,7 @@ test('four visible panes each retain a scaled plugin overlay with independent co
     await originalView.screenshot({ path: path.resolve('artifacts/plugin-overlay-scaled-pane.png') })
   } finally {
     for (let id of ids) await rpc('plugin.cancel', { id })
-    for (let pane of panes.slice(1)) await rpc('kill-pane', { pane, confirm: true })
-    await rpc('zoom', { pane: original, factor: 1 })
-    await rpc('select-pane', { client: client.id, pane: original })
+    await rpc('select-window', { client: client.id, window: previousWindow })
+    await rpc('kill-window', { window: window.id, confirm: true })
   }
 })
