@@ -1104,15 +1104,17 @@ test('saved proxy settings and credentials are shared across panes and profiles'
   }
 })
 
-test('changing the current pane connection leaves the default and other panes unchanged', async () => {
+test('changing the current pane connection leaves the default and other panes unchanged', async ({}, info) => {
   let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
   let profile = await rpc('profile.create', { name: 'Current pane proxy fixture' }) as { id: string; name: string }
   let pane = await rpc('split-window', { pane: client.paneId, profile: profile.id, client: client.id, url }) as { id: string }
   let sibling = await rpc('split-window', { pane: pane.id, profile: profile.id, client: client.id, url }) as { id: string }
   try {
     await rpc('wait', { pane: pane.id, expression: "document.querySelector('h1')?.textContent === 'Command search fixture'" })
+    await rpc('wait', { pane: sibling.id, expression: "document.querySelector('h1')?.textContent === 'Command search fixture'" })
     await rpc('eval', { pane: pane.id, expression: "document.cookie = 'pane_connection=retained; path=/'" })
-    await rpc('select-pane', { pane: pane.id, client: client.id, focus: false })
+    await rpc('select-pane', { pane: pane.id, client: client.id, focus: true })
+    await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id)?.paneId).toBe(pane.id)
     let panel = await openProfilePanel(profile.name)
     await panel.getByRole('tab', { name: 'Connection' }).click()
     await panel.getByLabel('Protocol', { exact: true }).selectOption('http')
@@ -1120,6 +1122,7 @@ test('changing the current pane connection leaves the default and other panes un
     await panel.getByLabel('Port', { exact: true }).fill(String(proxy.port))
     await panel.getByLabel('Username', { exact: true }).fill('fixture-user')
     await panel.getByLabel('Password', { exact: true }).fill('fixture-password')
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)?.paneId).toBe(pane.id)
     await panel.getByRole('button', { name: 'Change current pane connection', exact: true }).click()
     await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows.flatMap((window: any) => window.panes)).find((item: any) => item.id === pane.id)?.connectionId).toBeTruthy()
     await rpc('wait', { pane: pane.id, expression: "document.querySelector('h1')?.textContent === 'Command search fixture'" })
@@ -1131,6 +1134,11 @@ test('changing the current pane connection leaves the default and other panes un
     await expect(panel.getByRole('switch', { name: 'Use for new panes', exact: true })).not.toBeChecked()
     await expect(panel).toContainText(`http://127.0.0.1:${proxy.port}`)
     await chrome.screenshot({ path: path.resolve('artifacts/current-pane-proxy.png') })
+  } catch (error) {
+    let current = await state()
+    await info.attach('proxy-switch-state', { body: JSON.stringify({ client: current.model.clients.find((item: any) => item.id === client.id), panes: current.model.sessions.flatMap((item: any) => item.windows.flatMap((window: any) => window.panes)).filter((item: any) => [pane.id, sibling.id].includes(item.id)), status: await chrome.getByRole('status').allTextContents() }), contentType: 'application/json' })
+    await info.attach('proxy-switch-ui', { body: await chrome.screenshot(), contentType: 'image/png' })
+    throw error
   } finally {
     await rpc('kill-pane', { pane: sibling.id, confirm: true })
     await rpc('kill-pane', { pane: pane.id, confirm: true })
