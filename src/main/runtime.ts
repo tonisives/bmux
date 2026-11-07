@@ -3251,7 +3251,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         let size = { width: Number(args.width), height: Number(args.height), zoom: args.zoom }
         window.lockedViewports ??= {}; window.lockedViewports[paneId] = { width: size.width, height: size.height }
         model.recentViewports = [size, ...(model.recentViewports ?? []).filter(item => item.width !== size.width || item.height !== size.height || item.zoom !== size.zoom)].slice(0, 3)
-        pane.zoom = size.zoom; remoteSizes.delete(paneId); changed()
+        pane.zoom = size.zoom; remoteSizes.delete(paneId)
+        let preferred = pluginOverlayBounds.get(key)!
+        pluginOverlayBounds.set(key, { ...preferred, collapsed: true, compact: false })
+        changed()
       } else throw new Error('Unknown page overlay command')
       refreshPluginOverlay(sourceClientId, owner); publish(); return null
     }

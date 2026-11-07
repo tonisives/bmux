@@ -92,7 +92,7 @@ let ViewportPanel = () => {
   if (!viewport) return null
   let pan = () => void command('pane.overlay.pan', { enabled: !viewport.panning })
   let close = () => void command('pane.overlay.bounds', { ...overlay.bounds, collapsed: true, compact: false })
-  let apply = async (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); let result = await command('pane.overlay.viewport', { width: Number(width), height: Number(height), zoom: Number(scale) / 100 }); if (result !== undefined) close() }
+  let apply = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); void command('pane.overlay.viewport', { width: Number(width), height: Number(height), zoom: Number(scale) / 100 }) }
   let changeWidth = (event: ChangeEvent<HTMLInputElement>) => setWidth(event.target.value)
   let changeHeight = (event: ChangeEvent<HTMLInputElement>) => setHeight(event.target.value)
   let changeScale = (event: ChangeEvent<HTMLInputElement>) => setScale(event.target.value)
