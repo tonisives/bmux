@@ -29,10 +29,12 @@ let expression = `(() => {
   if (!root) return null;
   let tabs = site === 'x' ? root.querySelector('[role="tablist"]') : null;
   if (site === 'x' && !tabs) return null;
-  let buttons = [...root.querySelectorAll('button')].filter(button => !button.closest('article') && (!tabs || Boolean(button.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING)));
+  let controls = root => [...root.querySelectorAll('button, [role="button"]'), ...[...root.querySelectorAll('*')].flatMap(element => element.shadowRoot ? controls(element.shadowRoot) : [])];
+  let visible = button => { let r = button.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; };
+  let buttons = controls(root).filter(button => !button.closest('article') && (!tabs || Boolean(button.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING)));
   let label = button => (button.getAttribute('aria-label') || button.innerText || '').trim();
-  if (buttons.some(button => /^(following|unfollow)(?:\\s|$)/i.test(label(button)) || /-unfollow$/.test(button.getAttribute('data-testid') || ''))) return { following: true };
-  let button = buttons.find(button => !button.disabled && button.getAttribute('aria-pressed') !== 'true' && (site === 'x' ? /-follow$/.test(button.getAttribute('data-testid') || '') : /^follow(?:\\s+.+)?$/i.test(label(button))));
+  if (buttons.some(button => visible(button) && (/^(following|unfollow)(?:\\s|$)/i.test(label(button)) || /-unfollow$/.test(button.getAttribute('data-testid') || '')))) return { following: true };
+  let button = buttons.find(button => visible(button) && !button.disabled && button.getAttribute('aria-pressed') !== 'true' && (site === 'x' ? /-follow$/.test(button.getAttribute('data-testid') || '') : /^follow(?:\\s+.+)?$/i.test(label(button))));
   let r = button?.getBoundingClientRect();
   if (!r || r.width <= 0 || r.height <= 0 || r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight) return null;
   return { x: r.x + r.width / 2, y: r.y + r.height / 2 };

@@ -72,4 +72,23 @@ test('follow lookup uses only visible profile controls before X feed tabs', asyn
   expect(vm.runInNewContext(expression, context)).toEqual({ x: 60, y: 25 })
   buttons.pop(); buttons.push(button('person-unfollow', true))
   expect(vm.runInNewContext(expression, context)).toEqual({ following: true })
+  buttons.pop(); buttons.push(button('person-unfollow', true, false))
+  expect(vm.runInNewContext(expression, context)).toBeNull()
+})
+
+test('LinkedIn and Reddit lookups support profile header shadow controls', async () => {
+  for (let [site, url] of [['linkedin', 'https://linkedin.com/in/person'], ['reddit', 'https://reddit.com/user/person']]) {
+    let result = await run(site, [url])
+    let expression = result.calls.find(call => call.method === 'eval')!.args.expression
+    let text = 'Follow'
+    let button = { getAttribute: () => null, get innerText() { return text }, disabled: false, closest: () => null, getBoundingClientRect: () => ({ x: 10, y: 10, width: 100, height: 30, left: 10, top: 10, right: 110, bottom: 40 }) }
+    let shadow = { querySelectorAll: (selector: string) => selector === '*' ? [] : [button] }
+    let header = { querySelectorAll: (selector: string) => selector === '*' ? [{ shadowRoot: shadow }] : [] }
+    let context = { document: { querySelector: () => site === 'linkedin' ? { closest: () => header } : header }, innerWidth: 800, innerHeight: 600 }
+    expect(vm.runInNewContext(expression, context)).toEqual({ x: 60, y: 25 })
+    text = 'Following'
+    expect(vm.runInNewContext(expression, context)).toEqual({ following: true })
+    text = 'Join'
+    expect(vm.runInNewContext(expression, context)).toBeNull()
+  }
 })
