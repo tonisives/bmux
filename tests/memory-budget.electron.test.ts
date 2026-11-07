@@ -146,7 +146,7 @@ test('background page limit unloads older applications and restores them without
     // The setting is editable through the existing Memory panel and applies live.
     await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 0 })
     await rpc('focus-ui', { client: client.id })
-    await sendNativeKeys(application, [{ keyCode: ',', modifiers: ['meta'] }])
+    await sendNativeKeys(application, [{ keyCode: ',', modifiers: ['meta', 'shift'] }])
     let panel = chrome.getByRole('dialog', { name: 'Settings', exact: true })
     await panel.getByRole('tab', { name: 'Memory', exact: true }).click()
     let limit = panel.locator('[name="memory.maxLoadedBackgroundPages"]')

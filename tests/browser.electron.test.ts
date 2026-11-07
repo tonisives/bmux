@@ -705,7 +705,7 @@ for (let floating of [false, true]) test(`General Vim editing toggle controls UR
     }
     let settings = async () => {
       await chrome.evaluate(client => (window as any).bmux.command({ method: 'focus-ui', args: { client } }), client.id)
-      await sendNativeKeys(application, [{ keyCode: ',', modifiers: ['meta'] }])
+      await sendNativeKeys(application, [{ keyCode: ',', modifiers: ['meta', 'shift'] }])
       let panel = chrome.getByRole('dialog', { name: 'Settings', exact: true })
       await panel.getByRole('tab', { name: 'General', exact: true }).click()
       return panel
@@ -1878,7 +1878,14 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
   await expect(chrome.getByText('Ctrl+X then ?', { exact: true })).toBeVisible()
   await chrome.keyboard.press('Escape')
+  await cli('select-window', { client: client.id, window: first.id })
+  await cli('select-window', { client: client.id, window: second.id })
+  let selectedWindow = async () => (await cli('state')).model.clients.find((item: { id: string }) => item.id === client.id).windowId
   await nativeKeys([{ keyCode: ',', modifiers: ['meta'] }])
+  await expect.poll(selectedWindow).toBe(first.id)
+  await nativeKeys([{ keyCode: '.', modifiers: ['meta'] }])
+  await expect.poll(selectedWindow).toBe(second.id)
+  await nativeKeys([{ keyCode: ',', modifiers: ['meta', 'shift'] }])
   await expect(chrome.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await chrome.getByRole('tab', { name: 'Memory' }).click()
   await expect(chrome.getByRole('checkbox', { name: 'Load inactive sessions on demand' })).toBeChecked()
