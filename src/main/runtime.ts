@@ -1518,7 +1518,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       live.unloadGuard?.cancel(); live.pendingUrl = undefined; update()
     })
     contents.on('did-navigate-in-page', () => { update(); queueWarningRecheck() })
+    let refreshViewportEmulation = () => {
+      if (live.disposed || !lockedViewport(tabId)) return
+      live.viewportEmulation = undefined
+      void scheduleVisuals()
+    }
+    contents.on('dom-ready', refreshViewportEmulation)
     contents.on('did-finish-load', () => {
+      refreshViewportEmulation()
       // Navigation can replace Chromium's emulated native surface. Reapply its fit.
       if (pane.device && live.deviceScale !== undefined) void applyDeviceMetrics(contents, pane.device, live.deviceScale).catch(reportError)
     })
