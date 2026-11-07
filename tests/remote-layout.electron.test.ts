@@ -36,6 +36,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
   await fs.writeFile(path.join(directory, 'config.yaml'), 'keyboard:\n  shortcuts:\n    Ctrl+L: pane-right\nbrowser:\n  autoUpdateFilters: false\n')
   let launch = () => electron.launch({ args: [path.join(fixtureDirectory, 'main/remote-layout-main.js')], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') } })
   let application = await launch()
+  let applicationProcess = application.process()
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -545,8 +546,9 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     expect(await floatingViewport.evaluate(element => ({ x: (element.scrollLeft - Number(element.dataset.panOriginX ?? 0)), y: (element.scrollTop - Number(element.dataset.panOriginY ?? 0)) }))).toEqual({ x: 0, y: 0 })
     await expect.poll(async () => { let bounds = await native(); return { x: bounds.page.x, y: bounds.page.y } }).toEqual({ x: 0, y: 0 })
     await otherChrome.screenshot({ path: info.outputPath('locked-split-viewport.png') })
-    await closeTestApplication(application)
+    await closeTestApplication(application, applicationProcess)
     application = await launch()
+    applicationProcess = application.process()
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
     chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     await expect.poll(async () => (await windowState()).lockedViewports).toEqual(saved)
@@ -555,7 +557,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect(first.getByRole('heading')).toHaveText('Viewport lock')
     await expect.poll(() => size(first)).toEqual(saved[client.paneId])
   } finally {
-    await closeTestApplication(application)
+    await closeTestApplication(application, applicationProcess)
     server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -695,7 +697,7 @@ for (let position of ['top', 'bottom']) test(`remote viewport stays inside the n
       return Math.abs(bounds.page.width - rect.width) <= 1 && Math.abs(bounds.page.height - rect.height) <= 1
     }).toBe(true)
   } finally {
-    await closeTestApplication(application)
+    await closeTestApplication(application, applicationProcess)
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
