@@ -141,12 +141,13 @@ export let App = () => {
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
+    let unsubscribeOverlay = bridge.subscribeOverlay(pluginOverlay => setState(current => current ? { ...current, pluginOverlay } : current))
     void bridge.state().then(accept).catch(error => setMessage(String(error)))
     let controls = bridge.controls((control, paneId) => {
       if (control === 'dismiss') { dismiss(); return }
       void bridge.state().then(next => { accept(next); if (control === 'agent-info' && paneId) setAgentDetails({ paneId }); if (control !== 'plugin-dialog') show(control as Control) })
     })
-    return () => { unsubscribe(); controls() }
+    return () => { unsubscribe(); unsubscribeOverlay(); controls() }
   }, [accept, show, dismiss])
   let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'

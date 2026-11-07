@@ -125,3 +125,63 @@ test('scaled viewports keep DOM hit testing in CSS pixels and transform only nat
     expect(wheels.reduce((sum, call) => sum + Number(call.params.deltaY), 0)).toBe(300)
   } finally { vi.useRealTimers() }
 })
+
+
+test('slow wheel replies merge frames without extending the animation or drifting', async () => {
+  vi.useFakeTimers()
+  try {
+    let wheels: number[] = [], pending = 0, maximum = 0
+    let scroll = smoothAgentScroll(async (method, params) => {
+      if (method === 'Input.dispatchMouseEvent') {
+        maximum = Math.max(maximum, ++pending)
+        wheels.push(Number(params.deltaY))
+        await new Promise(resolve => setTimeout(resolve, 120))
+        pending--
+      }
+      return { result: { value: false } }
+    }, { x: 20, y: 30, deltaY: 600 }, { enabled: true, randomize: false, overshoot: false })
+    await vi.runAllTimersAsync()
+    let result = await scroll
+    expect(wheels.reduce((sum, delta) => sum + delta, 0)).toBe(600)
+    expect(wheels.length).toBeLessThan(10)
+    expect(maximum).toBe(1)
+    expect(result.scroll.durationMs).toBeLessThan(1100)
+    expect(result.scroll.maxEventMs).toBe(120)
+    expect(result.scroll.events).toBe(wheels.length)
+  } finally { vi.useRealTimers() }
+})
+
+test('stalled observation and wheel acknowledgements release the caller within the deadline', async () => {
+  vi.useFakeTimers()
+  try {
+    for (let stalled of ['Runtime.evaluate', 'Input.dispatchMouseEvent']) {
+      let calls: string[] = []
+      let scroll = smoothAgentScroll(async method => {
+        calls.push(method)
+        if (method === stalled) return new Promise(() => undefined)
+        return { result: { value: false } }
+      }, { x: 20, y: 30, deltaY: 600 })
+      let rejected = expect(scroll).rejects.toThrow(`Scroll ${stalled} timed out after 2000ms`)
+      await vi.advanceTimersByTimeAsync(2100); await rejected
+      let count = calls.length
+      await vi.runAllTimersAsync()
+      expect(calls).toHaveLength(count)
+    }
+  } finally { vi.useRealTimers() }
+})
+
+test('cancellation interrupts a pending wheel and ignores its late reply', async () => {
+  vi.useFakeTimers()
+  try {
+    let controller = new AbortController(), calls = 0, finish!: () => void
+    let scroll = smoothAgentScroll(async method => {
+      if (method === 'Input.dispatchMouseEvent') { calls++; await new Promise<void>(resolve => { finish = resolve }) }
+      return { result: { value: false } }
+    }, { x: 20, y: 30, deltaY: 600 }, undefined, 1, { signal: controller.signal })
+    let rejected = expect(scroll).rejects.toThrow('Stopped by user')
+    await vi.advanceTimersByTimeAsync(10)
+    controller.abort(new Error('Stopped by user')); await rejected
+    finish(); await vi.runAllTimersAsync()
+    expect(calls).toBe(1)
+  } finally { vi.useRealTimers() }
+})
