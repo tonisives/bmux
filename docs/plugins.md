@@ -67,7 +67,7 @@ checkout. They are not included in bmux.app. Copy the desired plugin folder into
 active `plugins/` directory to install it; each folder is self-contained. Enable
 the copied plugin in config as described below.
 
-The Reddit action visits 1–10 HTTPS Reddit URLs, opens matching page links when
+The Reddit browse action visits 1–10 HTTPS Reddit URLs, opens matching page links when
 available, and scrolls each page. It does not post, vote, or join communities.
 Configure an automation group for the intended profile before running it:
 
@@ -84,6 +84,23 @@ automation:
       daily: { runs: 12, navigations: 100, activeMinutes: 60 }
       requiredPlugins: { reddit.com: bmux.reddit }
       likesPerDay: { reddit.com: 0 }
+```
+
+Each social plugin also has a `follow` action. Supply 1–10 explicit profile URLs:
+X `/username`, LinkedIn `/in/username`, or Reddit `/user/username`. The action
+skips profiles already followed and confirms the button changes to Following.
+Follow attempts are capped at 10 per profile and site over a rolling seven days,
+shared across runs and retained after restarts. An unconfirmed click still counts
+as an attempt. Repeated targets are skipped during that week.
+
+Lower the cap or disable following with `followsPerWeek` in the automation group:
+
+```yaml
+followsPerWeek: { reddit.com: 10 } # 0 disables following; maximum 10
+```
+
+```sh
+bmux plugin run bmux.reddit/follow -t PANE_ID --parameters '{"urls":"[\"https://www.reddit.com/user/username\"]"}'
 ```
 
 Replace `profile_bot` with your profile ID. If a desktop launch cannot find Node,
@@ -260,8 +277,11 @@ input=json.dumps(arguments), capture_output=True, text=True, check=True)` and de
 Site automation actions can call `automation.acquire` with a matching HTTPS
 `url` before browsing. The lease is bound to the invocation's profile and pane,
 and is released when the invocation ends. `automation.status` reports group
-usage. `automation.like` reserves one like for a verified site post URL after
-the user has set a positive `likesPerDay` cap. These calls work only when an
+usage, including weekly follow counts and limits. `automation.like` reserves one
+like for a verified site post URL after
+the user has set a positive `likesPerDay` cap. `automation.follow` reserves one
+follow attempt before clicking a profile button, subject to the `followsPerWeek`
+cap (10 by default, configurable from 0 to 10). These calls work only when an
 automation group covers the profile and site. If `requiredPlugins` names a
 plugin for the site, only that plugin ID may acquire its lease.
 
