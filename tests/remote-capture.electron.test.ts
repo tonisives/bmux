@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { closeTestApplication } from './electron-fixture'
+import { closeTestApplication, waitForControlStatus } from './electron-fixture'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { remoteWebPreferences } from '../src/shared/remote-web-preferences'
 
 let captureConfig = 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n'
+
 
 test('background panes deliver static frames without a visible window', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-capture-'))
@@ -22,7 +23,7 @@ test('background panes deliver static frames without a visible window', async ()
   let application = await electron.launch({ args: [path.join(process.cwd(), 'tests/fixtures/remote-main.mjs'), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
   try {
     let command = async (...args: string[]) => JSON.parse((await promisify(execFile)(process.execPath, ['bin/bmux.mjs', ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory } })).stdout).result
-    let status = await command('status')
+    let status = await waitForControlStatus(command)
     expect(status.configError).toBeNull()
     let pane = status.model.sessions[0].windows[0].panes[0]
     await command('navigate', '-t', pane.id, origin)
@@ -160,7 +161,7 @@ test('a GPU failure closes old captures and automatically recovers on the headle
       if (!reply.ok) throw new Error(reply.error)
       return reply.result
     }
-    let status = await command('status')
+    let status = await waitForControlStatus(command)
     expect(status.configError).toBeNull()
     let pane = status.model.sessions[0].windows[0].panes[0].id
     await command('navigate', '-t', pane, origin)
@@ -258,7 +259,7 @@ for (let rendering of ['default', 'software']) test(`seven hidden panes keep str
       return reply.result
     }
     let panes: string[] = [], urls: string[] = []
-    let status = await command('status')
+    let status = await waitForControlStatus(command)
     expect(status.configError).toBeNull()
     await step('Load all seven hidden fixture panes', async () => {
       for (let index = 0; index < 7; index++) {
