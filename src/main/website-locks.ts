@@ -18,5 +18,6 @@ export let createWebsiteLocks = () => {
     for (let url of urls) { let key = keyFor(profileId, url); if (key) owners.set(key, owner) }
   }
   let release = (owner: string) => { for (let [key, current] of owners) if (current === owner) owners.delete(key) }
-  return { assertAvailable, claim, release }
+  let owns = (profileId: string, url: string, owner: string) => { let key = keyFor(profileId, url); return !!key && owners.get(key) === owner }
+  return { assertAvailable, claim, release, owns }
 }

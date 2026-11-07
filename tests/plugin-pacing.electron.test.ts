@@ -17,13 +17,15 @@ test('plugin pacing skips generic delays and owns its website between commands u
     let url = `http://x.com:${(server.address() as { port: number }).port}/fixture`
     let folder = path.join(directory, 'plugins', 'test')
     await fs.mkdir(folder, { recursive: true })
-    await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Pacing fixture', version: '1', actions: [{ id: 'browse', title: 'Browse', pacing: 'plugin', command: ['node', './run.mjs'], capabilities: ['browser.read', 'browser.write'] }] }))
+    await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Pacing fixture', version: '1', actions: [{ id: 'browse', title: 'Browse', pacing: 'plugin', command: ['node', './run.mjs'], capabilities: ['browser.read', 'browser.write', 'browser.cdp'] }] }))
     await fs.writeFile(path.join(folder, 'run.mjs'), `import { execFileSync } from 'node:child_process';
 let call=(method,args={})=>{let value=JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8',stdio:['pipe','pipe','pipe']}));if(!value.ok)throw new Error(value.error);return value.result};
 let start=Date.now();
 call('eval',{expression:'document.body.dataset.pacing="first"'});
 call('eval',{expression:'document.body.dataset.pacing="second"'});
+call('cdp',{method:'Input.dispatchKeyEvent',params:{type:'keyDown',key:'Shift',code:'ShiftLeft'}});
 call('dom');
+call('cdp',{method:'Input.dispatchKeyEvent',params:{type:'keyUp',key:'Shift',code:'ShiftLeft'}});
 call('progress',{percent:50,message:String(Date.now()-start)});
 await new Promise(resolve=>setTimeout(resolve,30000));
 call('result',{done:true});`)
