@@ -1,3 +1,13 @@
+# Restart fixtures wait for their own control server
+
+The two direct browser restarts in the recovery fixtures waited only for
+`app.whenReady()`, which precedes runtime startup and socket binding. Both now
+reuse the shared launch helper's control-socket check and require the response
+PID to match their newly launched process. This prevents a CLI startup attempt
+against an isolated profile while restore is still running. Repeat both recovery
+cases in CI. The Bot settings fixture also waits for its isolated control server
+before its first CLI request and after relaunch.
+
 # Remote layout pan after native resizing
 
 Linux exposed a pan being set while the chrome renderer still had the previous
