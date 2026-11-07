@@ -7,9 +7,8 @@ describe('portable runtime paths', () => {
     expect(runtimeDataDirectory('linux', '/home/test', { BMUX_DATA_DIR: '/data', BROWMUX_DATA_DIR: '/old' })).toBe('/data')
     expect(runtimeDataDirectory('linux', '/home/test', { BROWMUX_DATA_DIR: '/old' })).toBe('/old')
   })
-  it('prefers the installed Mac app over an old checkout build while honoring an explicit output directory', () => {
-    expect(macAppCandidates('/repo', '/home/test', {})).toEqual(['/home/test/workspace/_tools/bmux.app', '/repo/build/bmux.app'])
-    expect(macAppCandidates('/repo', '/home/test', { BMUX_OUTPUT_DIR: 'preview' })).toEqual(['/repo/preview/bmux.app', '/home/test/workspace/_tools/bmux.app'])
+  it('only discovers the installed Mac app, never a checkout build', () => {
+    expect(macAppCandidates('/home/test')).toEqual(['/home/test/workspace/_tools/bmux.app'])
   })
   it('uses Linux data and executable paths', () => {
     expect(runtimeDataDirectory('linux', '/home/test', {})).toBe('/home/test/.local/share/bmux')

@@ -236,11 +236,12 @@ let observe = async id => {
 }
 let start = async (foreground = false) => {
   let binary = process.platform === 'win32' ? 'bmux.exe' : 'bmux'
-  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? macAppCandidates(root, os.homedir(), process.env) : [path.join(root, binary), path.join(root, '..', binary)]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
+  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? macAppCandidates(os.homedir()) : [path.join(root, binary), path.join(root, '..', binary)]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
   let executable
   let args = ['--background']
   if (packaged) executable = packaged.endsWith('.app') ? path.join(packaged, 'Contents', 'MacOS', path.basename(packaged, '.app')) : packaged
   else {
+    if (process.platform === 'darwin') throw new Error('Installed bmux app not found. Run BMUX_OUTPUT_DIR="$HOME/workspace/_tools" pnpm package')
     executable = developmentExecutable(root, process.platform)
     args.unshift(root)
     if (!fs.existsSync(path.join(root, 'out/main/index.js'))) throw new Error('Build bmux first: pnpm build')
