@@ -329,7 +329,8 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         for (let page of application.context().pages().filter(page => page.url().includes('Agent%20input%20lock'))) if (await page.title() === 'Agent input lock') { shield = page; return true }
         return false
       }).toBe(true)
-      await expect(shield!.getByRole('status')).toBeVisible()
+      await expect(shield!.locator('body')).toBeVisible()
+      await expect((await controlPage(client.paneId)).getByRole('tab', { name: 'Agent control', exact: true })).toBeVisible()
       await shield!.mouse.move(100, 100)
       await shield!.keyboard.down('Meta')
       try { await shield!.mouse.wheel(20, 30) }
