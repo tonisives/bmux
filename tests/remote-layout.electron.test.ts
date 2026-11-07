@@ -697,7 +697,7 @@ for (let position of ['top', 'bottom']) test(`remote viewport stays inside the n
       return Math.abs(bounds.page.width - rect.width) <= 1 && Math.abs(bounds.page.height - rect.height) <= 1
     }).toBe(true)
   } finally {
-    await closeTestApplication(application, applicationProcess)
+    await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
     await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
