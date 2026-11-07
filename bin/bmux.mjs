@@ -5,7 +5,7 @@ import os from 'node:os'
 import net from 'node:net'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { runtimeDataDirectory, developmentExecutable } from './runtime-paths.mjs'
+import { runtimeDataDirectory, developmentExecutable, macAppCandidates } from './runtime-paths.mjs'
 import { controlSocketPath } from './ipc.mjs'
 import { identifyTmuxAgent, resolveTmuxAgent } from './tmux-agent.mjs'
 
@@ -235,10 +235,8 @@ let observe = async id => {
   }
 }
 let start = async (foreground = false) => {
-  let output = path.resolve(root, process.env.BMUX_OUTPUT_DIR || 'build', 'bmux.app')
-  let installed = path.join(os.homedir(), 'workspace', '_tools', 'bmux.app')
   let binary = process.platform === 'win32' ? 'bmux.exe' : 'bmux'
-  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? [output, installed] : [path.join(root, binary), path.join(root, '..', binary)]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
+  let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? macAppCandidates(root, os.homedir(), process.env) : [path.join(root, binary), path.join(root, '..', binary)]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
   let executable
   let args = ['--background']
   if (packaged) executable = packaged.endsWith('.app') ? path.join(packaged, 'Contents', 'MacOS', path.basename(packaged, '.app')) : packaged
