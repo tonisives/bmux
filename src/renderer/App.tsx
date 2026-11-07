@@ -5,7 +5,7 @@ import { PluginRange } from './PluginRange'
 import { RemotePaneControls } from './RemotePaneControls'
 import { useViewportPan } from './useViewportPan'
 import { useViewportCanvas } from './useViewportCanvas'
-import { viewportPanScroll } from '../shared/viewport-pan'
+import { scaledViewportSize, viewportPanScroll } from '../shared/viewport-pan'
 import { PROFILE_COLORS, profileHash, profileColor } from '../shared/profile-color'
 import type { RemoteView } from '../shared/remote'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
@@ -1396,7 +1396,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
   let remoteSize = selectedWindow?.lockedViewports?.[paneId] ?? state.remoteSizes?.[paneId]
-  useViewportCanvas(ref, remoteSize)
+  useViewportCanvas(ref, selectedWindow?.lockedViewports?.[paneId] ? scaledViewportSize(remoteSize!, pane.zoom || 1) : remoteSize)
   useViewportPan(ref, paneId, !!remoteSize, state.viewportPanModes?.includes(paneId), client?.id)
   let frame = pane.device ? frameGeometry(pane.device, deviceSize) : null
   useLayoutEffect(() => {

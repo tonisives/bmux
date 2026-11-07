@@ -14,7 +14,7 @@ import { captureAddressPointer, useAddressSelection } from './useAddressSelectio
 import { RemotePaneControls } from './RemotePaneControls'
 import { useViewportPan } from './useViewportPan'
 import { useViewportCanvas } from './useViewportCanvas'
-import { viewportPanScroll } from '../shared/viewport-pan'
+import { scaledViewportSize, viewportPanScroll } from '../shared/viewport-pan'
 
 export let FloatingPane = () => {
   let [state, setState] = useState<PublicState | null>(null)
@@ -30,7 +30,7 @@ export let FloatingPane = () => {
   let remote = state?.remoteViews?.[paneId]
   let placement = windowState?.floating?.find(item => item.paneId === paneId)
   let fixedSize = windowState?.lockedViewports?.[paneId] ?? state?.remoteSizes?.[paneId]
-  let viewport = useFixedViewport(fixedSize)
+  let viewport = useFixedViewport(windowState?.lockedViewports?.[paneId] ? scaledViewportSize(fixedSize!, pane?.zoom || 1) : fixedSize)
   useViewportPan(viewport, paneId, !!fixedSize, state?.viewportPanModes?.includes(paneId), state?.clientId)
   let run = useCallback(async (method: string, args: Record<string, unknown> = {}) => {
     try { return await bridge.command({ method, args: { client: state?.clientId, pane: paneId, ...args } }) }

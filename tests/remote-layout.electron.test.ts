@@ -411,8 +411,14 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect.poll(async () => Object.values((await windowState()).lockedViewports).every((size: any) => size.width === 1512 && size.height === 900)).toBe(true)
     await expect.poll(() => application.context().pages().some(page => page.url() === `${url}third`)).toBe(true)
     let thirdPage = application.context().pages().find(page => page.url() === `${url}third`)!
-    for (let [pane, page, zoom] of [[client.paneId, first, .5], [added.id, second, 1], [third.id, thirdPage, 2]] as const) {
+    for (let [pane, page, zoom] of [[client.paneId, first, .5], [added.id, second, 1], [third.id, thirdPage, 2], [client.paneId, first, .5845]] as const) {
       await rpc('zoom', { tab: pane, factor: zoom })
+      await expect.poll(() => size(page)).toEqual({ width: 1512, height: 900 })
+      await expect.poll(() => page.evaluate(() => matchMedia('(min-width: 1512px)').matches && !matchMedia('(min-width: 1513px)').matches)).toBe(true)
+      await expect.poll(() => content(pane).evaluate(element => ({
+        width: Number.parseFloat(getComputedStyle(element).getPropertyValue('--remote-width')),
+        height: Number.parseFloat(getComputedStyle(element).getPropertyValue('--remote-height')),
+      }))).toEqual({ width: Math.round(1512 * zoom), height: Math.round(900 * zoom) })
       let button = (await controlPage(pane)).getByRole('button', { name: 'Pan viewport', exact: true })
       await expect(button).toBeVisible()
       await expect.poll(async () => {
@@ -456,17 +462,17 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await settingsButton.press('Enter')
     await expect(settingsForm).toBeVisible()
     await expect(settingsForm.getByLabel('Width', { exact: true })).toHaveValue('1512')
-    await expect(settingsForm.getByLabel('Zoom (%)', { exact: true })).toHaveValue('50')
+    await expect(settingsForm.getByLabel('Scale (%)', { exact: true })).toHaveValue('50')
     await settingsForm.getByLabel('Width', { exact: true }).fill('0')
     await settingsForm.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(settingsForm).toBeVisible()
     expect((await windowState()).lockedViewports[third.id]).toEqual({ width: 1512, height: 900 })
     await settingsForm.getByLabel('Width', { exact: true }).fill('1280')
     await settingsForm.getByLabel('Height', { exact: true }).fill('800')
-    await settingsForm.getByLabel('Zoom (%)', { exact: true }).fill('125')
+    await settingsForm.getByLabel('Scale (%)', { exact: true }).fill('125')
     await settingsForm.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(settingsForm).toBeHidden()
-    await expect.poll(() => size(thirdPage)).toEqual({ width: 1024, height: 640 })
+    await expect.poll(() => size(thirdPage)).toEqual({ width: 1280, height: 800 })
     expect((await windowState()).lockedViewports[third.id]).toEqual({ width: 1280, height: 800 })
     await expect.poll(() => size(first)).toEqual({ width: 1512, height: 900 })
     await openSettings()
@@ -477,13 +483,13 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       ['iPhone 17 Pro Max · 440 × 956', '440', '956'],
       ['MacBook Pro 14″ · 1512 × 982', '1512', '982'],
     ]) {
-      await settingsForm.getByLabel('Zoom (%)', { exact: true }).fill('125')
+      await settingsForm.getByLabel('Scale (%)', { exact: true }).fill('125')
       await settingsForm.getByLabel('Viewport preset', { exact: true }).selectOption({ label })
       await expect(settingsForm.getByLabel('Width', { exact: true })).toHaveValue(width)
       await expect(settingsForm.getByLabel('Height', { exact: true })).toHaveValue(height)
-      await expect(settingsForm.getByLabel('Zoom (%)', { exact: true })).toHaveValue('100')
+      await expect(settingsForm.getByLabel('Scale (%)', { exact: true })).toHaveValue('100')
     }
-    await expect(settingsForm.getByLabel('Zoom (%)', { exact: true })).toHaveValue('100')
+    await expect(settingsForm.getByLabel('Scale (%)', { exact: true })).toHaveValue('100')
     await settingsPage.screenshot({ path: info.outputPath('viewport-settings-popup.png') })
     await settingsForm.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect.poll(() => size(thirdPage)).toEqual({ width: 1512, height: 982 })
@@ -492,7 +498,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect(recent).toHaveText(['1512 × 982 · 100%', '1280 × 800 · 125%'])
     await settingsForm.getByLabel('Viewport preset', { exact: true }).selectOption('recent:1')
     await expect(settingsForm.getByLabel('Width', { exact: true })).toHaveValue('1280')
-    await expect(settingsForm.getByLabel('Zoom (%)', { exact: true })).toHaveValue('125')
+    await expect(settingsForm.getByLabel('Scale (%)', { exact: true })).toHaveValue('125')
     await settingsForm.getByLabel('Width', { exact: true }).fill('999')
     await settingsForm.getByRole('button', { name: 'Cancel', exact: true }).click()
     await openSettings()
