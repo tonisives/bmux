@@ -141,6 +141,11 @@ void app.whenReady().then(async () => {
     if (text !== undefined && typeof text !== 'string') throw new Error('Invalid clipboard text')
     return runtime!.clipboard(text)
   })
+  ipcMain.handle('plugin-overlay-state', event => {
+    let clientId = runtime!.sourceClient(event.sender.id)
+    if (!clientId) throw new Error('Untrusted renderer')
+    return runtime!.overlayState(clientId, event.sender.id)
+  })
   ipcMain.handle('state', event => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')

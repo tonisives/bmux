@@ -843,11 +843,25 @@ test('four visible panes each retain a scaled plugin overlay with independent co
       if (ids.includes(value.pluginOverlay?.runId)) observers.set(value.pluginOverlay.runId, page)
     }
     expect(observers.size).toBe(4)
+    for (let page of observers.values()) await page.evaluate(() => {
+      let bridge = (window as any).bmux
+      ;(window as any).overlayDelivery = { full: 0, overlays: [] }
+      bridge.subscribe(() => { (window as any).overlayDelivery.full++ })
+      bridge.subscribeOverlay((overlay: unknown) => { (window as any).overlayDelivery.overlays.push(overlay) })
+    })
+    await rpc('plugin.overlay.input', { id: ids[0], control: 'start' })
+    await expect(observers.get(ids[0])!.getByRole('status')).toHaveText('Browsing')
+    for (let [id, page] of observers) {
+      let delivery = await page.evaluate(() => (window as any).overlayDelivery)
+      expect(delivery.full).toBe(0)
+      expect(delivery.overlays.length).toBe(id === ids[0] ? 1 : 0)
+      expect(delivery.overlays.every((overlay: any) => overlay.runId === id && !('model' in overlay) && !('snapshots' in overlay))).toBe(true)
+    }
     for (let [id, page] of observers) {
       let overlay = (await page.evaluate(() => (window as any).bmux.state())).pluginOverlay
       expect(overlay.runId).toBe(id)
       expect(await page.evaluate(() => innerWidth)).toBe(overlay.bounds.width)
-      await page.getByRole('button', { name: 'Start browsing', exact: true }).click()
+      if (id !== ids[0]) await page.getByRole('button', { name: 'Start browsing', exact: true }).click()
       await expect(page.getByRole('status')).toHaveText('Browsing')
     }
     for (let view of await views()) {

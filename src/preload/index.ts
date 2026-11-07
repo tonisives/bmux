@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Bridge, PublicState } from '../shared/types'
+import type { PluginOverlayState } from '../shared/plugin-overlay'
 
 let bridge: Bridge = {
   clipboard: text => ipcRenderer.invoke('clipboard', text),
@@ -17,6 +18,12 @@ let bridge: Bridge = {
     let handler = (_event: Electron.IpcRendererEvent, url: string) => listener(url)
     ipcRenderer.on('link-preview', handler)
     return () => ipcRenderer.removeListener('link-preview', handler)
+  },
+  overlayState: () => ipcRenderer.invoke('plugin-overlay-state'),
+  subscribeOverlay: listener => {
+    let handler = (_event: Electron.IpcRendererEvent, overlay: PluginOverlayState | undefined) => listener(overlay)
+    ipcRenderer.on('plugin-overlay', handler)
+    return () => ipcRenderer.removeListener('plugin-overlay', handler)
   },
   state: () => ipcRenderer.invoke('state'),
   command: command => ipcRenderer.invoke('command', command),

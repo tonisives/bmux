@@ -56,6 +56,8 @@ export type Bridge = {
   controls: (listener: (control: string, paneId?: string) => void) => () => void
   viewportScroll: (listener: (paneId: string, x: number, y: number) => void) => () => void
   linkPreview: (listener: (url: string) => void) => () => void
+  overlayState: () => Promise<PluginOverlayState | undefined>
+  subscribeOverlay: (listener: (overlay: PluginOverlayState | undefined) => void) => () => void
   state: () => Promise<PublicState>
   command: (command: Command) => Promise<unknown>
   remoteSessions: () => Promise<RemoteSessionListing>

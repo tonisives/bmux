@@ -1,17 +1,16 @@
 import { conciseConfidence, pluginOverlaySummary } from '../shared/plugin-overlay'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
-import type { Bridge, PublicState } from '../shared/types'
+import type { Bridge } from '../shared/types'
 import type { PluginOverlayControl, PluginOverlayState } from '../shared/plugin-overlay'
 import css from './PluginOverlay.module.css'
 import bmuxIcon from './bmux-icon.png'
 
 export let PluginOverlay = () => {
-  let [state, setState] = useState<PublicState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [returnToSetup, setReturnToSetup] = useState(false)
+  let [overlay, setOverlay] = useState<PluginOverlayState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [returnToSetup, setReturnToSetup] = useState(false)
   let [setting, openSetting] = useState<{ id: string; runId: string }>()
   let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];edge:string} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
-  useEffect(() => { void bridge.state().then(setState); return bridge.subscribe(setState) }, [])
-  let overlay = state?.pluginOverlay
+  useEffect(() => { let unsubscribe = bridge.subscribeOverlay(setOverlay); void bridge.overlayState().then(setOverlay); return unsubscribe }, [])
   let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await bridge.command({ method, args: { ...args, id: overlay?.runId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
   let input = async (id: string, value?: string | boolean) => { setBusy(true); await command('plugin.overlay.input', { control: id, value }); setBusy(false) }
   let stop = () => { setReturnToSetup(true); void input('stop') }

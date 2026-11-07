@@ -1,3 +1,15 @@
+# Social browsing scroll and overlay delivery
+
+Four active social panes exposed 60-second wheel acknowledgement stalls and
+multi-megabyte state broadcasts on every overlay refresh. Scroll commands now
+bound each CDP acknowledgement to two seconds and the whole gesture to five,
+propagate plugin cancellation, and merge missed animation frames. The returned
+`scroll` timings report duration, wheel count, total CDP time and slowest wheel.
+Unit fixtures cover delayed replies, missing replies and cancellation without
+replaying late input. Overlay refreshes have their own deduplicated IPC channel;
+only browser-state changes publish the full model. Repeat the four-pane overlay
+case and native wheel cases in CI.
+
 # Session age color boundaries
 
 The full Check on `49dff00` showed the visit-color fixture rendering "23h ago"

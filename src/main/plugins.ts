@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { AgentScrollError } from './agent-scroll'
 import { pluginRangeValue } from '../shared/plugin-range'
 import { parsePluginOverlay, validatePluginOverlayInput } from '../shared/plugin-overlay'
 import type { PluginOverlayContent, PluginOverlayInput } from '../shared/plugin-overlay'
@@ -245,6 +246,7 @@ export let createPlugins = (options: Options) => {
     try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context, runId: run.public.id, pacing: run.action.pacing }, run.controller.signal) }
     catch (error) {
       if (isAutomationSafetyError(error)) { run.policyError = error.message; finish(run, 'failed'); throw error }
+      if (error instanceof AgentScrollError) throw error
       throw new Error('Browser operation failed or target document changed')
     }
   }
