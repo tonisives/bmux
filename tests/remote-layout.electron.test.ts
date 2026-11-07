@@ -370,16 +370,21 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       let point = { x: button.x + button.width - 16, y: button.y + 16 }
       await expect.poll(() => application.evaluate((_electron, points) => (globalThis as any).remoteLayoutHits(points), [point])).toEqual([`{${button.width}, ${button.height}}`])
       let input = (phase: number) => application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { ...point, phase, modifier: 0, direct: true })
-      await input(0)
-      await fs.writeFile(info.outputPath('native-control-input.json'), JSON.stringify({
-        point, bounds: button, button: await fittedHand.boundingBox(),
-        desktop: await application.evaluate(({ BaseWindow, screen }) => ({ cursor: screen.getCursorScreenPoint(), display: screen.getPrimaryDisplay().bounds, windows: BaseWindow.getAllWindows().map(window => ({ bounds: window.getBounds(), focused: window.isFocused() })) })),
-      }))
-      await input(1)
-      try { await expect.poll(() => fittedHand.evaluate(button => button.matches(':active'))).toBe(true) }
-      finally { await input(3) }
+      for (let phase of [0, 1, 3]) await input(phase)
     } else await fittedHand.click()
-    await expect(fittedHand).toHaveAttribute('aria-pressed', 'true')
+    try { await expect(fittedHand).toHaveAttribute('aria-pressed', 'true') }
+    catch (error) {
+      await fs.writeFile(info.outputPath('native-control-input.json'), JSON.stringify({
+        button: await fittedHand.evaluate(button => ({ rect: button.getBoundingClientRect().toJSON(), pressed: button.getAttribute('aria-pressed') })),
+        native: await application.evaluate(({ BaseWindow, screen, WebContentsView }) => ({
+          target: (globalThis as any).remoteLayoutWindowId,
+          events: (globalThis as any).nativeGutterTrace,
+          cursor: screen.getCursorScreenPoint(),
+          windows: BaseWindow.getAllWindows().map(window => ({ id: window.id, bounds: window.getBounds(), focused: window.isFocused(), views: window.contentView.children.map(view => ({ bounds: view.getBounds(), url: view instanceof WebContentsView ? view.webContents.getURL() : '' })) })),
+        })),
+      }))
+      throw error
+    }
     await expect.poll(() => first.locator('#bmux-viewport-pan').evaluate(element => {
       let surface = element.shadowRoot!.querySelector('div')!
       return { position: getComputedStyle(surface).position, height: surface.getBoundingClientRect().height > 0, pointer: getComputedStyle(surface).pointerEvents }
