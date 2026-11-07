@@ -8,7 +8,9 @@ propagate plugin cancellation, and merge missed animation frames. The returned
 Unit fixtures cover delayed replies, missing replies and cancellation without
 replaying late input. Overlay refreshes have their own deduplicated IPC channel;
 only browser-state changes publish the full model. Repeat the four-pane overlay
-case and native wheel cases in CI.
+case and native wheel cases in CI. The native scroll fixture checks multiple
+visible steps, exact endpoints and lock ordering; frame count and per-event sine
+shape belong to the deterministic unit fixture because busy renderers merge steps.
 
 # Session age color boundaries
 
