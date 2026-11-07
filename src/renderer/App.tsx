@@ -1823,7 +1823,7 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     <h2>Built-in</h2>
     {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={open}><strong>{tool.name}</strong></button></div>)}
     {plugins.filter(plugin => plugin.bundled && plugin.category !== 'Social Media').map(row)}
-    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2><div data-panel-row><button className={css.listRow} data-details="social:settings" aria-current={sharedSettings || undefined} onClick={event => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }}><strong>Settings</strong></button></div>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
+    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2><div data-panel-row><button className={css.listRow} data-details="social:settings" aria-current={sharedSettings || undefined} onClick={event => { if (prompt) dismissPluginPrompt(prompt); stack.open(event); if (!prompt) openSharedSettings() }}><strong>Settings</strong></button></div>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
     <h2>Custom</h2>
     {plugins.filter(plugin => !plugin.bundled && plugin.category !== 'Social Media').map(row)}
     {!plugins.some(plugin => !plugin.bundled && plugin.category !== 'Social Media') && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
