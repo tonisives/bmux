@@ -18,7 +18,7 @@ void app.whenReady().then(async () => {
   }
   ;(globalThis as any).remoteLayoutMouse = (point: { x: number; y: number; phase: number; modifier: number }) => {
     let native = createRequire(import.meta.url)('../native-hit-test.node')
-    native.mouse(BaseWindow.getFocusedWindow()!.getNativeWindowHandle(), point.x, point.y, point.phase, point.modifier)
+    native.mouse(BaseWindow.getAllWindows().find(window => window.isVisible())!.getNativeWindowHandle(), point.x, point.y, point.phase, point.modifier)
   }
   ;(globalThis as any).remoteLayoutTree = () => createRequire(import.meta.url)('../native-hit-test.node').tree(BaseWindow.getAllWindows().find(window => window.isVisible())!.getNativeWindowHandle())
   ipcMain.handle('state', event => runtime.state(runtime.sourceClient(event.sender.id)))
