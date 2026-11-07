@@ -4337,7 +4337,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return pluginContext({ ...agentInfo(context), clientId: context.clientId, paneId: pane.id })
     }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ scope: (context, method, args, signal, operation) => pluginCommand.run(context, () => {
       if (context.pacing !== 'plugin' || !context.paneId || !context.profileId || !['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp', 'navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot', 'forms.list', 'forms.save', 'forms.fill', 'forms.delete'].includes(method)) return operation()
-      if (readsPage(method, args) && context.runId && websiteLocks.owns(context.profileId, context.url ?? '', context.runId)) return operation()
+      if (!agentAction(method, args) && (readsPage(method, args) || method === 'screenshot') && context.runId && websiteLocks.owns(context.profileId, context.url ?? '', context.runId)) return operation()
       return runAgentAction(context.paneId, method, args, async () => {
         signal.throwIfAborted()
         let target = automationTargetUrl(method, args)
