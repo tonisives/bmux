@@ -463,7 +463,7 @@ test('different plugins retain separate overlay tabs and a new run replaces only
   fs.mkdirSync(second)
   fs.writeFileSync(path.join(second, 'run.mjs'), hostScript + `host('overlay.update',{title:'Second',icon:'search',controls:[]});`)
   fs.writeFileSync(path.join(second, 'plugin.yaml'), stringify({ ...manifest, id: 'second' }))
-  settings({ test: { enabled: true }, second: { enabled: true } })
+  settings({ test: { enabled: true, hooks: false }, second: { enabled: true, hooks: false } })
   let first = plugins.run('test/run', context)
   await done(plugins, first.id)
   let other = plugins.run('second/run', context)

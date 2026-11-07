@@ -533,10 +533,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let value = values.find(value => value.runId === selectedTab) ?? { runId: 'pane:' + paneId, paneId, ended: false, error: undefined, content: { title: tabs.find(tab => tab.id === selectedTab)!.title, subtitle: '', status: '', nodes: [], metrics: '', details: [], controls: [] } as PluginOverlayContent }
     let zoom = pane.zoom || 1, preferred = pluginOverlayBounds.get(key)
     let bounds = fitPluginOverlay(preferred ?? (values.length ? undefined : { x: area.x + area.width - 384 * zoom - 12 * zoom, y: area.y + 12 * zoom, width: 384, height: 600, collapsed: true }), area, zoom)
-    let previous = pluginOverlayRuns.get(key)
+    let previous = pluginOverlayRuns.get(key + ':' + value.runId)
     let failed = Boolean(value.error || value.content.error)
     if (values.some(item => item.runId === selectedTab) && (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed)) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, area, zoom)
-    pluginOverlayRuns.set(key, { id: value.runId, ended: value.ended, failed })
+    pluginOverlayRuns.set(key + ':' + value.runId, { id: value.runId, ended: value.ended, failed })
     pluginOverlayBounds.set(key, { ...bounds, width: preferred?.width ?? 384, height: preferred?.height ?? 600 })
     // A collapsed dock owns only its buttons, leaving the rest of the page exposed.
     if (bounds.collapsed) { let right = bounds.x + bounds.width * zoom; bounds = { ...bounds, width: Math.min(bounds.width, tabs.length * 32), x: right - Math.min(bounds.width, tabs.length * 32) * zoom } }
@@ -544,7 +544,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
 
   let deliverOverlay = createPluginOverlayDelivery((contents: WebContents, overlay) => contents.send('plugin-overlay', overlay))
-  let overlayState = (clientId: string, contentsId?: number) => overlayForClient(clientId, [...(clients.get(clientId)?.pluginOverlays ?? [])].find(([, view]) => view.webContents.id === contentsId)?.[0])
+  let overlayState = (clientId: string, contentsId?: number) => {
+    let paneId = [...(clients.get(clientId)?.pluginOverlays ?? [])].find(([, view]) => view.webContents.id === contentsId)?.[0]
+    let overlay = overlayForClient(clientId, paneId)
+    if (paneId || !overlay || !overlay.runId.startsWith('pane:')) return overlay
+    let plugin = plugins?.overlays(overlay.paneId).find(value => overlay.tabs.some(tab => tab.id === value.runId))
+    return plugin ? { ...overlay, ...plugin } : undefined
+  }
   let refreshPluginOverlay = (clientId: string, owner: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let panes = client ? visiblePaneIds(client) : []
