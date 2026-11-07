@@ -148,7 +148,7 @@ let DecisionBody = () => {
   if (awaitingStart) return <div className={css.body}><h2>Ready to browse</h2><p role="status">Choose Start browsing to review each action, or Start with auto continue.</p><p>{overlay.content.subtitle}</p></div>
   return <>
     <div className={css.body}>
-      <p className={css.status}>{overlay.content.status}</p><section className={css.postExcerpt}><h2>{post?.title || 'Post'}</h2><p title={post?.lines.join(' ')}>{overlay.content.controls.some(control => ['start','auto'].includes(control.id)) ? 'Choose Start or Auto below to begin reading posts.' : post?.lines.join(' ').slice(0, 240) || 'Waiting for a post'}</p></section>
+      <p className={css.status}>{overlay.content.status}</p><section className={css.postExcerpt}><h2>{post?.title || 'Post'}</h2><p title={post?.lines.join(' ')}>{post?.lines.join(' ').slice(0, 240) || 'Waiting for a post'}</p></section>
       <div className={css.decisionRoot}>{decision.loading && <span className={css.spinner} role="status" aria-label="AI is deciding" />}{decision.loading ? 'AI is deciding' : 'Possible outcomes'}</div>
       <DecisionTree />
       <div className={css.actionLine}><CompactAction /><NextPostButton /></div>

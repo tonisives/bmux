@@ -28,7 +28,8 @@ void app.whenReady().then(async () => {
   }
   fixture = { controlErrors, hold: false, held, runtime, snapshot, open, media, publish: controlling => { if (controlling !== undefined) { view.controlling = controlling; view.occupied = controlling }; for (let update of updates) update({ ...view, workspace: structuredClone(snapshot) }) }, publishMedia: () => { for (let update of mediaUpdates.values()) update({ ...view, controlling: false, occupied: false }) }, flush: () => { for (let send of held.splice(0)) send() } }
   ;(globalThis as any).workspaceFixture = fixture
-  ipcMain.handle('state', event => runtime.state(runtime.sourceClient(event.sender.id)))
+  ipcMain.handle('state', event => runtime.state(runtime.sourceClient(event.sender.id), event.sender.id))
+  ipcMain.handle('plugin-overlay-state', event => runtime.overlayState(runtime.sourceClient(event.sender.id)!, event.sender.id))
   ipcMain.handle('command', async (event, command) => {
     if (['record.list', 'record.status'].includes(command.method)) return []
     try { return await runtime.execute(command, runtime.sourceClient(event.sender.id)) }
