@@ -82,7 +82,7 @@ import { createControlLeases } from '../shared/remote'
 import { createRemoteCapture } from './remote-capture'
 import { assertFrameCapture, capturePageFrame, frameCaptureError } from './frame-capture'
 import { fitPluginOverlay, pluginOverlayHeight } from '../shared/plugin-overlay'
-import type { PluginOverlayBounds } from '../shared/plugin-overlay'
+import type { PluginOverlayBounds, PluginOverlayContent } from '../shared/plugin-overlay'
 import { captureViewportScreenshot } from './viewport-screenshot'
 import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
@@ -111,12 +111,11 @@ import { createUnloadGuard } from './unload-guard'
 import { recentBackgroundPanes } from './recent-panes'
 import { clipViewportInput, clearViewportInput } from './viewport-input'
 import { createViewportPan, viewportPanEvaluator } from './viewport-pan'
-import { createViewportControl } from './viewport-control'
 import { viewportZoomFactor, viewportPanMetrics, scaledViewportSize } from '../shared/viewport-pan'
 import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
-type LiveTab = { panControl?: ReturnType<typeof createViewportControl>; inputLock?: ReturnType<typeof createAgentInputLock>; pagePan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; viewportEmulation?: string; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
+type LiveTab = { inputLock?: ReturnType<typeof createAgentInputLock>; pagePan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; viewportEmulation?: string; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
 type LiveClient = { pluginOverlays: Map<string, WebContentsView>; window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
@@ -169,7 +168,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     else viewportPanModes.delete(pane)
     void tabs.get(pane)?.pagePan?.refresh()
     void tabs.get(pane)?.shieldPan?.refresh()
-    tabs.get(pane)?.panControl?.refresh(enabled)
     publish()
   }
   let zoomViewport = (pane: string, delta: number) => {
@@ -511,23 +509,40 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
   let settingsReady = readSettings()
 
+  let selectedOverlayTabs = new Map<string, string>()
   let pluginOverlayBounds = new Map<string, PluginOverlayBounds>()
   let dismissedPluginOverlays = new Set<string>(), pluginOverlayRuns = new Map<string, { id: string; ended: boolean; failed: boolean }>()
   let overlayForClient = (clientId: string, paneId = model.clients.find(client => client.id === clientId)?.paneId) => {
     let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
     if (!client || !paneId || !owner || !visiblePaneIds(client).includes(paneId)) return
-    let value = plugins?.overlay(paneId), area = owner.bounds.find(bounds => bounds.paneId === paneId)
-    if (!value || !area || area.width < 1 || area.height < 1 || dismissedPluginOverlays.has(clientId + ':' + value.runId)) return
-    let zoom = paneById(model, paneId).pane.zoom || 1
-    let key = clientId + ':' + paneId, preferred = pluginOverlayBounds.get(key)
-    let bounds = fitPluginOverlay(preferred, area, zoom)
+    let values = (plugins?.overlays(paneId) ?? []).filter(value => !dismissedPluginOverlays.has(clientId + ':' + value.runId))
+    let area = owner.bounds.find(bounds => bounds.paneId === paneId)
+    if (!area || area.width < 1 || area.height < 1) return
+    let pane = paneById(model, paneId).pane
+    let actor = activeAgents.get(paneId)
+    let agent = actor && (actor.pending > 0 || agentInputDue(paneId) || Date.now() - actor.lastUsed < 60_000) ? { name: actor.agentName || actor.agentId || 'Agent', purpose: actor.agentPurpose || '', locked: agentInputLocked(paneId), overridden: agentInputOverrides.has(pane) } : undefined
+    let size = fixedViewport(paneId)
+    let viewport = size ? { ...size, zoom: pane.zoom || 1, panning: viewportPanModes.has(paneId), recent: model.recentViewports ?? [] } : undefined
+    let tabs: NonNullable<import('../shared/plugin-overlay').PluginOverlayState['tabs']> = values.map(value => ({ id: value.runId, title: value.content.decision ? 'BMUX Accounts' : value.content.title, icon: value.content.icon ?? (value.content.decision ? 'accounts' : 'plugin') }))
+    if (agent) tabs.push({ id: 'agent', title: 'Agent control', icon: 'agent' })
+    if (viewport) tabs.push({ id: 'viewport', title: 'Locked viewport', icon: 'viewport' })
+    if (!tabs.length) return
+    let key = clientId + ':' + paneId
+    let selectedTab = tabs.find(tab => tab.id === selectedOverlayTabs.get(key))?.id ?? tabs[0].id
+    selectedOverlayTabs.set(key, selectedTab)
+    let value = values.find(value => value.runId === selectedTab) ?? { runId: 'pane:' + paneId, paneId, ended: false, error: undefined, content: { title: tabs.find(tab => tab.id === selectedTab)!.title, subtitle: '', status: '', nodes: [], metrics: '', details: [], controls: [] } as PluginOverlayContent }
+    let zoom = pane.zoom || 1, preferred = pluginOverlayBounds.get(key)
+    let bounds = fitPluginOverlay(preferred ?? (values.length ? undefined : { x: area.x + area.width - 384 * zoom - 12 * zoom, y: area.y + 12 * zoom, width: 384, height: 600, collapsed: true }), area, zoom)
     let previous = pluginOverlayRuns.get(key)
     let failed = Boolean(value.error || value.content.error)
-    if (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, area, zoom)
+    if (values.some(item => item.runId === selectedTab) && (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed)) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, area, zoom)
     pluginOverlayRuns.set(key, { id: value.runId, ended: value.ended, failed })
     pluginOverlayBounds.set(key, { ...bounds, width: preferred?.width ?? 384, height: preferred?.height ?? 600 })
-    return { ...value, bounds, zoom }
+    // A collapsed dock owns only its buttons, leaving the rest of the page exposed.
+    if (bounds.collapsed) { let right = bounds.x + bounds.width * zoom; bounds = { ...bounds, width: Math.min(bounds.width, tabs.length * 32), x: right - Math.min(bounds.width, tabs.length * 32) * zoom } }
+    return { ...value, bounds, zoom, tabs, selectedTab, agent, viewport }
   }
+
   let deliverOverlay = createPluginOverlayDelivery((contents: WebContents, overlay) => contents.send('plugin-overlay', overlay))
   let overlayState = (clientId: string, contentsId?: number) => overlayForClient(clientId, [...(clients.get(clientId)?.pluginOverlays ?? [])].find(([, view]) => view.webContents.id === contentsId)?.[0])
   let refreshPluginOverlay = (clientId: string, owner: LiveClient) => {
@@ -1968,7 +1983,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
       live.camera?.webContents.close()
       live.inputLock?.dispose()
-      live.panControl?.dispose()
       if (!destroyed) live.contents.close({ waitForBeforeUnload: false })
       tabs.delete(tabId)
       virtualMouse.forget(tabId)
@@ -2269,42 +2283,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       live.inputLock?.refresh()
       void live.pagePan?.refresh()
       void live.shieldPan?.refresh()
-      if (fixedSize && target === viewer?.live.window && bounds) {
-        live.panControl ??= createViewportControl(tabId, enabled => {
-          setViewportPanMode(tabId, enabled)
-          let owner = [...clients.values()].find(owner => owner.window === live.parent)
-          owner?.tabTooltip.setVisible(false)
-          if (live.parent.isFocused()) {
-            let contents = live.inputLock?.view?.getVisible() ? live.inputLock.contents! : live.contents
-            contents.focus(); syncPageSelection(contents)
-          }
-        }, delta => zoomViewport(tabId, delta), visible => {
-          let owner = [...clients.values()].find(owner => owner.window === live.parent)
-          if (!owner || owner.window.isDestroyed()) return
-          if (!visible) { owner.tabTooltip.setVisible(false); return }
-          let button = live.panControl!.view.getBounds(), window = owner.window.getContentBounds()
-          let width = Math.min(160, window.width - 16)
-          owner.tabTooltip.setBounds({ x: Math.max(8, Math.min(window.width - width - 8, button.x + button.width - width)), y: Math.min(window.height - 28, button.y + 36), width, height: 28 })
-          owner.tabTooltip.webContents.send('link-preview', 'Pan viewport')
-          owner.window.contentView.addChildView(owner.tabTooltip); owner.tabTooltip.setVisible(true)
-        }, () => ({ ...fixedViewport(tabId)!, zoom: pane.zoom || 1, recent: model.recentViewports ?? [] }), settings => {
-          let { window } = paneById(model, tabId)
-          window.lockedViewports ??= {}
-          window.lockedViewports[tabId] = { width: settings.width, height: settings.height }
-          model.recentViewports = [{ width: settings.width, height: settings.height, zoom: settings.zoom }, ...(model.recentViewports ?? []).filter(item => item.width !== settings.width || item.height !== settings.height || item.zoom !== settings.zoom)].slice(0, 3)
-          pane.zoom = settings.zoom; live.contents.setZoomFactor(1)
-          remoteSizes.delete(tabId)
-          changed()
-        })
-        let page = live.view.getBounds(), frame = live.remoteFrame?.getBounds()
-        let left = frame?.x ?? page.x
-        let top = frame?.y ?? page.y
-        let width = frame?.width ?? page.width
-        live.panControl.mount(live.parent.contentView, { x: Math.round(left + width - 84), y: Math.round(top + 12), width: 72, height: 32 })
-        live.panControl.refresh(viewportPanModes.has(tabId))
-      } else if (live.panControl) {
-        live.panControl.dispose(); live.panControl = undefined
-      }
+
     }
     if (capturedViewport) save()
     for (let candidate of model.clients) {
@@ -2320,7 +2299,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       for (let paneId of visiblePaneIds(candidate)) {
         if (!candidate.zoomedPaneId && window?.floating?.some(item => item.paneId === paneId)) continue
         let page = tabs.get(paneById(model, paneId).pane.id)
-        if (page?.parent === live.window) { ordered.push(pageRoot(page)); if (page.inputLock?.view) ordered.push(page.inputLock.view); if (page.camera) ordered.push(page.camera); if (page.panControl) ordered.push(page.panControl.view) }
+        if (page?.parent === live.window) { ordered.push(pageRoot(page)); if (page.inputLock?.view) ordered.push(page.inputLock.view); if (page.camera) ordered.push(page.camera);  }
       }
       for (let placement of candidate.zoomedPaneId ? [] : window?.floating ?? []) {
         let frame = live.floats.get(placement.paneId)
@@ -2330,7 +2309,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           ordered.push(pageRoot(page))
           if (page.inputLock?.view) ordered.push(page.inputLock.view)
           if (page.camera) ordered.push(page.camera)
-          if (page.panControl) ordered.push(page.panControl.view)
+
         }
       }
       if (keepsPages(candidate.id)) {
@@ -3228,28 +3207,67 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let run = plugins?.runs().find(run => run.id === args.id)
       if (!run?.overlayPaneId) throw new Error('Page overlay is unavailable')
       dismissedPluginOverlays.delete(sourceClientId + ':' + run.id)
+      selectedOverlayTabs.set(sourceClientId + ':' + run.overlayPaneId, run.id)
+      let preferred = pluginOverlayBounds.get(sourceClientId + ':' + run.overlayPaneId)
+      if (preferred) pluginOverlayBounds.set(sourceClientId + ':' + run.overlayPaneId, { ...preferred, collapsed: false, compact: false })
       await execute({ method: 'select-pane', args: { client: sourceClientId, pane: run.overlayPaneId, focus: false } })
       publish(); return null
+    }
+    if (method.startsWith('pane.overlay.')) {
+      if (!sourceClientId) throw new Error('Trusted page overlay UI required')
+      let paneId = required(args, 'pane'), current = overlayForClient(sourceClientId, paneId), owner = clients.get(sourceClientId)
+      if (!current || !owner) throw new Error('Page overlay is no longer visible')
+      let key = sourceClientId + ':' + paneId
+      if (method === 'pane.overlay.select') {
+        if (!current.tabs.some(tab => tab.id === args.tab)) throw new Error('Overlay tab unavailable')
+        selectedOverlayTabs.set(key, String(args.tab))
+        let preferred = pluginOverlayBounds.get(key)!
+        pluginOverlayBounds.set(key, { ...preferred, collapsed: args.tab === current.selectedTab && !current.bounds.collapsed, compact: false })
+      } else if (method === 'pane.overlay.bounds') {
+        if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid page overlay bounds')
+        let preferred = pluginOverlayBounds.get(key)!
+        pluginOverlayBounds.set(key, { x: Number(args.x), y: Number(args.y), width: args.width === current.bounds.width ? preferred.width : Number(args.width), height: args.height === current.bounds.height ? preferred.height : Number(args.height), collapsed: args.collapsed, compact: args.compact === true })
+      } else if (method === 'pane.overlay.agent-override') {
+        if (!current.agent || typeof args.enabled !== 'boolean') throw new Error('Agent control unavailable')
+        agentInputOverrides.set(paneById(model, paneId).pane, args.enabled)
+      } else if (method === 'pane.overlay.agent-info') {
+        owner.chrome.webContents.focus(); owner.chrome.webContents.send('focus-control', 'agent-info', paneId)
+      } else if (method === 'pane.overlay.pan') {
+        if (!current.viewport || typeof args.enabled !== 'boolean') throw new Error('Viewport unavailable')
+        setViewportPanMode(paneId, args.enabled)
+        if (owner.window.isFocused()) {
+          let page = tabs.get(paneId), contents = page?.inputLock?.view?.getVisible() ? page.inputLock.contents : page?.contents
+          contents?.focus()
+        }
+      } else if (method === 'pane.overlay.viewport') {
+        if (!current.viewport || !Number.isSafeInteger(args.width) || Number(args.width) < 1 || Number(args.width) > 16384 || !Number.isSafeInteger(args.height) || Number(args.height) < 1 || Number(args.height) > 16384 || typeof args.zoom !== 'number' || !Number.isFinite(args.zoom) || args.zoom < .25 || args.zoom > 3) throw new Error('Invalid viewport settings')
+        let { pane, window } = paneById(model, paneId)
+        let size = { width: Number(args.width), height: Number(args.height), zoom: args.zoom }
+        window.lockedViewports ??= {}; window.lockedViewports[paneId] = { width: size.width, height: size.height }
+        model.recentViewports = [size, ...(model.recentViewports ?? []).filter(item => item.width !== size.width || item.height !== size.height || item.zoom !== size.zoom)].slice(0, 3)
+        pane.zoom = size.zoom; remoteSizes.delete(paneId); changed()
+      } else throw new Error('Unknown page overlay command')
+      refreshPluginOverlay(sourceClientId, owner); publish(); return null
     }
     if (method.startsWith('plugin.overlay.')) {
       if (!sourceClientId) throw new Error('Trusted page overlay UI required')
       let paneId = plugins?.runs().find(run => run.id === args.id)?.overlayPaneId
       let current = paneId ? overlayForClient(sourceClientId, paneId) : undefined, owner = clients.get(sourceClientId)
-      if (!current || current.runId !== args.id || !owner) throw new Error('Page overlay is no longer visible')
+      if (!current || !current.tabs.some(tab => tab.id === args.id) || !owner) throw new Error('Page overlay is no longer visible')
       if (method === 'plugin.overlay.close') {
-        dismissedPluginOverlays.add(sourceClientId + ':' + current.runId)
+        dismissedPluginOverlays.add(sourceClientId + ':' + args.id)
         refreshPluginOverlay(sourceClientId, owner)
         if (owner.window.isFocused()) owner.chrome.webContents.focus()
         publish(); return null
       }
       if (method === 'plugin.overlay.copy') {
-        let text = plugins?.copyOverlay(current.runId, required(args, 'copy'))
+        let text = plugins?.copyOverlay(String(args.id), required(args, 'copy'))
         if (text === undefined) throw new Error('Payload unavailable')
         clipboard.writeText(text); return { copied: true }
       }
-      if (method === 'plugin.overlay.input') return plugins?.overlayInput(current.runId, required(args, 'control'), args.value)
-      if (method === 'plugin.overlay.configure') return plugins?.configureOverlay(current.runId)
-      if (method === 'plugin.overlay.restart') return plugins?.restartOverlay(current.runId)
+      if (method === 'plugin.overlay.input') return plugins?.overlayInput(String(args.id), required(args, 'control'), args.value)
+      if (method === 'plugin.overlay.configure') return plugins?.configureOverlay(String(args.id))
+      if (method === 'plugin.overlay.restart') return plugins?.restartOverlay(String(args.id))
       if (method === 'plugin.overlay.bounds') {
         if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid page overlay bounds')
         let key = sourceClientId + ':' + current.paneId, preferred = pluginOverlayBounds.get(key)

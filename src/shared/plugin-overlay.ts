@@ -1,9 +1,12 @@
 export type PluginOverlayControl = { id: string; label: string; kind: 'button' | 'toggle' | 'choice' | 'text'; value?: string | boolean; choices?: string[]; disabled?: boolean; setting?: string }
 export type PluginOverlayError = { title: string; message: string; diagnostic?: string; controls?: string[] }
 export type PluginDecision = { loading: boolean; options: { id: string; label: string; probability?: number; active: boolean }[] }
-export type PluginOverlayContent = { decision?: PluginDecision; error?: PluginOverlayError; title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
+export type PluginOverlayContent = { icon?: 'accounts' | 'plugin' | 'chart' | 'search'; decision?: PluginDecision; error?: PluginOverlayError; title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
 export type PluginOverlayBounds = { x: number; y: number; width: number; height: number; collapsed?: boolean; compact?: boolean }
-export type PluginOverlayState = { runId: string; paneId: string; content: PluginOverlayContent; bounds: PluginOverlayBounds; zoom: number; ended: boolean; error?: string }
+export type PaneOverlayTab = { id: string; title: string; icon: 'accounts' | 'plugin' | 'chart' | 'search' | 'agent' | 'viewport' }
+export type PaneOverlayAgent = { name: string; purpose: string; locked: boolean; overridden: boolean }
+export type PaneOverlayViewport = { width: number; height: number; zoom: number; panning: boolean; recent: { width: number; height: number; zoom: number }[] }
+export type PluginOverlayState = { tabs?: PaneOverlayTab[]; selectedTab?: string; agent?: PaneOverlayAgent; viewport?: PaneOverlayViewport; runId: string; paneId: string; content: PluginOverlayContent; bounds: PluginOverlayBounds; zoom: number; ended: boolean; error?: string }
 export type PluginOverlayInput = { id: string; value?: string | boolean }
 let text = (value: unknown, maximum: number) => { if (typeof value !== 'string' || value.length > maximum) throw new Error('Invalid overlay text'); return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '') }
 let array = (value: unknown, maximum: number) => { if (!Array.isArray(value) || value.length > maximum) throw new Error('Invalid overlay list'); return value }
@@ -37,7 +40,8 @@ export let parsePluginOverlay = (value: Record<string, unknown>): PluginOverlayC
       return { id: text(option.id, 64), label: text(option.label, 80), active: option.active, ...(option.probability === undefined ? {} : { probability: option.probability }) }
     }) }
   }
-  return { ...(decision ? { decision } : {}), ...(failure ? { error: failure } : {}), copies, title: text(value.title, 100), subtitle: text(value.subtitle ?? '', 180), status: text(value.status ?? '', 180), metrics: text(value.metrics ?? '', 300), controls,
+  if (value.icon !== undefined && !['accounts','plugin','chart','search'].includes(String(value.icon))) throw new Error('Invalid overlay icon')
+  return { ...(value.icon ? { icon: value.icon as PluginOverlayContent['icon'] } : {}), ...(decision ? { decision } : {}), ...(failure ? { error: failure } : {}), copies, title: text(value.title, 100), subtitle: text(value.subtitle ?? '', 180), status: text(value.status ?? '', 180), metrics: text(value.metrics ?? '', 300), controls,
     nodes: array(value.nodes ?? [], 8).map(node => { if (!node || !['cyan','green','neutral'].includes(node.tone)) throw new Error('Invalid overlay node'); return { title: text(node.title, 80), lines: array(node.lines, 12).map(line => text(line, 800)), tone: node.tone } }),
     details: array(value.details ?? [], 8).map(detail => ({ title: text(detail.title, 80), text: text(detail.text, 12000) })),
   }

@@ -63,12 +63,23 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     let size = (page: typeof first) => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
     let content = (pane: string) => chrome.locator(`[data-content-pane-id="${pane}"]`)
     let controlPage = async (pane: string) => {
-      let url = `about:blank#bmux-viewport-control-${encodeURIComponent(pane)}`
-      await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
-      return application.context().pages().find(page => page.url() === url)!
+      let found: typeof first | undefined
+      await expect.poll(async () => {
+        for (let page of application.context().pages().filter(page => page.url().endsWith('#plugin-overlay'))) {
+          let overlay = await page.evaluate(() => (window as any).bmux.overlayState()).catch(() => undefined)
+          if (overlay?.paneId === pane) { found = page; return true }
+        }
+        return false
+      }).toBe(true)
+      let tab = found!.getByRole('tab', { name: 'Locked viewport', exact: true })
+      if (await tab.getAttribute('aria-selected') !== 'true') await tab.click()
+      return found!
     }
-    let controlBounds = (pane: string) => application.evaluate(({ BaseWindow, WebContentsView }, pane) => {
-      for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if (view instanceof WebContentsView && view.webContents.getURL() === `about:blank#bmux-viewport-control-${encodeURIComponent(pane)}`) return view.getBounds()
+    let controlBounds = (pane: string) => application.evaluate(async ({ BaseWindow, WebContentsView }, pane) => {
+      for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children) if (view instanceof WebContentsView && view.webContents.getURL().endsWith('#plugin-overlay')) {
+        let overlay = await view.webContents.executeJavaScript('window.bmux.overlayState()')
+        if (overlay?.paneId === pane) return view.getBounds()
+      }
       return null
     }, pane)
     for (let [pane, page] of [[client.paneId, first], [added.id, second]] as const) await expect.poll(async () => {
@@ -212,8 +223,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect(hand).toBeVisible()
       let anchoredControl = await controlBounds(client.paneId)
       await hand.hover()
-      let tooltip = application.context().pages().find(page => page.url().endsWith('#tab-tooltip'))!
-      await expect(tooltip.getByText('Pan viewport', { exact: true })).toBeVisible()
+      await expect(hand).toHaveAttribute('title', 'Pan viewport')
       for (let modifier of ['Alt', 'Meta']) {
         await first.keyboard.down(modifier)
         await first.mouse.move(120, 120)
@@ -472,31 +482,11 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     for (let pane of [client.paneId, added.id, third.id]) await rpc('zoom', { tab: pane, factor: 1 })
     await expect.poll(() => size(first)).toEqual({ width: 1512, height: 900 })
     let settingsPage = await controlPage(third.id)
-    let settingsButton = settingsPage.getByRole('button', { name: 'Viewport settings', exact: true })
+    let settingsButton = settingsPage.getByRole('tab', { name: 'Locked viewport', exact: true })
     let settingsForm = settingsPage.getByRole('form', { name: 'Viewport settings', exact: true })
-    let settingsHand = settingsPage.getByRole('button', { name: 'Pan viewport', exact: true })
-    let openSettings = async () => { await settingsHand.hover(); await settingsButton.click() }
+    let openSettings = async () => { if (await settingsButton.getAttribute('aria-selected') !== 'true') await settingsButton.click(); await expect(settingsForm).toBeVisible() }
     await rpc('zoom', { tab: third.id, factor: .5 })
-    await settingsPage.mouse.move(100, 100)
-    await expect(settingsButton).toHaveCSS('opacity', '0')
-    await settingsHand.hover()
-    await expect(settingsButton).toHaveCSS('opacity', '1')
-    let handBounds = (await settingsHand.boundingBox())!
-    await settingsPage.mouse.move(handBounds.x - 4, handBounds.y + 16)
-    await expect(settingsButton).toHaveCSS('opacity', '1')
-    await settingsButton.hover()
-    await expect(settingsButton).toHaveCSS('opacity', '1')
-    let gearBounds = (await settingsButton.boundingBox())!
-    expect(gearBounds.x + gearBounds.width).toBeLessThan(handBounds.x)
-    expect(handBounds.x + handBounds.width).toBe((await controlBounds(third.id))!.width)
-    await settingsPage.mouse.move(100, 100)
-    await expect(settingsButton).toHaveCSS('opacity', '0')
-    await settingsHand.focus()
-    await settingsHand.press('ArrowRight')
-    await expect(settingsButton).toHaveCSS('opacity', '1')
-    await settingsHand.press('Tab')
-    await expect(settingsButton).toBeFocused()
-    await settingsButton.press('Enter')
+    await expect(settingsButton).toHaveAttribute('aria-selected', 'true')
     await expect(settingsForm).toBeVisible()
     await expect(settingsForm.getByLabel('Width', { exact: true })).toHaveValue('1512')
     await expect(settingsForm.getByLabel('Scale (%)', { exact: true })).toHaveValue('50')

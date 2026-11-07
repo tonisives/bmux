@@ -455,3 +455,22 @@ test('named configuration switches preserve the form, profile scope and defaults
   plugins.respond('client',{id:selected.id,cancel:true})
   expect((await done(plugins,id)).status).toBe('cancelled')
 })
+
+
+test('different plugins retain separate overlay tabs and a new run replaces only its own plugin', async () => {
+  let { directory, plugins, context, manifest, settings } = fixture(hostScript + `host('overlay.update',{title:'First',controls:[]});`, { capabilities: ['ui'] })
+  let second = path.join(directory, 'plugins', 'second')
+  fs.mkdirSync(second)
+  fs.writeFileSync(path.join(second, 'run.mjs'), hostScript + `host('overlay.update',{title:'Second',icon:'search',controls:[]});`)
+  fs.writeFileSync(path.join(second, 'plugin.yaml'), stringify({ ...manifest, id: 'second' }))
+  settings({ test: { enabled: true }, second: { enabled: true } })
+  let first = plugins.run('test/run', context)
+  await done(plugins, first.id)
+  let other = plugins.run('second/run', context)
+  await done(plugins, other.id)
+  expect(plugins.overlays(context.paneId!).map(overlay => overlay.runId)).toEqual([other.id, first.id])
+  let newer = plugins.run('test/run', context)
+  await done(plugins, newer.id)
+  expect(plugins.overlays(context.paneId!).map(overlay => overlay.runId)).toEqual([newer.id, other.id])
+  expect(plugins.overlays('unrelated-pane')).toEqual([])
+})

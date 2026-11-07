@@ -384,10 +384,16 @@ export let createPlugins = (options: Options) => {
     if (sharedSettings && (!interactive || definition.manifest.category !== 'Social Media' || !action.configuration_save_command)) throw new Error('Shared social settings unavailable')
     return enqueue(definition, action, options.context(context), parameters, false, interactive, sharedSettings)
   }
-  let overlay = (paneId: string) => {
-    let run = [...runs.values()].reverse().find(run => run.context.paneId === paneId && run.overlay)
-    return run?.overlay ? { runId: run.public.id, paneId, content: { ...run.overlay, copies: run.overlay.copies?.map(({ id, label }) => ({ id, label })) }, ended: !live(run), error: run.public.error } : undefined
+  let overlays = (paneId: string) => {
+    let seen = new Set<string>()
+    return [...runs.values()].reverse().flatMap(run => {
+      let pluginId = run.public.pluginId
+      if (run.context.paneId !== paneId || !run.overlay || seen.has(pluginId)) return []
+      seen.add(pluginId)
+      return [{ runId: run.public.id, pluginId, paneId, content: { ...run.overlay, copies: run.overlay.copies?.map(({ id, label }) => ({ id, label })) }, ended: !live(run), error: run.public.error }]
+    })
   }
+  let overlay = (paneId: string) => overlays(paneId)[0]
   let copyOverlay = (id: string, copyId: string) => {
     let copy = runs.get(id)?.overlay?.copies?.find(copy => copy.id === copyId)
     if (!copy?.text) throw new Error('Payload is unavailable for this post')
@@ -485,5 +491,5 @@ export let createPlugins = (options: Options) => {
       return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
     } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
   })
-  return { ready, list, bookmarks, runs: publicRuns, overlay, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  return { ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }

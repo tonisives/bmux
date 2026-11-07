@@ -79,3 +79,10 @@ test('overlay dimensions and collapsed height follow the page zoom', () => {
   expect(enlarged.width * 2).toBeLessThanOrEqual(area.width)
   expect(enlarged.height * 2).toBeLessThanOrEqual(area.height)
 })
+
+
+test('plugins choose a bounded shared panel icon', () => {
+  expect(parsePluginOverlay({ ...content, icon: 'search' }).icon).toBe('search')
+  expect(parsePluginOverlay(content).icon).toBeUndefined()
+  expect(() => parsePluginOverlay({ ...content, icon: '<svg onload=alert(1)>' })).toThrow('Invalid overlay icon')
+})
