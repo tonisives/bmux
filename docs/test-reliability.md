@@ -773,3 +773,11 @@ in that run, then all three passed together in focused CI. The shared command
 fixture is being repeated to check for setup history. The full suite now uses
 three shards, retaining one GUI worker per desktop, every test, zero retries,
 and the existing assertion, test and workflow deadlines.
+
+## Unsaved changes with address suggestions
+
+The November 7 full Check found two site-dialog fixtures still waiting for the
+native page to detach while address suggestions were open. The address overlay
+now keeps pages attached. Both fixtures wait for the suggestion list and visible
+native page before navigating. The Escape, Enter, prompt focus, page visibility,
+and unsaved content assertions remain in place.
