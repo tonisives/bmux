@@ -435,6 +435,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await first.reload()
     await expect.poll(() => size(first)).toEqual({ width: 1512, height: 900 })
     await rpc('viewport.pan-mode', { pane: client.paneId, enabled: true })
+    await expect.poll(() => first.evaluate(() => document.querySelector('#bmux-viewport-pan')?.shadowRoot?.querySelector('div')?.style.pointerEvents)).toBe('auto')
     await first.mouse.move(100, 100)
     await first.mouse.wheel(20, 30)
     await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft - Number(element.dataset.panOriginX), y: element.scrollTop - Number(element.dataset.panOriginY) }))).toEqual({ x: 20, y: 30 })
