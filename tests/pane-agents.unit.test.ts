@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
-import { lastPaneAgent, paneAgents } from '../src/shared/pane-agents'
-import type { Pane } from '../src/shared/types'
+import { isBackgroundAgentWindow, lastPaneAgent, paneAgents } from '../src/shared/pane-agents'
+import type { Model, Pane } from '../src/shared/types'
 
 let pane: Pane = { id: '%1', profileId: 'default', url: 'about:blank', title: '', zoom: 1, agentId: 'research', agentName: 'Research agent', agentOrigin: { type: 'tmux', paneId: '%70', panePid: '1234' } }
 
@@ -32,4 +32,16 @@ it('keeps the page button tied to the last interaction after human activity and 
 it('keeps older page identities without treating human activity as the agent timestamp', () => {
   expect(lastPaneAgent({ ...pane, lastUsedBy: 'human', lastActivityAt: 456 })).toMatchObject({ agentId: pane.agentId, active: false, lastUsed: undefined })
   expect(lastPaneAgent({ ...pane, lastUsedBy: 'agent', lastActivityAt: 123 })).toMatchObject({ lastUsed: 123 })
+})
+
+
+it('shows background agent windows until any client selects them or a human takes over', () => {
+  let window = { id: 'agent-window', name: 'Research', layout: null, panes: [pane] }
+  let model = { clients: [] } as unknown as Model
+  expect(isBackgroundAgentWindow(window, { model })).toBe(true)
+  model.clients = [{ id: 'other-client', sessionId: 'bot', windowId: window.id, paneId: pane.id, width: 800, height: 600 }]
+  expect(isBackgroundAgentWindow(window, { model })).toBe(false)
+  model.clients = []
+  expect(isBackgroundAgentWindow({ ...window, panes: [{ ...pane, lastUsedBy: 'human' }] }, { model })).toBe(false)
+  expect(isBackgroundAgentWindow({ ...window, panes: [{ ...pane, agentId: undefined }] }, { model })).toBe(false)
 })
