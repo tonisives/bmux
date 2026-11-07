@@ -2016,7 +2016,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   if (subscription) return <div className={css.pluginParameters}><h2>BMUX subscription</h2><p>Your remote subscription includes AI browsing.</p><DesktopRemoteAccount view="relay" /></div>
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
-    <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
+    <p>{request.launch && !editingProfile ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
