@@ -3,10 +3,15 @@
 The November 7 full Check exposed capture fixtures issuing their first CLI
 status command before the isolated control socket was listening. With installed
 app discovery now restricted to installed bundles, the CLI correctly declined
-to launch a checkout. The capture fixtures poll status with `--no-start` before
+to launch a checkout. The capture and proxy fixtures poll status with `--no-start` before
 sending commands, so readiness never launches another browser. Repeat all four
 headless capture cases in CI; frame, reconnect and crash assertions retain their
 existing deadlines.
+
+The Stop-session fixture also picked a hidden overlay left by an earlier run
+because every overlay has the same URL. Single-run overlay fixtures now resolve
+the page by its run ID through the small overlay-state channel. Repeat the Stop
+case with the other plugin cases to exercise retained hidden views.
 
 # Social browsing scroll and overlay delivery
 
