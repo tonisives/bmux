@@ -27,7 +27,7 @@ import { BackButton, PanelBackContext, PanelHeader, usePanelBack } from './Panel
 import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
 import { activityAge, activityLabel, compactActivityLabel, windowActivityTime, windowVisitTime } from '../shared/pane-activity'
-import { lastPaneAgent, paneAgents } from '../shared/pane-agents'
+import { isBackgroundAgentWindow, lastPaneAgent, paneAgents } from '../shared/pane-agents'
 import { agentIdentifier, agentResumeCommand } from '../shared/agent-info'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles, uniqueProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
@@ -711,8 +711,9 @@ let SessionStatus = () => {
     observer.observe(list); reveal()
     return () => observer.disconnect()
   }, [client?.windowId, session?.windows, now])
+  let backgroundAgents = state.model.sessions.filter(session => !session.remote).flatMap(session => session.windows).filter(window => isBackgroundAgentWindow(window, state)).length
   let reclaim = () => { void run('remote.reclaim') }
-  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
+  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}{backgroundAgents > 0 && <span className={css.backgroundAgent} data-background-agent-count={backgroundAgents} title={`${backgroundAgents} background agent window${backgroundAgents === 1 ? '' : 's'}`}>bg:{backgroundAgents}</span>}</button>
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={window.number ?? index + 1} active={window.id === client!.windowId} now={now} />)}</div>
     <button type="button" onClick={newTab} className={css.newTab} disabled={!!session?.remote} aria-label="New tab" title="New tab"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
     <span className={css.drag} />
@@ -2653,6 +2654,7 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
 let SessionWindowRow = ({ window, now, remote }: { window: InternalWindow; now: number; remote?: { host: string; session: string; active: boolean; select: (host: string, session: string, pane: string) => void } }) => {
   let { state, run, dismiss } = useUI()
   let visitedAt = windowVisitTime(window)
+  let backgroundAgent = !remote && isBackgroundAgentWindow(window, state)
   let pane = window.panes.find(pane => pane.id === (remote ? localStorage.getItem('remote-session-last-pane') : selection(state).client?.paneId)) ?? window.panes[0]
   let active = remote ? remote.active && window.panes.some(pane => pane.id === localStorage.getItem('remote-session-last-pane')) : selection(state).client?.windowId === window.id
   let name = window.automaticName === true ? pane?.title || pane?.url || window.name : window.name.trim() || pane?.title || pane?.url || 'Blank page'
@@ -2669,7 +2671,7 @@ let SessionWindowRow = ({ window, now, remote }: { window: InternalWindow; now: 
   let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target data-preview-window={window.id} data-remote-session={remote && `${remote.host}:${remote.session}`} data-remote-pane={remote && pane?.id}>{confirming ? confirmation : <>
     <button ref={row} className={css.listRow} data-window-row={window.id} data-session-row={remote || undefined} data-active={active} aria-current={active || undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={remote ? undefined : pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={remote ? undefined : pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>{backgroundAgent && <span className={css.backgroundAgent} data-background-agent title="Agent window not shown in any client">Background</span>}
       {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
     </button>{!remote && <><SessionAudio window={window} /><SessionAgent window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} disabled={window.locked} aria-label={`Close window ${name}`} title={window.locked ? 'Unlock window to close' : undefined}>x</button></>}
   </>}</div>

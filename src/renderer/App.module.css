@@ -742,3 +742,5 @@
 .pluginPlayback svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .pluginPlaybackMenu { position: absolute; bottom: 100%; left: 0; right: 0; display: flex; flex-direction: column; padding: 8px; border: 1px solid #363c45; background: #191d23; z-index: 2; }
 .pluginPlaybackMenu button { text-align: left; padding: 8px; }
+
+.backgroundAgent { flex-shrink: 0; color: #a9bdcb; font-size: 12px; line-height: 16px; }

@@ -1,5 +1,5 @@
 import { agentInfo } from './agent-info'
-import type { Pane, PublicState } from './types'
+import type { InternalWindow, Pane, PublicState } from './types'
 
 export let lastPaneAgent = (pane: Pane, activeAgents: PublicState['activeAgents'] = []) => {
   let active = activeAgents.find(actor => actor.paneId === pane.id)
@@ -13,3 +13,6 @@ export let paneAgents = (panes: Pane[], activeAgents: PublicState['activeAgents'
   let active = activeAgents.find(actor => actor.paneId === pane.id)
   return active ? [{ ...active, active: true }] : pane.agentId ? [{ ...agentInfo(pane), paneId: pane.id, active: false }] : []
 })
+
+export let isBackgroundAgentWindow = (window: InternalWindow, state: Pick<PublicState, 'model' | 'activeAgents'>) =>
+  !state.model.clients.some(client => client.windowId === window.id) && paneAgents(window.panes, state.activeAgents).length > 0
