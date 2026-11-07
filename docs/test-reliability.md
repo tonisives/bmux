@@ -1,3 +1,13 @@
+# Headless capture socket readiness
+
+The November 7 full Check exposed capture fixtures issuing their first CLI
+status command before the isolated control socket was listening. With installed
+app discovery now restricted to installed bundles, the CLI correctly declined
+to launch a checkout. The capture fixtures poll status with `--no-start` before
+sending commands, so readiness never launches another browser. Repeat all four
+headless capture cases in CI; frame, reconnect and crash assertions retain their
+existing deadlines.
+
 # Social browsing scroll and overlay delivery
 
 Four active social panes exposed 60-second wheel acknowledgement stalls and
