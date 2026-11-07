@@ -4,6 +4,7 @@ import { readsPage } from './agent-reading'
 import { agentAction } from './agent-actions'
 
 type Options = {
+  scope?: <T>(context: PluginContext, method: string, args: Record<string, unknown>, signal: AbortSignal, operation: () => Promise<T>) => Promise<T>
   context: (target: PluginContext) => PluginContext
   cdp: (tab: string, method: string, args?: Record<string, unknown>) => Promise<any>
   execute: (command: { method: string; args?: Record<string, unknown> }) => Promise<unknown>
@@ -114,5 +115,5 @@ export let createPluginBrowser = (options: Options) => {
   let invoke = (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => options.action && context.paneId && agentAction(method, args)
     ? options.action(context.paneId, method, args, () => execute(method, args, context, signal), context.agentId)
     : execute(method, args, context, signal)
-  return async (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => { let finish = options.activity?.(context, method), outcome: 'success' | 'error' = 'error'; try { let result = await invoke(method, args, context, signal); outcome = 'success'; return result } finally { finish?.(outcome) } }
+  return async (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => { let finish = options.activity?.(context, method), outcome: 'success' | 'error' = 'error'; try { let result = await (options.scope ? options.scope(context, method, args, signal, () => invoke(method, args, context, signal)) : invoke(method, args, context, signal)); outcome = 'success'; return result } finally { finish?.(outcome) } }
 }

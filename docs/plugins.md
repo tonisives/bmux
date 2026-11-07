@@ -1,5 +1,16 @@
 # bmux script plugins
 
+An action can declare `pacing: plugin` to manage its own timing. BMUX then omits
+the generic action pause and social-site delay for that run. Website access stays
+exclusive to the run within its profile, across panes and agents, until completion,
+cancellation or failure. Navigation locks both its source and destination. Other
+profiles and websites can continue independently. Session limits, warnings,
+automation groups and daily like budgets still apply. Actions without this setting
+keep the configured BMUX pacing.
+
+Use `observation: true` on read-only `eval` calls, including target preparation
+that only returns coordinates. Send the actual click through browser input.
+
 Plugins are local folders containing `plugin.yaml` and scripts in any language.
 They can contribute actions, automatic hooks, browser operations, and transient
 prompts. Scripts run as your OS user. Enable only code you trust: host capabilities

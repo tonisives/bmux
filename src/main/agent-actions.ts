@@ -48,7 +48,7 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
     if (wait) await released
     else void released.catch(() => undefined)
   }
-  let run = async <T>(pane: string, profileId: string, urls: () => string[], operation: () => Promise<T>, input?: Input, resultBeforeCooldown = false): Promise<T> => {
+  let run = async <T>(pane: string, profileId: string, urls: () => string[], operation: () => Promise<T>, input?: Input, resultBeforeCooldown = false, paced = true): Promise<T> => {
     if (scope.getStore() === pane) return operation()
     let held = inputs.get(pane)
     if (held && input?.owner === held.owner) {
@@ -75,14 +75,14 @@ export let createAgentActions = (sleep = (ms: number) => new Promise<void>(resol
     try {
       let result = await scope.run(pane, operation)
       if (input?.type === 'down') {
-        let lease: Lease = { owner: input.owner, keys: new Set([input.key!]), release: () => cooldown(release), timer: setTimeout(() => { void finishInput(pane, lease) }, 20_000) }
+        let lease: Lease = { owner: input.owner, keys: new Set([input.key!]), release: () => paced ? cooldown(release) : Promise.resolve(release()), timer: setTimeout(() => { void finishInput(pane, lease) }, 20_000) }
         lease.timer.unref?.(); inputs.set(pane, lease); retained = true
       }
       return result
     } finally {
       if (!retained) {
         // Reads can feed a screenshot or inference while the next action stays queued.
-        let cooling = cooldown(release)
+        let cooling = paced ? cooldown(release) : Promise.resolve(release())
         if (resultBeforeCooldown) void cooling.catch(() => undefined)
         else await cooling
       }

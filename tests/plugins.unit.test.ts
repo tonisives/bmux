@@ -20,10 +20,11 @@ let fixture = (script: string, overrides: Record<string, unknown> = {}, decision
   fs.writeFileSync(path.join(folder, 'plugin.yaml'), stringify(manifest))
   let settings: PluginSettings = { test: { enabled: true, hooks: false } }
   let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { paneId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
-  let plugins = createPlugins({ bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, decisions, prepare, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
+  let finished = vi.fn()
+  let plugins = createPlugins({ finished, bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, decisions, prepare, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
   cleanup.push(async () => { plugins.close(); await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
   let writeManifest = (value: unknown) => fs.writeFileSync(path.join(folder, 'plugin.yaml'), typeof value === 'string' ? value : stringify(value))
-  return { directory, plugins, browser, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
+  return { directory, plugins, browser, finished, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
 }
 let hostScript = `import { execFileSync } from 'node:child_process';
 let host = (method, args = {}) => JSON.parse(execFileSync(process.execPath, [process.env.BMUX_CLI,'plugin','host',method,'--stdin'], { input: JSON.stringify(args), encoding:'utf8', stdio:['pipe','pipe','pipe'] })).result;
@@ -33,6 +34,15 @@ let done = async (plugins: ReturnType<typeof createPlugins>, id: string) => {
   return plugins.runs().find(run => run.id === id)!
 }
 describe('plugin definitions', () => {
+  test('plugin pacing is an explicit action setting and is passed with a unique run owner', async () => {
+    let { plugins, browser, finished, manifest } = fixture(hostScript + "host('dom'); host('result', {done:true});", { pacing: 'plugin' })
+    expect(parsePluginManifest(stringify(manifest)).actions[0].pacing).toBe('plugin')
+    for (let pacing of [true, 'fast', 0]) expect(() => parsePluginManifest(stringify({ ...manifest, actions: [{ ...manifest.actions[0], pacing }] }))).toThrow('pacing must be plugin')
+    let run = plugins.run('test/run', { paneId: 'original' })
+    expect((await done(plugins, run.id)).status).toBe('completed')
+    expect(finished).toHaveBeenCalledExactlyOnceWith(run.id)
+    expect(browser).toHaveBeenCalledWith('dom', expect.any(Object), expect.objectContaining({ pacing: 'plugin', runId: run.id }), expect.any(AbortSignal))
+  })
   test('keeps social plugins optional and independently installable', () => {
     for (let [id, site] of [['bmux.x', 'x'], ['bmux.linkedin', 'linkedin'], ['bmux.reddit', undefined]] as const) {
       let folder = path.resolve('optional-plugins', id)
@@ -119,7 +129,7 @@ test('executes real scripts with pinned context and only explicit output', async
   let { plugins, browser, context } = fixture(hostScript + `console.log('PRIVATE_STDOUT'); console.error('PRIVATE_STDERR'); let context = host('context'); host('dom'); host('result', { pane: context.paneId });`)
   let { id } = plugins.run('test/run', context)
   expect((await done(plugins, id)).result).toEqual({ pane: 'original' })
-  expect(browser).toHaveBeenCalledWith('dom', {}, { ...context, agentId: 'plugin:test', agentName: 'Test', agentPurpose: 'Test script', agentContext: 'test', agentData: { runId: id, action: 'run' } }, expect.any(AbortSignal))
+  expect(browser).toHaveBeenCalledWith('dom', {}, { ...context, runId: id, agentId: 'plugin:test', agentName: 'Test', agentPurpose: 'Test script', agentContext: 'test', agentData: { runId: id, action: 'run' } }, expect.any(AbortSignal))
   expect(JSON.stringify(plugins.runs())).not.toContain('PRIVATE')
 })
 test('page helper installation requires the explicit CDP capability', async () => {

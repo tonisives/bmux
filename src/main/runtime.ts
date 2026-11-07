@@ -36,6 +36,7 @@ import type { Shortcut } from '../shared/keyboard'
 import { readOnlyAction, DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, prefixAction, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
 import { createPlugins } from './plugins'
 import { createPluginBrowser } from './plugin-browser'
+import { createWebsiteLocks } from './website-locks'
 import { createVirtualMouse } from './virtual-mouse'
 import { readsPage, withAgentReading } from './agent-reading'
 import { agentAction, agentActionInput, createAgentActions } from './agent-actions'
@@ -211,6 +212,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     publish()
   }
   let pluginActor = new AsyncLocalStorage<boolean>()
+  let pluginCommand = new AsyncLocalStorage<PluginContext>(), websiteLocks = createWebsiteLocks()
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
   let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait', 'client.tooltip'])
   let checkControl = (method: string, args: Record<string, unknown>, sourceClientId?: string) => {
@@ -865,10 +867,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return [current, ...(live?.pendingUrl ? [live.pendingUrl] : []), ...(target ? [normalizeUrl(target, searchAppForSession(session))] : [])]
     }, async () => {
       assertAgentTarget(pane)
+      let { tab, session } = tabById(model, pane), target = automationTargetUrl(method, args)
+      websiteLocks.assertAvailable(original.profileId, [tabs.get(pane)?.contents.getURL() || tab.url, ...(target ? [normalizeUrl(target, searchAppForSession(session))] : [])], pluginCommand.getStore()?.runId)
       let result = await operation()
       if (!readsPage(method, args) && currentPane(pane) === original) { original.lastActivityAt = Date.now(); save(); publish() }
       return result
-    }, agentActionInput(method, args, owner), readsPage(method, args))).finally(() => { if (remotePreviewsEnabled && currentPane(pane) === original) previewRefresh.request(pane) })
+    }, agentActionInput(method, args, owner), readsPage(method, args), pluginCommand.getStore()?.pacing !== 'plugin')).finally(() => { if (remotePreviewsEnabled && currentPane(pane) === original) previewRefresh.request(pane) })
   }
   let readAutomationPage = <T>(tabId: string, read: () => Promise<T>): Promise<T> => {
     let live = tabs.get(tabId), document = documents.get(tabId)
@@ -2573,13 +2577,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     attention.assert(context.paneId)
     let { pane, session } = paneById(model, context.paneId)
     let destination = targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined
+    let command = pluginCommand.getStore(), urls = [tabs.get(pane.id)?.contents.getURL() || tabById(model, pane.id).tab.url, ...(destination ? [destination] : [])]
+    websiteLocks.assertAvailable(context.profileId, urls, command?.runId)
+    if (command?.pacing === 'plugin' && command.runId) websiteLocks.claim(context.profileId, urls, command.runId)
     let actor = { paneId: context.paneId, ...agentInfo(pane) }
     updateAgentInfo(actor, { agentId: context.agentId ?? pane.agentId })
     let inspect = () => {
       if (currentPane(pane.id) !== pane) throw new Error(`Pane '${pane.id}' was closed or replaced`)
       return inspectAutomationPage(pane.id, recover)
     }
-    await automationSafety?.before(context.profileId, inspect, destination, pace, actor, !destination)
+    await automationSafety?.before(context.profileId, inspect, destination, pace && command?.pacing !== 'plugin', actor, !destination)
     if (currentPane(pane.id) !== pane) throw new Error(`Pane '${pane.id}' was closed or replaced`)
     attention.assert(context.paneId)
     touchAgent(actor, pane)
@@ -4319,7 +4326,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp, execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ overlayChanged: publish, decisions: account ? (method, args) => method === 'usage' ? account('/api/ai/usage') : account(method === 'memory' ? '/api/ai/memory' : '/api/ai/decisions', args) : undefined, activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run', context) : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, prepare: async (context, title, signal) => {
+    plugins = createPlugins({ finished: runId => websiteLocks.release(runId), overlayChanged: publish, decisions: account ? (method, args) => method === 'usage' ? account('/api/ai/usage') : account(method === 'memory' ? '/api/ai/memory' : '/api/ai/decisions', args) : undefined, activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run', context) : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, prepare: async (context, title, signal) => {
       signal.throwIfAborted()
       if (!pluginSelected(context) || !context.profileId || !context.sessionId || !context.clientId) throw new Error('Selected profile unavailable')
       let window = await execute({ method: 'new-window', args: { session: context.sessionId, client: context.clientId, profile: context.profileId, name: title, agentId: context.agentId, _skipInitialAddress: true } }, context.clientId) as InternalWindow
@@ -4328,7 +4335,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       audio[pane.id] = { playing: false, muted: true }
       publish()
       return pluginContext({ ...agentInfo(context), clientId: context.clientId, paneId: pane.id })
-    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method, context) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
+    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ scope: (context, method, args, signal, operation) => pluginCommand.run(context, () => {
+      if (context.pacing !== 'plugin' || !context.paneId || !context.profileId || !['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp', 'navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot', 'forms.list', 'forms.save', 'forms.fill', 'forms.delete'].includes(method)) return operation()
+      return runAgentAction(context.paneId, method, args, async () => {
+        signal.throwIfAborted()
+        let target = automationTargetUrl(method, args)
+        websiteLocks.claim(context.profileId!, [context.url ?? '', ...(target ? [target] : [])], context.runId!)
+        return operation()
+      }, context.runId)
+    }), activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method, context) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
       await guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
       if (context.paneId) tabs.get(context.paneId)?.inputLock?.showCommand(agentCommandLabel(method, args))
     } }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })

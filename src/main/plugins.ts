@@ -27,6 +27,7 @@ type Options = {
   prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>
   show: (clientId: string) => void
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
+  finished?: (runId: string) => void
   automation?: { acquire: (args: { profileId: string; tabId: string; url: string; pluginId?: string }) => { token: string; group: string }; release: (token: string) => unknown; like: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; authorize: (args: { profileId: string; tabId: string; url: string; token?: string; kind?: 'activity' | 'navigation'; record?: boolean }) => unknown; status: () => unknown }
 }
 let live = (run: Run) => ['queued', 'running'].includes(run.public.status)
@@ -70,6 +71,7 @@ export let createPlugins = (options: Options) => {
     run.public.status = status; run.public.error = status === 'failed' ? run.policyError ?? error : error
     if (run.automationToken) { try { options.automation?.release(run.automationToken) } catch { /* Lease already expired. */ }; run.automationToken = undefined }
     run.token = ''; run.parameters = {}; run.controller.abort()
+    options.finished?.(run.public.id)
     clearTimeout(run.timer)
     let pending = run.pending; run.pending = undefined
     pending?.reject(new Error('Plugin interaction cancelled'))
@@ -240,7 +242,7 @@ export let createPlugins = (options: Options) => {
     if (run.public.hook && ['select-pane', 'select-window', 'activate-client'].includes(method)) throw new Error('Hooks cannot change selection')
     let url = method === 'navigate' ? String(args.url) : run.context.url
     if (url && run.context.profileId && run.context.paneId) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.paneId!, url, token: run.automationToken, kind: method === 'navigate' ? 'navigation' : ['click', 'type', 'key'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: method !== 'navigate' }))
-    try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context }, run.controller.signal) }
+    try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context, runId: run.public.id, pacing: run.action.pacing }, run.controller.signal) }
     catch (error) {
       if (isAutomationSafetyError(error)) { run.policyError = error.message; finish(run, 'failed'); throw error }
       throw new Error('Browser operation failed or target document changed')

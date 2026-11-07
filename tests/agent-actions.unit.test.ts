@@ -4,6 +4,16 @@ import { agentAction, agentActionInput, createAgentActions } from '../src/main/a
 
 let deferred = () => { let resolve!: () => void; let promise = new Promise<void>(done => { resolve = done }); return { promise, resolve } }
 
+test('plugin pacing removes extra pauses while retaining action serialization', async () => {
+  let sleep = vi.fn(async () => {}), actions = createAgentActions(sleep), finish = deferred(), events: string[] = []
+  let first = actions.run('one', 'profile', () => ['https://x.com/'], async () => { events.push('first'); await finish.promise }, undefined, false, false)
+  let second = actions.run('two', 'profile', () => ['https://x.com/'], async () => { events.push('second') }, undefined, false, false)
+  await vi.waitFor(() => expect(events).toEqual(['first']))
+  finish.resolve(); await Promise.all([first, second])
+  expect(events).toEqual(['first', 'second'])
+  expect(sleep).not.toHaveBeenCalled()
+})
+
 test('chooses a fresh 0.8–1.2 second pause after every action, including scrolls', async () => {
   let waits: number[] = [], actions = createAgentActions(async ms => { waits.push(ms) })
   for (let action = 0; action < 40; action++) await actions.run('one', 'profile', () => ['file:///fixture.html'], async () => {})
