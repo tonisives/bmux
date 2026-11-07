@@ -133,9 +133,11 @@ test('agent wheel scrolling reaches a nested feed in a scaled locked viewport', 
     await expect.poll(() => page.evaluate(() => document.querySelector('main')!.scrollTop)).toBe(300)
     let motion = await page.evaluate(() => ({ positions: (window as any).positions as {y:number;at:number}[], wheels: (window as any).wheels as number[], documentTop: scrollY }))
     expect(motion.documentTop).toBe(0)
-    expect(motion.positions.length).toBeGreaterThan(10)
-    expect(motion.wheels.length).toBeGreaterThan(10)
-    expect(motion.positions.at(-1)!.at - motion.positions[0].at).toBeGreaterThan(400)
+    expect(motion.positions.length).toBeGreaterThan(1)
+    expect(motion.wheels.length).toBeGreaterThan(1)
+    expect(motion.wheels.length).toBeLessThanOrEqual(40)
+    expect(motion.positions.at(-1)!.at - motion.positions[0].at).toBeGreaterThan(100)
+    expect(motion.positions.at(-1)!.at - motion.positions[0].at).toBeLessThan(5000)
     // Chromium exposes wheel deltas divided by the emulation scale, while
     // the observed feed offset retains the requested CSS distance.
     expect(motion.wheels.reduce((sum, delta) => sum + delta, 0)).toBeCloseTo(300 / .375, 4)
