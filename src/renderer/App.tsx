@@ -2855,10 +2855,23 @@ let useProxyDefault = (args: Record<string, unknown>, onSaved: (profile: Profile
   return { saving, changeNewPanes }
 }
 
-let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
+let usePaneProxy = (args: Record<string, unknown>, onSaved: (pane: Pane) => void) => {
   let { state, run, onMessage } = useUI()
   let { pane } = selection(state)
   let [changingPane, setChangingPane] = useState(false)
+  let changeCurrentPane = async (event: MouseEvent<HTMLButtonElement>) => {
+    if (!pane || changingPane || !event.currentTarget.form?.reportValidity()) return
+    onMessage(''); setChangingPane(true)
+    try {
+      let result = await run('pane.proxy.set', { ...args, pane: pane.id })
+      if (result) onSaved(result as Pane)
+    } finally { setChangingPane(false) }
+  }
+  return { pane, changingPane, changeCurrentPane }
+}
+
+let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
+  let { state, run, onMessage } = useUI()
   let preserveUsername = useRef(false)
   let providers = proxyProviderEntries(state)
   let configuredProvider = providers.find(entry => entry.provider.regions.some(region => matchesProxyRegion(region, profile)))
@@ -2932,18 +2945,8 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let proxyArgs = { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile }
   let proxySaved = (saved: Profile) => { preserveUsername.current = defaultConnectionId(saved) !== credentialProfile; setCredentialProfile(defaultConnectionId(saved)); setSavedUsername(username); setPassword('') }
   let { saving, changeNewPanes } = useProxyDefault(proxyArgs, proxySaved)
-  let changeCurrentPane = async () => {
-    if (!pane || changingPane || !form.current?.reportValidity()) return
-    onMessage(''); setChangingPane(true)
-    try {
-      let result = await run('pane.proxy.set', { ...proxyArgs, pane: pane.id }) as Pane | undefined
-      if (result) {
-        let connectionId = paneConnectionId(result)
-        preserveUsername.current = connectionId !== credentialProfile
-        setCredentialProfile(connectionId); setSavedUsername(username); setPassword('')
-      }
-    } finally { setChangingPane(false) }
-  }
+  let paneSaved = (pane: Pane) => { let connectionId = paneConnectionId(pane); preserveUsername.current = connectionId !== credentialProfile; setCredentialProfile(connectionId); setSavedUsername(username); setPassword('') }
+  let { pane, changingPane, changeCurrentPane } = usePaneProxy(proxyArgs, paneSaved)
   let preventSubmit = (event: FormEvent) => event.preventDefault()
   let testProxy = async () => {
     if (testing || !form.current?.reportValidity()) return
