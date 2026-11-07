@@ -786,3 +786,18 @@ The pane-address geometry fixture also checks the visible native page rather
 than a captured snapshot. The pin-window fixture uses the current Cmd+Shift+.
 binding; Cmd+. is window history forward. Repeat both cases together when
 changing address overlays or the pin binding.
+
+
+## Scaled feed scrolling and pane overlays
+
+Locked desktop viewports retain CSS dimensions while Emulation scales their
+native input surface. Agent wheel calls now transform only their native target
+coordinates; DOM hit testing and scroll distance remain in CSS pixels. The
+nested-feed fixture locks a 1512 by 900 viewport at 37.5 percent, observes more
+than ten wheel and scroll updates, and requires an exact 300 pixel feed advance.
+
+Every visible pane owns a separate plugin overlay. Each renderer receives its
+own run state and uses a separate transient session so one pane's zoom cannot
+change another overlay's zoom. The four-pane fixture exercises independent
+start, pause and close controls, page zoom, and placement beyond a pane. Hidden
+windows still detach overlays, and page captures still exclude plugin controls.

@@ -410,7 +410,7 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   expect(await page.evaluate(() => typeof (window as any).bmux)).toBe('undefined')
 })
 
-test('plugin overlays detach when switching panes and windows during and after browsing', async () => {
+test('plugin overlays remain on visible panes and detach when switching windows', async () => {
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let original = client.paneId
   await rpc('select-pane', { client: client.id, pane: original })
@@ -427,7 +427,7 @@ test('plugin overlays detach when switching panes and windows during and after b
   await rpc('wait', { pane: otherWindow.panes[0].id, selector: '#username' })
   for (let ended of [false, true]) {
     await rpc('select-pane', { client: client.id, pane: other.id })
-    await expect.poll(attached).toBe(0)
+    await expect.poll(attached).toBe(1)
     await expect.poll(async () => (await state()).pluginOverlay).toBeUndefined()
     await rpc('select-window', { client: client.id, window: otherWindow.id })
     await expect.poll(attached).toBe(0)
@@ -815,4 +815,56 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   await observer.getByRole('button', { name: 'Settings', exact: true }).click()
   await settings.getByRole('button', { name: 'Finish fixture', exact: true }).click()
   await completed(id)
+})
+
+
+test('four visible panes each retain a scaled plugin overlay with independent controls', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let original = client.paneId, panes = [original], ids: string[] = []
+  let views = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()).map((view: any) => ({ id: view.webContents.id, bounds: view.getBounds(), zoom: view.webContents.getZoomFactor() })))
+  try {
+    for (let index = 1; index < 4; index++) {
+      let pane = await rpc('split-window', { pane: original, url: url + '/overlay-' + index })
+      panes.push(pane.id)
+      await rpc('wait', { pane: pane.id, selector: '#username' })
+    }
+    await rpc('select-layout', { window: client.windowId, layout: 'tiled' })
+    for (let pane of panes) {
+      await rpc('zoom', { pane, factor: .5 })
+      ids.push(await run('overlay', { pane }))
+    }
+    await expect.poll(async () => (await views()).length).toBe(4)
+    let observers = new Map<string, Page>()
+    for (let page of application.context().pages().filter(page => page.url().endsWith('#plugin-overlay'))) {
+      let value = await page.evaluate(() => (window as any).bmux.state())
+      if (ids.includes(value.pluginOverlay?.runId)) observers.set(value.pluginOverlay.runId, page)
+    }
+    expect(observers.size).toBe(4)
+    for (let [id, page] of observers) {
+      expect((await page.evaluate(() => (window as any).bmux.state())).pluginOverlay.runId).toBe(id)
+      await page.getByRole('button', { name: 'Start browsing', exact: true }).click()
+      await expect(page.getByRole('status')).toHaveText('Browsing')
+    }
+    expect((await views()).every(view => view.zoom === .5 && view.bounds.width === 192 && view.bounds.height === 300)).toBe(true)
+    await rpc('select-pane', { client: client.id, pane: original })
+    await rpc('zoom', { pane: original, factor: 1 })
+    let originalView = observers.get(ids[0])!
+    await expect.poll(async () => (await views()).find(view => view.zoom === 1)?.bounds.width).toBe(384)
+    let beforeMove = (await originalView.evaluate(() => (window as any).bmux.state())).pluginOverlay
+    await originalView.evaluate(({ id, bounds }) => (window as any).bmux.command({ method: 'plugin.overlay.bounds', args: { id, ...bounds, x: 0, y: 100 } }), { id: ids[0], bounds: beforeMove.bounds })
+    await expect.poll(async () => (await originalView.evaluate(() => (window as any).bmux.state())).pluginOverlay.bounds.x).toBe(0)
+    await originalView.getByRole('button', { name: 'Pause session', exact: true }).click()
+    await expect(originalView.getByRole('status')).toHaveText('Paused')
+    for (let id of ids.slice(1)) await expect(observers.get(id)!.getByRole('status')).toHaveText('Browsing')
+    await observers.get(ids[1])!.getByRole('button', { name: 'Close overlay', exact: true }).click()
+    await expect.poll(async () => (await views()).length).toBe(3)
+    expect((await rpc('plugin.runs')).find((run: any) => run.id === ids[1]).status).toBe('running')
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+    await originalView.screenshot({ path: path.resolve('artifacts/plugin-overlay-scaled-pane.png') })
+  } finally {
+    for (let id of ids) await rpc('plugin.cancel', { id })
+    for (let pane of panes.slice(1)) await rpc('kill-pane', { pane, confirm: true })
+    await rpc('zoom', { pane: original, factor: 1 })
+    await rpc('select-pane', { client: client.id, pane: original })
+  }
 })

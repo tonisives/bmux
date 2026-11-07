@@ -102,3 +102,42 @@ test('agent scrolls animate and share a domain lock within each profile', async 
     await fs.rm(directory, { recursive: true, force: true })
   }
 })
+
+
+test('agent wheel scrolling reaches a nested feed in a scaled locked viewport', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-scaled-scroll-'))
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/html' })
+    response.end(`<!doctype html><title>Nested scaled feed</title><style>html,body{margin:0;height:100%;overflow:hidden}main{position:absolute;inset:52px 0 0;overflow:auto}.posts{height:6000px;background:#eee}</style><main id="workspace"><div class="posts">Feed</div></main><script>window.positions=[];window.wheels=[];let feed=document.querySelector('main');feed.addEventListener('scroll',()=>positions.push({y:feed.scrollTop,at:performance.now()}));feed.addEventListener('wheel',e=>wheels.push(e.deltaY),{passive:true});</script>`)
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  let url = `http://127.0.0.1:${(server.address() as {port:number}).port}`
+  try {
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ vimEditing: false, browser: { adblock: false, autoUpdateFilters: false }, scrolling: { enabled: true, randomize: false, overshoot: false }, automation: { safety: { enabled: false } } }))
+    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+    let state = await chrome.evaluate(() => (window as any).bmux.state()), client = state.model.clients.find((item: any) => item.id === state.clientId), pane = client.paneId
+    await rpc('navigate', { pane, url })
+    await rpc('wait', { pane, selector: '#workspace' })
+    await rpc('lock-viewport', { window: client.windowId, width: 1512, height: 900 })
+    await rpc('zoom', { pane, factor: .375 })
+    let page = application.context().pages().find(page => page.url() === url + '/')!
+    await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width: 1512, height: 900 })
+    let scrolling = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'cdp', JSON.stringify({ pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x: 832, y: 604, deltaX: 0, deltaY: 300 } })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'scaled-scroll-agent' }, timeout: 20000 })
+    expect(JSON.parse(scrolling.stdout).ok).toBe(true)
+    await expect.poll(() => page.evaluate(() => document.querySelector('main')!.scrollTop)).toBe(300)
+    let motion = await page.evaluate(() => ({ positions: (window as any).positions as {y:number;at:number}[], wheels: (window as any).wheels as number[], documentTop: scrollY }))
+    expect(motion.documentTop).toBe(0)
+    expect(motion.positions.length).toBeGreaterThan(10)
+    expect(motion.wheels.length).toBeGreaterThan(10)
+    expect(motion.positions.at(-1)!.at - motion.positions[0].at).toBeGreaterThan(400)
+    expect(motion.wheels.reduce((sum, delta) => sum + delta, 0)).toBe(300)
+  } finally {
+    await closeTestApplication(application)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+})

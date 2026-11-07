@@ -116,7 +116,7 @@ import { lockMenuIcon } from './lock-menu-icons'
 import { latestLocalSession, projectRemoteWorkspace, remoteWorkspaceId, remoteWorkspaceMutation, remoteWorkspaceShortcut, remoteWorkspaceTargets } from '../shared/remote-workspace'
 
 type LiveTab = { panControl?: ReturnType<typeof createViewportControl>; inputLock?: ReturnType<typeof createAgentInputLock>; pagePan?: ReturnType<typeof createViewportPan>; shieldPan?: ReturnType<typeof createViewportPan>; view: WebContentsView; remoteFrame?: View; camera?: WebContentsView; contents: Electron.WebContents; parent: BaseWindow; disposed: boolean; ready: Promise<void>; initialNavigation?: Promise<void>; initialHistory?: { index: number; blankIndex: number; started: boolean; cancelled: boolean }; deviceScale?: number; viewportEmulation?: string; pendingNavigation?: symbol; pendingUrl?: string; closing?: Promise<boolean>; cancelClose?: () => void; cancelNavigation?: () => void; refreshSwipe?: ReturnType<typeof createSwipeNavigation>; unloadGuard?: ReturnType<typeof createUnloadGuard> }
-type LiveClient = { pluginOverlay?: WebContentsView; window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
+type LiveClient = { pluginOverlays: Map<string, WebContentsView>; window: BaseWindow; chrome: WebContentsView; floats: Map<string, WebContentsView>; floatingBounds: Map<string, Bounds>; linkPreview: WebContentsView; tabTooltip: WebContentsView; linkUrl: string; linkTabId?: string; dismissedPermissions: Set<string>; bounds: Bounds[]; pageFocused: boolean }
 export type RemotePage = { key: string; title: string; url?: string; workspace?: boolean; previews?: () => Promise<Record<string, Snapshot>>; view?: RemoteView; attach?: (contents: WebContents, close: () => Promise<unknown>, update: (state: RemoteViewUpdate) => void, pane?: string) => void }
 // Debugger detach can settle pending work inside Chromium's WebContents destructor,
 // before isDestroyed() changes. A requested close must block new navigation too.
@@ -512,46 +512,57 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
 
   let pluginOverlayBounds = new Map<string, PluginOverlayBounds>()
   let dismissedPluginOverlays = new Set<string>(), pluginOverlayRuns = new Map<string, { id: string; ended: boolean; failed: boolean }>()
-  let overlayForClient = (clientId: string) => {
+  let overlayForClient = (clientId: string, paneId = model.clients.find(client => client.id === clientId)?.paneId) => {
     let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
-    if (!client?.paneId || !owner || !visiblePaneIds(client).includes(client.paneId)) return
-    let value = plugins?.overlay(client.paneId), area = owner.bounds.find(bounds => bounds.paneId === client.paneId)
+    if (!client || !paneId || !owner || !visiblePaneIds(client).includes(paneId)) return
+    let value = plugins?.overlay(paneId), area = owner.bounds.find(bounds => bounds.paneId === paneId)
     if (!value || !area || area.width < 1 || area.height < 1 || dismissedPluginOverlays.has(clientId + ':' + value.runId)) return
-    let key = clientId + ':' + client.paneId, bounds = fitPluginOverlay(pluginOverlayBounds.get(key), area)
+    let zoom = paneById(model, paneId).pane.zoom || 1
+    let placement = { x: 0, y: 0, width: client.width, height: client.height }
+    let key = clientId + ':' + paneId, bounds = fitPluginOverlay(pluginOverlayBounds.get(key) ?? fitPluginOverlay(undefined, area, zoom), placement, zoom)
     let previous = pluginOverlayRuns.get(key)
     let failed = Boolean(value.error || value.content.error)
-    if (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, area)
+    if (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, placement, zoom)
     pluginOverlayRuns.set(key, { id: value.runId, ended: value.ended, failed })
     pluginOverlayBounds.set(key, bounds)
-    return { ...value, bounds }
+    return { ...value, bounds, zoom }
   }
   let refreshPluginOverlay = (clientId: string, owner: LiveClient) => {
-    let overlay = overlayForClient(clientId)
-    if (!overlay || overlays.has(clientId) || owner.window.isDestroyed() || !owner.window.isVisible()) {
-      let view = owner.pluginOverlay
-      if (view) {
-        view.setVisible(false)
-        if (!owner.window.isDestroyed() && owner.window.contentView.children.includes(view)) owner.window.contentView.removeChildView(view)
+    let client = model.clients.find(client => client.id === clientId)
+    let panes = client ? visiblePaneIds(client) : []
+    for (let paneId of new Set([...owner.pluginOverlays.keys(), ...panes])) {
+      let overlay = panes.includes(paneId) ? overlayForClient(clientId, paneId) : undefined
+      let view = owner.pluginOverlays.get(paneId)
+      if (!overlay || overlays.has(clientId) || owner.window.isDestroyed() || !owner.window.isVisible()) {
+        if (view) {
+          view.setVisible(false)
+          if (!owner.window.isDestroyed() && owner.window.contentView.children.includes(view)) owner.window.contentView.removeChildView(view)
+        }
+        if (view && !walkPanes(model).some(item => item.pane.id === paneId)) {
+          owner.pluginOverlays.delete(paneId)
+          if (!view.webContents.isDestroyed()) view.webContents.close()
+        }
+        continue
       }
-      return
+      if (!view) {
+        view = new WebContentsView({ webPreferences: { partition: `bmux-plugin-overlay:${clientId}:${paneId}`, preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
+        owner.pluginOverlays.set(paneId, view); view.setVisible(false)
+        installKeys(view.webContents)
+        view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+        view.webContents.on('will-navigate', event => event.preventDefault())
+        let contents = view.webContents
+        let loading = process.env.ELECTRON_RENDERER_URL ? contents.loadURL(process.env.ELECTRON_RENDERER_URL + '#plugin-overlay') : contents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'plugin-overlay' })
+        void loading.then(() => { if (!contents.isDestroyed()) { refreshPluginOverlay(clientId, owner); publish() } }).catch(reportError)
+      }
+      if (view.webContents.isLoading()) continue
+      view.webContents.setZoomFactor(overlay.zoom)
+      view.webContents.send('state', { ...state(clientId), pluginOverlay: overlay })
+      view.setBounds({ x: overlay.bounds.x, y: overlay.bounds.y, width: Math.max(1, Math.round(overlay.bounds.width * overlay.zoom)), height: Math.max(1, Math.round(pluginOverlayHeight(overlay.bounds) * overlay.zoom)) })
+      if (!owner.window.contentView.children.includes(view)) owner.window.contentView.addChildView(view)
+      view.setVisible(true)
     }
-    if (!owner.pluginOverlay) {
-      let view = new WebContentsView({ webPreferences: { preload: path.join(import.meta.dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } })
-      owner.pluginOverlay = view; view.setVisible(false)
-      installKeys(view.webContents)
-      view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-      view.webContents.on('will-navigate', event => event.preventDefault())
-      let loading = process.env.ELECTRON_RENDERER_URL ? view.webContents.loadURL(process.env.ELECTRON_RENDERER_URL + '#plugin-overlay') : view.webContents.loadFile(path.join(import.meta.dirname, '../renderer/index.html'), { hash: 'plugin-overlay' })
-      void loading.then(() => { if (!view.webContents.isDestroyed()) { refreshPluginOverlay(clientId, owner); publish() } }).catch(reportError)
-    }
-    let view = owner.pluginOverlay
-    if (view.webContents.isLoading()) return
-    view.webContents.send('state', state(clientId))
-    view.setBounds({ x: overlay.bounds.x, y: overlay.bounds.y, width: overlay.bounds.width, height: pluginOverlayHeight(overlay.bounds) })
-    if (owner.window.contentView.children.at(-1) !== view) owner.window.contentView.addChildView(view)
-    view.setVisible(true)
   }
-  let state = (clientId = ''): PublicState => ({ nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayForClient(clientId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = '', contentsId?: number): PublicState => ({ nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayForClient(clientId, [...(clients.get(clientId)?.pluginOverlays ?? [])].find(([, view]) => view.webContents.id === contentsId)?.[0]), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -575,7 +586,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         refreshPluginOverlay(clientId, live)
         let current = state(clientId)
         live.chrome.webContents.send('state', current)
-        if (live.pluginOverlay && !live.pluginOverlay.webContents.isDestroyed()) live.pluginOverlay.webContents.send('state', current)
+        for (let [paneId, view] of live.pluginOverlays) if (!view.webContents.isDestroyed()) view.webContents.send('state', { ...current, pluginOverlay: overlayForClient(clientId, paneId) })
         for (let frame of live.floats.values()) if (!frame.webContents.isDestroyed()) frame.webContents.send('state', current)
         updateLinkPreview(clientId, live)
       }
@@ -929,7 +940,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
         checkControl('cdp', { tab: tabId })
         return debuggerApi.sendCommand(method, params, sessionId)
-      }, params, settings)
+      }, params, settings, lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : live.deviceScale ?? 1)
     }
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
@@ -995,7 +1006,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     try {
       let metrics = await send('Runtime.evaluate', { expression: '({width:innerWidth,height:innerHeight,y:scrollY,heightFull:document.scrollingElement?.scrollHeight ?? innerHeight})', returnByValue: true })
       let { width, height, y, heightFull } = metrics.result.value
-      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING)
+      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING, lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : live.deviceScale ?? 1)
     } catch (error) { if (!controller.signal.aborted) throw error }
     finally { if (scrollControllers.get(tabId) === controller) scrollControllers.delete(tabId) }
   }
@@ -2312,7 +2323,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         raisedOverlayChrome.add(candidate.id); live.chrome.setBackgroundColor('#00000000'); ordered.push(live.chrome)
       }
       refreshPluginOverlay(candidate.id, live)
-      if (live.pluginOverlay?.getVisible()) ordered.push(live.pluginOverlay)
+      for (let view of live.pluginOverlays.values()) if (view.getVisible()) ordered.push(view)
       if (live.tabTooltip.getVisible()) ordered.push(live.tabTooltip)
       let current = live.window.contentView.children.filter(view => ordered.includes(view))
       if (ordered.some((view, index) => current[index] !== view)) for (let view of ordered) live.window.contentView.addChildView(view)
@@ -2516,7 +2527,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       view.webContents.on('render-process-gone', (_event, details) => trace(`${name} renderer ${details.reason}`))
     }
     let resizeChrome = () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); let bounds = window.getContentBounds(); chrome.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height }); client.width = bounds.width; client.height = bounds.height; save(); void scheduleVisuals() }
-    let owner: LiveClient = { window, chrome, floats: new Map(), floatingBounds: new Map(), linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
+    let owner: LiveClient = { pluginOverlays: new Map(), window, chrome, floats: new Map(), floatingBounds: new Map(), linkPreview, tabTooltip, linkUrl: '', dismissedPermissions: new Set(), bounds: [], pageFocused: false }
     clients.set(client.id, owner)
     chrome.webContents.on('focus', () => { owner.pageFocused = false })
     resizeChrome()
@@ -2555,7 +2566,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!chrome.webContents.isDestroyed()) chrome.webContents.close()
       if (!linkPreview.webContents.isDestroyed()) linkPreview.webContents.close()
       if (!tabTooltip.webContents.isDestroyed()) tabTooltip.webContents.close()
-      if (owner.pluginOverlay && !owner.pluginOverlay.webContents.isDestroyed()) owner.pluginOverlay.webContents.close()
+      for (let view of owner.pluginOverlays.values()) if (!view.webContents.isDestroyed()) view.webContents.close()
       for (let frame of owner.floats.values()) if (!frame.webContents.isDestroyed()) frame.webContents.close()
       if (focusedClientId === client.id) focusedClientId = null
       if (!shuttingDown) { model.clients = model.clients.filter(item => item.id !== client.id); changed(); if (!clients.size) app.dock?.hide() }
@@ -2576,7 +2587,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     save()
     return client
   }
-  let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || live.pluginOverlay?.webContents.id === contentsId || [...live.floats.values()].some(frame => frame.webContents.id === contentsId)))?.[0]
+  let sourceClient = (contentsId: number) => [...clients].find(([, live]) => (live.chrome.webContents.id === contentsId || [...live.pluginOverlays.values()].some(view => view.webContents.id === contentsId) || [...live.floats.values()].some(frame => frame.webContents.id === contentsId)))?.[0]
   let inspectAutomationPage = async (tabId: string, recover = false) => {
     // Inspect the current document without awaiting a navigation that this command
     // may need to interrupt. A crashed renderer has no document to inspect.
@@ -3208,8 +3219,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (method.startsWith('plugin.overlay.')) {
       if (!sourceClientId) throw new Error('Trusted page overlay UI required')
-      let current = overlayForClient(sourceClientId), owner = clients.get(sourceClientId)
-      if (!current || current.runId !== args.id || !owner) throw new Error('Page overlay no longer belongs to the selected pane')
+      let paneId = plugins?.runs().find(run => run.id === args.id)?.overlayPaneId
+      let current = paneId ? overlayForClient(sourceClientId, paneId) : undefined, owner = clients.get(sourceClientId)
+      if (!current || current.runId !== args.id || !owner) throw new Error('Page overlay is no longer visible')
       if (method === 'plugin.overlay.close') {
         dismissedPluginOverlays.add(sourceClientId + ':' + current.runId)
         refreshPluginOverlay(sourceClientId, owner)

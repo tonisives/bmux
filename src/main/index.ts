@@ -144,7 +144,7 @@ void app.whenReady().then(async () => {
   ipcMain.handle('state', event => {
     let clientId = runtime!.sourceClient(event.sender.id)
     if (!clientId) throw new Error('Untrusted renderer')
-    return runtime!.state(clientId)
+    return runtime!.state(clientId, event.sender.id)
   })
   ipcMain.handle('command', (event, command: Command) => {
     let clientId = runtime!.sourceClient(event.sender.id)

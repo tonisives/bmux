@@ -23,10 +23,10 @@ export let PluginOverlay = () => {
   let begin = (event: PointerEvent, edge = 'move') => { if (!overlay || (event.target as HTMLElement).closest('button,input,select,textarea')) return; event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.screenX, y: event.screenY, bounds: overlay.bounds, edge }; event.preventDefault() }
   let update = (event: PointerEvent) => {
     let start = drag.current; if (!start) return
-    let dx = event.screenX - start.x, dy = event.screenY - start.y
+    let dx = event.screenX - start.x, dy = event.screenY - start.y, zoom = overlay?.zoom ?? 1
     let left = start.edge.includes('left'), resize = start.edge !== 'move'
-    let width = Math.max(280, start.bounds.width + (left ? -dx : dx))
-    queued.current = resize ? { ...start.bounds, x: left ? start.bounds.x + start.bounds.width - width : start.bounds.x, width, height: start.edge.startsWith('bottom') ? start.bounds.height + dy : start.bounds.height } : { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy }
+    let width = Math.max(280, start.bounds.width + (left ? -dx : dx) / zoom)
+    queued.current = resize ? { ...start.bounds, x: left ? start.bounds.x + (start.bounds.width - width) * zoom : start.bounds.x, width, height: start.edge.startsWith('bottom') ? start.bounds.height + dy / zoom : start.bounds.height } : { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy }
     void move()
   }
   let end = () => { drag.current = undefined }
@@ -37,7 +37,7 @@ export let PluginOverlay = () => {
     let dx = event.key === 'ArrowRight' ? 24 : event.key === 'ArrowLeft' ? -24 : 0
     let left = event.currentTarget.dataset.edge?.includes('left')
     let width = Math.max(280, overlay.bounds.width + (left ? -dx : dx))
-    void command('plugin.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + overlay.bounds.width - width : overlay.bounds.x, width, height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) })
+    void command('plugin.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + (overlay.bounds.width - width) * overlay.zoom : overlay.bounds.x, width, height: overlay.bounds.height + (event.key === 'ArrowDown' ? 24 : event.key === 'ArrowUp' ? -24 : 0) })
   }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
   return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting: setting?.runId === overlay.runId ? setting : undefined, openSetting: target => openSetting({ ...target, runId: overlay.runId }) }}><aside className={css.panel} data-compact={overlay.bounds.compact || undefined} data-collapsed={overlay.bounds.collapsed || undefined} aria-label="Page overlay">

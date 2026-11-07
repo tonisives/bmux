@@ -3,7 +3,7 @@ export type PluginOverlayError = { title: string; message: string; diagnostic?: 
 export type PluginDecision = { loading: boolean; options: { id: string; label: string; probability?: number; active: boolean }[] }
 export type PluginOverlayContent = { decision?: PluginDecision; error?: PluginOverlayError; title: string; subtitle: string; status: string; nodes: { title: string; lines: string[]; tone: 'cyan' | 'green' | 'neutral' }[]; metrics: string; details: { title: string; text: string }[]; controls: PluginOverlayControl[]; copies?: { id: string; label: string; text?: string }[] }
 export type PluginOverlayBounds = { x: number; y: number; width: number; height: number; collapsed?: boolean; compact?: boolean }
-export type PluginOverlayState = { runId: string; paneId: string; content: PluginOverlayContent; bounds: PluginOverlayBounds; ended: boolean; error?: string }
+export type PluginOverlayState = { runId: string; paneId: string; content: PluginOverlayContent; bounds: PluginOverlayBounds; zoom: number; ended: boolean; error?: string }
 export type PluginOverlayInput = { id: string; value?: string | boolean }
 let text = (value: unknown, maximum: number) => { if (typeof value !== 'string' || value.length > maximum) throw new Error('Invalid overlay text'); return value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '') }
 let array = (value: unknown, maximum: number) => { if (!Array.isArray(value) || value.length > maximum) throw new Error('Invalid overlay list'); return value }
@@ -46,10 +46,10 @@ export let validatePluginOverlayInput = (control: PluginOverlayControl, value: u
   if (control.disabled || (control.kind === 'toggle' ? typeof value !== 'boolean' : control.kind === 'choice' ? typeof value !== 'string' || !control.choices?.includes(value) : control.kind === 'text' ? typeof value !== 'string' || value.length > 2000 : value !== undefined)) throw new Error('Invalid overlay input')
 }
 export let pluginOverlayHeight = (bounds: Pick<PluginOverlayBounds, 'height' | 'collapsed' | 'compact'>) => bounds.collapsed ? 32 : bounds.compact ? Math.min(64, bounds.height) : bounds.height
-export let fitPluginOverlay = (bounds: PluginOverlayBounds | undefined, area: {x:number;y:number;width:number;height:number}): PluginOverlayBounds => {
-  let width = Math.min(Math.max(280, bounds?.width ?? 384), Math.max(1, area.width)), height = Math.min(Math.max(240, bounds?.height ?? 600), Math.max(1, area.height))
+export let fitPluginOverlay = (bounds: PluginOverlayBounds | undefined, area: {x:number;y:number;width:number;height:number}, zoom = 1): PluginOverlayBounds => {
+  let width = Math.min(Math.max(280, bounds?.width ?? 384), Math.max(1, area.width / zoom)), height = Math.min(Math.max(240, bounds?.height ?? 600), Math.max(1, area.height / zoom))
   let collapsed = bounds?.collapsed === true
-  return { x: Math.round(Math.max(area.x, Math.min(bounds?.x ?? area.x + area.width - width - 12, area.x + area.width - width))), y: Math.round(Math.max(area.y, Math.min(bounds?.y ?? area.y + 12, area.y + area.height - pluginOverlayHeight({ height, collapsed, compact: bounds?.compact })))), width: Math.round(width), height: Math.round(height), collapsed, ...(bounds?.compact ? { compact: true } : {}) }
+  return { x: Math.round(Math.max(area.x, Math.min(bounds?.x ?? area.x + area.width - width * zoom - 12 * zoom, area.x + area.width - width * zoom))), y: Math.round(Math.max(area.y, Math.min(bounds?.y ?? area.y + 12 * zoom, area.y + area.height - pluginOverlayHeight({ height, collapsed, compact: bounds?.compact }) * zoom))), width: Math.round(width), height: Math.round(height), collapsed, ...(bounds?.compact ? { compact: true } : {}) }
 }
 
 export let conciseConfidence = (line: string) => /confidence/i.test(line) && /\d+(?:\.\d+)?%/.test(line) ? 'Confidence: ' + line.match(/\d+(?:\.\d+)?%/)![0] : line.replace(/\s*· very confident match/i, '')
