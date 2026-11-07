@@ -1,3 +1,4 @@
+import { DEFAULT_SCROLLING, parseScrolling } from '../shared/scrolling'
 import { navigateWindowHistory } from './window-navigation'
 import { arrangePanes, maximizePane } from './pane-layout'
 import { createAttentionRequests } from './remote-attention'
@@ -486,10 +487,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let pluginContext = (target: PluginContext): PluginContext => {
     let client = target.clientId ? model.clients.find(client => client.id === target.clientId) : undefined
     let tabId = target.paneId ?? (client?.paneId ? paneById(model, client.paneId).pane.id : undefined)
-    if (!tabId) return { clientId: client?.id }
+    if (!tabId) return { clientId: client?.id, scrolling: { ...(configuration?.scrolling ?? DEFAULT_SCROLLING) } }
     let { tab, pane, window, session } = tabById(model, tabId)
     let contents = tabs.get(tabId)?.contents
-    return { ...agentInfo(pane), ...agentInfo(target), clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, agentId: target.agentId ?? pane.agentId, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
+    return { ...agentInfo(pane), ...agentInfo(target), scrolling: { ...(configuration?.scrolling ?? DEFAULT_SCROLLING) }, clientId: target.clientId, sessionId: session.id, windowId: window.id, paneId: pane.id, profileId: pane.profileId, agentId: target.agentId ?? pane.agentId, documentId: `${tabId}:${documents.get(tabId) ?? 0}`, url: contents?.isDestroyed() === false ? contents.getURL() : tab.url }
   }
   let pluginSelected = (context: PluginContext) => {
     let client = model.clients.find(client => client.id === context.clientId)
@@ -900,7 +901,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       }, point)
     })().catch(() => undefined)
   }
-  let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false, automatedMouse = false) => {
+  let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false, automatedMouse = false, scrolling?: unknown) => {
     let live = await ensureLiveTab(tabId)
     if (method === 'Page.captureScreenshot' || method === 'Page.startScreencast') assertFrameCapture(live.contents)
     if (!readOnly && !['Page.captureScreenshot', 'Page.getLayoutMetrics'].includes(method)) checkControl('cdp', { tab: tabId })
@@ -922,7 +923,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseWheel') {
       showAutomationPointer(tabId, { x: Number(params.x), y: Number(params.y) })
-      return smoothAgentScroll((method, params) => debuggerApi.sendCommand(method, params, sessionId), params)
+      let document = documents.get(tabId)
+      let settings = parseScrolling(scrolling, configuration?.scrolling ?? DEFAULT_SCROLLING)
+      return smoothAgentScroll((method, params) => {
+        if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
+        checkControl('cdp', { tab: tabId })
+        return debuggerApi.sendCommand(method, params, sessionId)
+      }, params, settings)
     }
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
@@ -971,20 +978,26 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       debuggerApi.sendCommand('Emulation.setHardwareConcurrencyOverride', { hardwareConcurrency: persona.platform === 'android' ? 8 : 6 }),
     ])
   }
-  let scrollTab = (tabId: string, action: string) => {
-    if (!['scroll-up', 'scroll-down', 'scroll-half-up', 'scroll-half-down', 'scroll-top', 'scroll-bottom'].includes(action)) throw new Error(`Unknown scroll action: ${action}`)
+  let scrollControllers = new Map<string, AbortController>()
+  let scrollTab = async (tabId: string, action: string) => {
     let live = tabs.get(tabId)
     if (!live || live.contents.isDestroyed()) return
-    if (action === 'scroll-top' || action === 'scroll-bottom') {
-      let keyCode = action === 'scroll-top' ? 'Home' : 'End'
-      live.contents.sendInputEvent({ type: 'keyDown', keyCode })
-      live.contents.sendInputEvent({ type: 'keyUp', keyCode })
-    } else {
-      let bounds = live.view.getBounds()
-      let amount = action.includes('half') ? Math.round(bounds.height / 2) : 100
-      let deltaY = action.endsWith('down') ? -amount : amount
-      live.contents.sendInputEvent({ type: 'mouseWheel', x: Math.round(bounds.width / 2), y: Math.round(bounds.height / 2), deltaY, hasPreciseScrollingDeltas: true, canScroll: true })
+    scrollControllers.get(tabId)?.abort()
+    let controller = new AbortController(), document = documents.get(tabId)
+    scrollControllers.set(tabId, controller)
+    let debuggerApi = live.contents.debugger
+    let send = async (method: string, params: Record<string, unknown>) => {
+      controller.signal.throwIfAborted()
+      if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
+      if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+      return debuggerApi.sendCommand(method, params)
     }
+    try {
+      let metrics = await send('Runtime.evaluate', { expression: '({width:innerWidth,height:innerHeight,y:scrollY,heightFull:document.scrollingElement?.scrollHeight ?? innerHeight})', returnByValue: true })
+      let { width, height, y, heightFull } = metrics.result.value
+      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING)
+    } catch (error) { if (!controller.signal.aborted) throw error }
+    finally { if (scrollControllers.get(tabId) === controller) scrollControllers.delete(tabId) }
   }
   let activateClickMode = (clientId = focusedClientId) => {
     if (!clientId || overlays.has(clientId)) return Promise.resolve(false)
@@ -1025,7 +1038,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (action === 'new-private-session') { invoke({ method: 'new-session', args: { client: client.id, private: true } }); return }
     if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { invoke({ method: action, args: { tab } }); return }
-    if (action.startsWith('scroll-') && tab) { scrollTab(tab, action); return }
+    if (action.startsWith('scroll-') && tab) { void scrollTab(tab, action).catch(reportError); return }
     if (action.startsWith('zoom-') && tab) {
       let current = tabById(model, tab).tab.zoom
       invoke({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }); return
@@ -3257,23 +3270,28 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!sourceClientId) throw new Error('Trusted UI required')
       if (!configuration) throw new Error('Configuration is not ready')
       let key = required(args, 'key')
+      if (key === 'scrolling') {
+        let next = parseScrolling(args.value)
+        configuration.update(['scrolling'], next)
+        return next
+      }
       if (key === 'agentFeedback') {
         let next = parseAgentFeedback(args.value)
         configuration.updateMany(Object.entries(next).map(([key, value]) => [['agentFeedback', key], value]))
         return next
       }
-      let allowed = new Set(['remotePreviews.updates', 'remotePreviews.saveLocally', 'accessibility', 'statusBar', 'showBuildId', 'showTabCloseButtons', 'showDarkModeButton', 'vimEditing', 'searchApps.normal', 'searchApps.private', 'memory.lazyRestore', 'memory.idleUnloadMinutes', 'memory.maxLoadedBackgroundPages', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
+      let allowed = new Set(['scrolling.enabled', 'scrolling.randomize', 'scrolling.overshoot', 'remotePreviews.updates', 'remotePreviews.saveLocally', 'accessibility', 'statusBar', 'showBuildId', 'showTabCloseButtons', 'showDarkModeButton', 'vimEditing', 'searchApps.normal', 'searchApps.private', 'memory.lazyRestore', 'memory.idleUnloadMinutes', 'memory.maxLoadedBackgroundPages', 'clickMode.enabled', 'clickMode.doubleTapModifier', 'keyboard.prefix'])
       if (!allowed.has(key)) throw new Error('Unknown setting')
       configuration.update(key.split('.'), args.value)
       return { key, value: args.value }
     }
     if (method === 'scroll') {
       let tabId = required(args, 'tab'); await ensureLiveTab(tabId)
-      if (sourceClientId || remoteActor.getStore()) scrollTab(tabId, required(args, 'action'))
+      if (sourceClientId || remoteActor.getStore()) await scrollTab(tabId, required(args, 'action'))
       else {
         let metrics = await cdp(tabId, 'Runtime.evaluate', { expression: '({width:innerWidth,height:innerHeight,y:scrollY,heightFull:document.scrollingElement?.scrollHeight ?? innerHeight})', returnByValue: true }, undefined, true)
         let { width, height, y, heightFull } = metrics.result.value
-        await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseWheel', ...agentScrollParams(required(args, 'action'), width, height, y, heightFull) }, undefined, false, true)
+        await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseWheel', ...agentScrollParams(required(args, 'action'), width, height, y, heightFull) }, undefined, false, true, args.scrolling)
       }
       return { pane: tabId }
     }
@@ -4272,7 +4290,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           let result = await cdp(tabId, 'Runtime.evaluate', { expression: args.html === true ? 'document.documentElement.outerHTML' : 'document.body?.innerText ?? ""', returnByValue: true }, undefined, true)
           return { pane: tabId, url: contents.getURL(), content: result.result.value }
         }
-        if (method === 'cdp') return await cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined, false, true)
+        if (method === 'cdp') return await cdp(tabId, required(args, 'method'), (args.params ?? {}) as Record<string, unknown>, typeof args.sessionId === 'string' ? args.sessionId : undefined, false, true, args.scrolling)
         if (method === 'screenshot') {
           assertFrameCapture(contents)
           if (args.encoding !== undefined && args.encoding !== 'base64') throw new Error('Screenshot encoding must be base64')
@@ -4390,7 +4408,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         websiteLocks.claim(context.profileId!, [context.url ?? '', ...(target ? [target] : [])], context.runId!)
         return operation()
       }, context.runId)
-    }), activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method, context) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params) => cdp(tab, method, params, undefined, false, true), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
+    }), activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method, context) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params, scrolling) => cdp(tab, method, params, undefined, false, true, scrolling), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
       await guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
       if (context.paneId) tabs.get(context.paneId)?.inputLock?.showCommand(agentCommandLabel(method, args))
     } }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })

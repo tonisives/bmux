@@ -63,3 +63,10 @@ test('an observation cannot cross a document replacement during its guard', asyn
   await expect(browser('eval', { expression: 'document.title', observation: true }, context, controller.signal)).rejects.toThrow('Document changed')
   expect(cdp).not.toHaveBeenCalled()
 })
+
+test('plugins can override scrolling without adding fields to the CDP payload', async () => {
+  let { browser, context, controller, cdp } = fixture()
+  let params = { type: 'mouseWheel', x: 100, y: 100, deltaY: 400 }
+  await browser('cdp', { method: 'Input.dispatchMouseEvent', params, scrolling: { enabled: false } }, context, controller.signal)
+  expect(cdp).toHaveBeenCalledWith('pane', 'Input.dispatchMouseEvent', params, { enabled: false })
+})

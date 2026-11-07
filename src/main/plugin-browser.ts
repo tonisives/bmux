@@ -6,7 +6,7 @@ import { agentAction } from './agent-actions'
 type Options = {
   scope?: <T>(context: PluginContext, method: string, args: Record<string, unknown>, signal: AbortSignal, operation: () => Promise<T>) => Promise<T>
   context: (target: PluginContext) => PluginContext
-  cdp: (tab: string, method: string, args?: Record<string, unknown>) => Promise<any>
+  cdp: (tab: string, method: string, args?: Record<string, unknown>, scrolling?: unknown) => Promise<any>
   execute: (command: { method: string; args?: Record<string, unknown> }) => Promise<unknown>
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
   before?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<void>
@@ -102,7 +102,7 @@ export let createPluginBrowser = (options: Options) => {
       validate()
       // Raw CDP is a trusted advanced capability. Exclude browser/target routing.
       if (typeof args.method !== 'string' || !/^(DOM|Runtime|Page|Input|Network|CSS|Accessibility|Emulation)\./.test(args.method) || args.sessionId !== undefined) throw new Error('Only tab-scoped CDP is supported')
-      let command = () => options.cdp(context.paneId!, args.method as string, (args.params ?? {}) as Record<string, unknown>)
+      let command = () => options.cdp(context.paneId!, args.method as string, (args.params ?? {}) as Record<string, unknown>, args.scrolling)
       return readsPage(method, args) ? read(command) : command()
     }
     if (['navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot'].includes(method)) {

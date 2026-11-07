@@ -220,7 +220,9 @@ needed for these defaults:
   simulation off; longer social-site delays still apply. DOM reads, waits, and screenshots do not take
   the action lock. Raw mouse and keyboard presses retain it until release;
   releases reach the page immediately.
-- Agent scroll commands and CDP wheel events move the page smoothly and finish
+- Scroll commands and agent CDP wheel events use the shared `scrolling` settings,
+  with varied speed and occasional overshoot and correction. Plugins can read
+  these settings from their context and override them per call. They finish
   scrolling before the action pause starts. Reduced motion uses immediate
   scrolling. Modified wheel events keep their normal zoom or shortcut behavior.
 - Reading page content through CLI or plugins gives the page a subtle blue pulse

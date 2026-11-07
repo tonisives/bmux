@@ -18,6 +18,43 @@ describe and restrict the host API, but do not sandbox filesystem, network, or
 other programs the script can access. Pages retain Chromium's sandbox and receive
 no Node integration or privileged preload.
 
+## Scrolling
+
+BMUX animates scroll commands and automated CDP wheel events by default. Each
+move uses a sine velocity curve with varied speed and cadence. Some moves
+overshoot slightly and correct to the requested distance when the container has
+room. Keyboard scroll commands use the same animation. Trackpad input keeps its
+native momentum. Reduced motion and modified wheels keep immediate input.
+
+These settings reload from `~/.config/bmux/config.yaml`:
+
+```yaml
+scrolling:
+  enabled: true
+  randomize: true
+  overshoot: true
+```
+
+`plugin host context` includes the current `scrolling` settings, even without
+`refresh: true`. When `context.scrolling.enabled` is true, send one wheel event
+for the intended distance and let BMUX animate it. Plugins should skip their own
+scroll curve. The command resolves after the last animation input.
+
+Both `scroll` and `cdp` accept a partial `scrolling` override alongside their
+ordinary arguments. For a plugin that already produces its own wheel sequence:
+
+```js
+host('cdp', {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseWheel', x: 400, y: 300, deltaX: 0, deltaY: 500 },
+  scrolling: { enabled: false },
+})
+```
+
+Use `scrolling: { randomize: false }` for a consistent sine curve, or
+`scrolling: { overshoot: false }` to vary the timing without reversing direction.
+Overrides apply only to that call and inherit the other configured settings.
+
 ## Install and enable
 
 Copy or symlink a plugin folder under `plugins/` beside the active config file,

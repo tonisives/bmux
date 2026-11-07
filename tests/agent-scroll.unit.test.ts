@@ -66,3 +66,44 @@ test('keeps full, half, top and bottom scroll targets within the document', () =
   expect(agentScrollParams('scroll-bottom', 800, 600, 0, 400).deltaY).toBe(0)
   expect(() => agentScrollParams('unknown', 800, 600, 100, 4000)).toThrow('Unknown scroll action')
 })
+
+test('occasionally overshoots and corrects both axes to the exact requested distance', async () => {
+  vi.useFakeTimers()
+  let random = vi.spyOn(Math, 'random').mockReturnValue(.1)
+  try {
+    let positions: { x: number; y: number }[] = [], x = 0, y = 0
+    let scroll = smoothAgentScroll(async (method, params) => {
+      if (method === 'Input.dispatchMouseEvent') {
+        x += Number(params.deltaX); y += Number(params.deltaY); positions.push({ x, y })
+      }
+      return { result: { value: { reducedMotion: false, roomX: 2000, roomY: 2000 } } }
+    }, { x: 40, y: 30, deltaX: -120, deltaY: 600 })
+    await vi.runAllTimersAsync(); await scroll
+    expect(Math.max(...positions.map(point => point.y))).toBeGreaterThan(600)
+    expect(Math.min(...positions.map(point => point.x))).toBeLessThan(-120)
+    expect(positions.at(-1)).toEqual({ x: -120, y: 600 })
+  } finally { random.mockRestore(); vi.useRealTimers() }
+})
+
+test('keeps corrections inside scroll boundaries and supports predictable or immediate overrides', async () => {
+  vi.useFakeTimers()
+  let random = vi.spyOn(Math, 'random').mockReturnValue(.1)
+  try {
+    for (let room of [600, 0]) {
+      let positions: number[] = [], y = 0
+      let scroll = smoothAgentScroll(async (method, params) => {
+        if (method === 'Input.dispatchMouseEvent') { y += Number(params.deltaY); positions.push(y) }
+        return { result: { value: { reducedMotion: false, roomY: room } } }
+      }, { x: 40, y: 30, deltaY: 600 })
+      await vi.runAllTimersAsync(); await scroll
+      expect(Math.max(...positions)).toBe(600)
+    }
+    let send = vi.fn(async () => ({}))
+    await smoothAgentScroll(send, { x: 0, y: 0, deltaY: 600 }, { enabled: false, randomize: true, overshoot: true })
+    expect(send).toHaveBeenCalledExactlyOnceWith('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 0, y: 0, deltaX: 0, deltaY: 600 })
+    random.mockClear()
+    let scroll = smoothAgentScroll(send, { x: 0, y: 0, deltaY: 600 }, { enabled: true, randomize: false, overshoot: true })
+    await vi.runAllTimersAsync(); await scroll
+    expect(random).not.toHaveBeenCalled()
+  } finally { random.mockRestore(); vi.useRealTimers() }
+})

@@ -281,3 +281,19 @@ it('validates cursor settings and atomically saves multiple fields while preserv
     expect(fs.readFileSync(file, 'utf8')).toBe(saved)
   } finally { config.close(); fs.rmSync(directory, { recursive: true, force: true }) }
 })
+
+it('defaults to natural scrolling and validates partial live settings', () => {
+  let defaults = { enabled: true, randomize: true, overshoot: true }
+  expect(parseConfig('keyboard: {}').scrolling).toEqual(defaults)
+  expect(parseConfig(defaultConfigText()).scrolling).toEqual(defaults)
+  expect(parseConfig('keyboard: {}\nscrolling: {randomize: false}').scrolling).toEqual({ ...defaults, randomize: false })
+  for (let value of ['false', '[]', '{speed: 1}', '{enabled: 1}', '{overshoot: sometimes}']) expect(() => parseConfig(`keyboard: {}\nscrolling: ${value}`)).toThrow(/scrolling/)
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-scrolling-')), file = path.join(directory, 'config.yaml')
+  let config = createConfig(file, () => {})
+  try {
+    config.update(['scrolling', 'enabled'], false)
+    expect(config.scrolling).toEqual({ ...defaults, enabled: false })
+    expect(() => config.update(['scrolling', 'enabled'], 'yes')).toThrow(/scrolling.enabled/)
+    expect(config.scrolling.enabled).toBe(false)
+  } finally { config.close(); fs.rmSync(directory, { recursive: true, force: true }) }
+})
