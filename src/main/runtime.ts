@@ -3274,7 +3274,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (method === 'plugin.run') {
       if (!plugins) throw new Error('Plugin host unavailable')
-      return plugins.run(required(args, 'action'), { clientId: sourceClientId, paneId: typeof args.tab === 'string' ? args.tab : undefined }, (args.parameters ?? {}) as Record<string, unknown>, !!sourceClientId)
+      return plugins.run(required(args, 'action'), { clientId: sourceClientId, paneId: typeof args.tab === 'string' ? args.tab : undefined }, (args.parameters ?? {}) as Record<string, unknown>, !!sourceClientId, args.sharedSettings === true)
     }
     if (method === 'command-line') {
       let clientId = args.client ?? sourceClientId ?? focusedClientId ?? model.clients[0]?.id
@@ -4417,15 +4417,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp: (tab, method, params) => cdp(tab, method, params), execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
-    plugins = createPlugins({ finished: runId => websiteLocks.release(runId), overlayChanged: publishOverlay, decisions: account ? (method, args) => method === 'usage' ? account('/api/ai/usage') : account(method === 'memory' ? '/api/ai/memory' : '/api/ai/decisions', args) : undefined, activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run', context) : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, prepare: async (context, title, signal) => {
+    plugins = createPlugins({ finished: runId => websiteLocks.release(runId), overlayChanged: publishOverlay, decisions: account ? (method, args) => method === 'usage' ? account('/api/ai/usage') : account(method === 'memory' ? '/api/ai/memory' : '/api/ai/decisions', args) : undefined, activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run', context) : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, prepare: async (context, title, signal, destination) => {
       signal.throwIfAborted()
       if (!pluginSelected(context) || !context.profileId || !context.sessionId || !context.clientId) throw new Error('Selected profile unavailable')
-      let window = await execute({ method: 'new-window', args: { session: context.sessionId, client: context.clientId, profile: context.profileId, name: title, agentId: context.agentId, _skipInitialAddress: true } }, context.clientId) as InternalWindow
-      let pane = window.panes[0], live = await ensureLiveTab(pane.id)
+      let paneId = context.paneId
+      if (destination !== 'current') {
+        let window = await execute({ method: 'new-window', args: { session: context.sessionId, client: context.clientId, profile: context.profileId, name: title, agentId: context.agentId, _skipInitialAddress: true } }, context.clientId) as InternalWindow
+        paneId = window.panes[0].id
+      }
+      if (!paneId) throw new Error('Selected pane unavailable')
+      let live = await ensureLiveTab(paneId)
       live.contents.setAudioMuted(true)
-      audio[pane.id] = { playing: false, muted: true }
+      audio[paneId] = { playing: false, muted: true }
       publish()
-      return pluginContext({ ...agentInfo(context), clientId: context.clientId, paneId: pane.id })
+      return pluginContext({ ...agentInfo(context), clientId: context.clientId, paneId })
     }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ scope: (context, method, args, signal, operation) => pluginCommand.run({ ...context, signal }, () => {
       if (context.pacing !== 'plugin' || !context.paneId || !context.profileId || !['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp', 'navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot', 'forms.list', 'forms.save', 'forms.fill', 'forms.delete'].includes(method)) return operation()
       if (!agentAction(method, args) && (readsPage(method, args) || method === 'screenshot') && context.runId && websiteLocks.owns(context.profileId, context.url ?? '', context.runId)) return operation()

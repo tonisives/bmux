@@ -913,3 +913,29 @@ test('four visible panes each retain a scaled plugin overlay with independent co
     await rpc('kill-window', { window: window.id, confirm: true })
   }
 })
+
+test('shared social Settings apply profile and AI choices without starting browsing', async () => {
+  await activate()
+  await rpc('plugin.run', { action: 'test/profiles', sharedSettings: true })
+  let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await expect(dialog.getByRole('heading', { name: 'Social Media settings', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toHaveCount(0)
+  await dialog.getByLabel('AI source', { exact: true }).selectOption('personal')
+  await dialog.getByRole('button', { name: 'Apply all', exact: true }).click()
+  await expect(dialog.getByRole('status').filter({ hasText: 'Applied to' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+})
+
+test('browsing can use the current pane without creating a window', async () => {
+  await activate()
+  let before = await state(), pane = before.selection.paneId
+  let windows = await rpc('list-windows')
+  let id = await run('launch')
+  let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await dialog.getByLabel('Browse in', { exact: true }).selectOption('current')
+  await dialog.getByLabel('AI source', { exact: true }).selectOption('personal')
+  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await completed(id)
+  expect((await rpc('plugin.runs')).find((item: any) => item.id === id).result.pane).toBe(pane)
+  expect(await rpc('list-windows')).toHaveLength(windows.length)
+})

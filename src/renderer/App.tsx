@@ -1802,7 +1802,10 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     {BUILTIN_TOOLS.map(tool => <BuiltinPluginSettings key={tool.id} feature={tool.id} matches={matches} />)}
     <PluginConfiguration compact={compact} matches={matches} />
   </>
-  let details = prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
+  let sharedSettings = stack.selected === 'social:settings'
+  let settingsPlugin = state.plugins?.find(plugin => plugin.enabled && plugin.category === 'Social Media' && plugin.settingsAction)
+  let openSharedSettings = () => { if (settingsPlugin) void run('plugin.run', { action: `${settingsPlugin.id}/${settingsPlugin.settingsAction}`, sharedSettings: true }) }
+  let details = prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : sharedSettings ? <section aria-label="Shared social settings" className={css.extensionDetails}><h2>Settings</h2><p>Share browsing profiles and AI decisions across social platforms.</p><button type="button" disabled={!settingsPlugin} onClick={openSharedSettings}>Edit shared settings</button>{!settingsPlugin && <p>Enable a social browsing plugin to configure shared settings.</p>}</section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
     {builtin ? <><h2>{builtin.name}</h2><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <PluginDetails key={plugin!.id} plugin={plugin!} />}
   </section>
   let open = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }
@@ -1820,7 +1823,7 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     <h2>Built-in</h2>
     {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={open}><strong>{tool.name}</strong></button></div>)}
     {plugins.filter(plugin => plugin.bundled && plugin.category !== 'Social Media').map(row)}
-    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
+    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2><div data-panel-row><button className={css.listRow} data-details="social:settings" aria-current={sharedSettings || undefined} onClick={event => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }}><strong>Settings</strong></button></div>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
     <h2>Custom</h2>
     {plugins.filter(plugin => !plugin.bundled && plugin.category !== 'Social Media').map(row)}
     {!plugins.some(plugin => !plugin.bundled && plugin.category !== 'Social Media') && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
@@ -1942,6 +1945,8 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let { state, run } = useUI()
   let request = state.pluginPrompt!
   let [subscription, setSubscription] = useState(false)
+  let [destination, setDestination] = useState('window')
+  let sharedSettings = request.sharedSettings === true
   let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
   let access = usePluginAI(!!hasSubscription)
@@ -1994,7 +1999,13 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     if (busy) return
     if (editingProfile) { await flush().catch(() => undefined); return }
     setBusy(true)
-    try { await flush(); if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await run('plugin.respond', { id: request.id, value: values }) } catch { /* Save error remains beside the settings. */ } finally { setBusy(false) }
+    try {
+      await flush()
+      if (sharedSettings) {
+        let result = await bridge.command({ method: 'plugin.respond', args: { id: request.id, applyAll: true, value: Object.fromEntries(fields.map(field => [field.name, values[field.name] ?? field.default]).filter(([, value]) => value !== undefined)) } }) as { applied: number }
+        setSaveStatus(`Applied to ${result.applied} platform configurations`); return
+      }
+      if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await run('plugin.respond', { id: request.id, value: values, destination }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not save settings') } finally { setBusy(false) }
   }
   let cancel = async () => {
     if (busy) return
@@ -2017,19 +2028,20 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let presets = !!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} choosePreset={choosePreset} />
   if (subscription) return <div className={css.pluginParameters}><h2>BMUX subscription</h2><p>Your remote subscription includes AI browsing.</p><DesktopRemoteAccount view="relay" /></div>
   return <form className={css.pluginParameters} onSubmit={submit}>
-    <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
-    <p>{request.launch && !editingProfile ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
+    <h2>{editingProfile ? 'Browsing profile' : sharedSettings ? 'Social Media settings' : `${request.pluginName} · ${request.title}`}</h2>
+    <p>{request.launch && !editingProfile && !sharedSettings && destination === 'window' ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
+      {request.launch && !editingProfile && !sharedSettings && <label className={css.settingsRow}><span>Browse in</span><select aria-label="Browse in" value={destination} onChange={event => setDestination(event.target.value)} disabled={busy}><option value="current">Current pane</option><option value="window">New window</option></select></label>}
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access} idle={values.ai_source === 'included' && !usesIncludedAI(values)}>{sourceFields.map(field)}</PluginSubscription>}
       {!request.profiles && <section aria-label="Browsing profile"><h3>Browsing profile</h3>{presets}</section>}
-      <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
+      <div className={css.pluginSettingsHeading}><h3>{sharedSettings ? 'Shared settings' : 'Session settings'}</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
       </>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
     {editingProfile && <div className={css.settingsFooter}><button type="button" onClick={backToBrowsing} disabled={busy}>Save</button></div>}
-    {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy || usesIncludedAI(values) && !!access.problem}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
+    {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy || !sharedSettings && usesIncludedAI(values) && !!access.problem}>{busy ? sharedSettings ? 'Applying…' : 'Starting…' : sharedSettings ? 'Apply all' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
   </form>
 }
 let PluginDialog = () => {
