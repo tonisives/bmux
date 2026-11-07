@@ -151,7 +151,7 @@ export let App = () => {
   let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
-  let keepPages = panel === 'profiles' && !sessionsBehind && !state?.pluginPrompt
+  let keepPages = ((control === 'address' && addressSuggestionsVisible) || (panel === 'profiles' && !sessionsBehind)) && !state?.pluginPrompt
   useOverlayFocus(state, control, panel, historyPopup, addressSuggestionsVisible, keepPages, run)
   useControlDismiss(control, state?.pluginPrompt ? dismiss : panelBack?.run ?? dismiss, !!state?.dialogPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
