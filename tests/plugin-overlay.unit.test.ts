@@ -66,3 +66,16 @@ test('decision graph validates probabilities and active state', () => {
   expect(() => parsePluginOverlay({ ...content, decision: { ...decision, options: [{ ...decision.options[0], probability: 2 }] } })).toThrow()
   expect(() => parsePluginOverlay({ ...content, decision: { ...decision, loading: 'yes' } })).toThrow()
 })
+
+
+test('overlay dimensions and collapsed height follow the page zoom', () => {
+  let area = { x: 30, y: 40, width: 900, height: 640 }
+  let full = fitPluginOverlay(undefined, area, .5)
+  expect(full).toMatchObject({ width: 384, height: 600, x: 732, y: 46 })
+  let collapsed = fitPluginOverlay({ ...full, x: 1000, y: 1000, collapsed: true }, area, .5)
+  expect(collapsed).toMatchObject({ x: 738, y: 664, height: 600 })
+  expect(pluginOverlayHeight(collapsed) * .5).toBe(16)
+  let enlarged = fitPluginOverlay(undefined, area, 2)
+  expect(enlarged.width * 2).toBeLessThanOrEqual(area.width)
+  expect(enlarged.height * 2).toBeLessThanOrEqual(area.height)
+})

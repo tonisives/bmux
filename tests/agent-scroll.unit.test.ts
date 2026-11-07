@@ -107,3 +107,21 @@ test('keeps corrections inside scroll boundaries and supports predictable or imm
     expect(random).not.toHaveBeenCalled()
   } finally { random.mockRestore(); vi.useRealTimers() }
 })
+
+
+test('scaled viewports keep DOM hit testing in CSS pixels and transform only native wheel coordinates', async () => {
+  vi.useFakeTimers()
+  try {
+    let calls: {method:string;params:Record<string,unknown>}[] = []
+    let scrolling = smoothAgentScroll(async (method, params) => {
+      calls.push({ method, params })
+      return { result: { value: { reducedMotion: false, roomY: 1000 } } }
+    }, { x: 832, y: 604, deltaY: 300 }, { enabled: true, randomize: false, overshoot: false }, .375)
+    await vi.runAllTimersAsync(); await scrolling
+    expect(calls[0].params.expression).toContain('document.elementFromPoint(832, 604)')
+    let wheels = calls.filter(call => call.method === 'Input.dispatchMouseEvent')
+    expect(wheels.length).toBeGreaterThan(10)
+    expect(wheels.every(call => call.params.x === 312 && call.params.y === 226.5)).toBe(true)
+    expect(wheels.reduce((sum, call) => sum + Number(call.params.deltaY), 0)).toBe(300)
+  } finally { vi.useRealTimers() }
+})

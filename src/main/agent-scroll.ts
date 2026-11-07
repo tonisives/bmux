@@ -3,11 +3,11 @@ import type { ScrollingSettings } from '../shared/scrolling'
 
 type Send = (method: string, params: Record<string, unknown>) => Promise<any>
 
-export let smoothAgentScroll = async (send: Send, params: Record<string, unknown>, settings: ScrollingSettings = DEFAULT_SCROLLING) => {
+export let smoothAgentScroll = async (send: Send, params: Record<string, unknown>, settings: ScrollingSettings = DEFAULT_SCROLLING, inputScale = 1) => {
   let deltaX = Number(params.deltaX ?? 0), deltaY = Number(params.deltaY ?? 0), x = Number(params.x), y = Number(params.y)
   if (![deltaX, deltaY, x, y].every(Number.isFinite)) throw new Error('Invalid scroll coordinates')
   if (!deltaX && !deltaY) return {}
-  let wheel = { ...params, type: 'mouseWheel', x, y, deltaX, deltaY }
+  let wheel = { ...params, type: 'mouseWheel', x: x * inputScale, y: y * inputScale, deltaX, deltaY }
   if (!settings.enabled || params.modifiers) return send('Input.dispatchMouseEvent', wheel)
   let motion = await send('Runtime.evaluate', { expression: `(() => {
     let room = (axis, delta) => {
