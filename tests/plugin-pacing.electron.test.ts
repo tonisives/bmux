@@ -44,8 +44,8 @@ call('result',{done:true});`)
     await expect.poll(async () => (await current())?.progress?.percent, { timeout: 12000 }).toBe(50)
     expect(Number((await current()).progress.message)).toBeLessThan(8000)
     expect(await page.evaluate(() => document.body.dataset.pacing)).toBe('second')
-    let cli = async () => {
-      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'eval', JSON.stringify({ pane: pane.id, expression: 'document.title', observation: true })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'other-agent' }, timeout: 12000 }).catch(error => {
+    let cli = async (observation = true) => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'eval', JSON.stringify({ pane: pane.id, expression: 'document.title', observation })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'other-agent' }, timeout: 12000 }).catch(error => {
         if (error.code === 1 && error.stdout) return { stdout: error.stdout }
         throw error
       })
@@ -54,6 +54,10 @@ call('result',{done:true});`)
     let denied = await cli()
     expect(denied.ok).toBe(false)
     expect(denied.error).toContain('Website is busy')
+    let started = Date.now(), deniedAction = await cli(false)
+    expect(deniedAction.ok).toBe(false)
+    expect(deniedAction.error).toContain('Website is busy')
+    expect(Date.now() - started).toBeLessThan(8000)
     await command('plugin.cancel', { id: run.id })
     await expect.poll(async () => (await current()).status).toBe('cancelled')
     let allowed = await cli()

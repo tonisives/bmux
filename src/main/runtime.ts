@@ -859,16 +859,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let runAgentAction = <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner = String(args.agentId ?? '')) => {
     assertAgentTarget(pane)
     let original = paneById(model, pane).pane
-    return agentTarget.run(original, () => agentActions.run(pane, original.profileId, () => {
+    let urls = () => {
       assertAgentTarget(pane)
       let live = tabs.get(pane), { tab, session } = tabById(model, pane), target = automationTargetUrl(method, args)
       let current = live && !live.contents.isDestroyed() ? live.contents.getURL() : ''
       if (!current || current === 'about:blank' && tab.url !== 'about:blank') current = live?.pendingUrl ?? tab.url
       return [current, ...(live?.pendingUrl ? [live.pendingUrl] : []), ...(target ? [normalizeUrl(target, searchAppForSession(session))] : [])]
-    }, async () => {
+    }
+    websiteLocks.assertAvailable(original.profileId, urls(), pluginCommand.getStore()?.runId)
+    return agentTarget.run(original, () => agentActions.run(pane, original.profileId, urls, async () => {
       assertAgentTarget(pane)
-      let { tab, session } = tabById(model, pane), target = automationTargetUrl(method, args)
-      websiteLocks.assertAvailable(original.profileId, [tabs.get(pane)?.contents.getURL() || tab.url, ...(target ? [normalizeUrl(target, searchAppForSession(session))] : [])], pluginCommand.getStore()?.runId)
+      websiteLocks.assertAvailable(original.profileId, urls(), pluginCommand.getStore()?.runId)
       let result = await operation()
       if (!readsPage(method, args) && currentPane(pane) === original) { original.lastActivityAt = Date.now(); save(); publish() }
       return result
