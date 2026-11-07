@@ -2883,8 +2883,7 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [port, setPort] = useSettingsState(`proxy:${profile.id}:port`, String(profile?.proxy?.port ?? 443))
   let [authenticated, setAuthenticated] = useSettingsState(`proxy:${profile.id}:authenticated`, profile?.proxy?.authenticated ?? true)
   let [username, setUsername] = useSettingsState(`proxy:${profile.id}:username`, ''), [password, setPassword] = useSettingsState(`proxy:${profile.id}:password`, '')
-  let [testing, setTesting] = useState(false)
-  let form = useRef<HTMLFormElement>(null)
+  let [testing, setTesting] = useState(false), form = useRef<HTMLFormElement>(null)
   let [credentialProfile, setCredentialProfile] = useSettingsState(`proxy:${profile.id}:credentialProfile`, defaultConnectionId(profile)), [savedUsername, setSavedUsername] = useSettingsState(`proxy:${profile.id}:savedUsername`, '')
   let [pickerOpen, setPickerOpen] = useSettingsState(`proxy:${profile.id}:pickerOpen`, false)
   let savedProfiles = savedProxyProfiles(state.model)
@@ -2943,7 +2942,7 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let changeUsername = (event: ChangeEvent<HTMLInputElement>) => setUsername(event.target.value)
   let changePassword = (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)
   let proxyArgs = { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile }
-  let credentialsSaved = (connectionId: string) => { preserveUsername.current = connectionId !== credentialProfile; setCredentialProfile(connectionId); setSavedUsername(username); setPassword('') }
+  let credentialsSaved = (connectionId: string) => { preserveUsername.current = connectionId !== credentialProfile; setCredentialProfile(connectionId); setSavedUsername(username || savedUsername); setPassword('') }
   let { saving, changeNewPanes } = useProxyDefault(proxyArgs, saved => credentialsSaved(defaultConnectionId(saved)))
   let { pane, changingPane, changeCurrentPane } = usePaneProxy(proxyArgs, saved => credentialsSaved(paneConnectionId(saved)))
   let preventSubmit = (event: FormEvent) => event.preventDefault()
