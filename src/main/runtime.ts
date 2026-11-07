@@ -509,7 +509,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
   let settingsReady = readSettings()
 
-  let selectedOverlayTabs = new Map<string, string>()
+  let selectedOverlayTabs = new Map<string, string>(), newestOverlayRuns = new Map<string, string>()
   let pluginOverlayBounds = new Map<string, PluginOverlayBounds>()
   let dismissedPluginOverlays = new Set<string>(), pluginOverlayRuns = new Map<string, { id: string; ended: boolean; failed: boolean }>()
   let overlayForClient = (clientId: string, paneId = model.clients.find(client => client.id === clientId)?.paneId) => {
@@ -528,6 +528,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (viewport) tabs.push({ id: 'viewport', title: 'Locked viewport', icon: 'viewport' })
     if (!tabs.length) return
     let key = clientId + ':' + paneId
+    let newest = values[0]?.runId
+    if (newest && newestOverlayRuns.get(key) !== newest) selectedOverlayTabs.set(key, newest)
+    if (newest) newestOverlayRuns.set(key, newest)
+    else newestOverlayRuns.delete(key)
     let selectedTab = tabs.find(tab => tab.id === selectedOverlayTabs.get(key))?.id ?? tabs[0].id
     selectedOverlayTabs.set(key, selectedTab)
     let value = values.find(value => value.runId === selectedTab) ?? { runId: 'pane:' + paneId, paneId, ended: false, error: undefined, content: { title: tabs.find(tab => tab.id === selectedTab)!.title, subtitle: '', status: '', nodes: [], metrics: '', details: [], controls: [] } as PluginOverlayContent }
@@ -3265,6 +3269,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!current || !current.tabs.some(tab => tab.id === args.id) || !owner) throw new Error('Page overlay is no longer visible')
       if (method === 'plugin.overlay.close') {
         dismissedPluginOverlays.add(sourceClientId + ':' + args.id)
+        let key = sourceClientId + ':' + current.paneId, preferred = pluginOverlayBounds.get(key)!
+        pluginOverlayBounds.set(key, { ...preferred, collapsed: true, compact: false })
         refreshPluginOverlay(sourceClientId, owner)
         if (owner.window.isFocused()) owner.chrome.webContents.focus()
         publish(); return null

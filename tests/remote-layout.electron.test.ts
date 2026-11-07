@@ -287,12 +287,16 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         await content(client.paneId).evaluate(element => element.scrollTo(Number(element.dataset.panOriginX ?? 0), Number(element.dataset.panOriginY ?? 0)))
         await expect.poll(async () => (await native()).page.x).toBe(0)
       }
+      let collapse = async () => { await handPage.getByRole('button', { name: 'Minimize page overlay', exact: true }).click(); await expect(handPage.getByRole('tab', { name: 'Locked viewport', exact: true })).toHaveAttribute('aria-selected', 'false') }
+      await collapse()
       for (let modifier of ['Alt', 'Meta', 'toggle']) {
         if (modifier === 'toggle') {
+          await controlPage(client.paneId)
           await hand.click()
           await expect(hand).toHaveAttribute('aria-pressed', 'true')
           await expect.poll(async () => (await state()).viewportPanModes).toContain(client.paneId)
           await expect(chrome.locator(`[data-pane-id="${client.paneId}"]`)).toHaveCSS('cursor', 'grab')
+          await collapse()
         } else await chrome.keyboard.down(modifier)
         let start = { x: gutter.x + 180, y: gutter.y + gutter.height - 24 }
         let finish = { x: gutter.x + 140, y: gutter.y + gutter.height / 2 }
@@ -315,9 +319,9 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         await expect.poll(() => content(client.paneId).evaluate(element => (element.scrollLeft - Number(element.dataset.panOriginX ?? 0)))).toBe(40)
         expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
         if (modifier === 'toggle') {
-          await expect(hand).toHaveAttribute('aria-pressed', 'true')
+          await expect.poll(async () => (await state()).viewportPanModes).toContain(client.paneId)
           await chrome.keyboard.press('Escape')
-          await expect(hand).toHaveAttribute('aria-pressed', 'false')
+          await expect.poll(async () => (await state()).viewportPanModes).not.toContain(client.paneId)
         }
         await resetPan()
       }

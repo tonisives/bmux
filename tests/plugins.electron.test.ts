@@ -26,6 +26,15 @@ let overlayForRun = async (id: string) => {
   }).toBe(true)
   return observer!
 }
+let pluginViews = () => application.evaluate(async ({ BaseWindow }) => {
+  let result: { id: number; bounds: { x: number; y: number; width: number; height: number }; zoom: number }[] = []
+  for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children as any[]) {
+    if (!view.webContents?.getURL().endsWith('#plugin-overlay') || !view.getVisible()) continue
+    let overlay = await view.webContents.executeJavaScript('window.bmux.overlayState()')
+    if (overlay?.tabs.some((tab: any) => !['agent','viewport'].includes(tab.id))) result.push({ id: view.webContents.id, bounds: view.getBounds(), zoom: view.webContents.getZoomFactor() })
+  }
+  return result
+})
 let script = `import { execFileSync } from 'node:child_process';
 let host = (method,args={}) => JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8',stdio:['pipe','pipe','pipe']})).result;
 let context = host('context'), action = process.argv[2];
@@ -344,7 +353,7 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await observer.getByRole('button', { name: 'Copy AI payload', exact: true }).click()
   expect(JSON.parse(await application.evaluate(({ clipboard }) => clipboard.readText()))).toEqual({ answers: [{ name: 'watch', choice: 'watch' }], usage: { input_tokens: 41 } })
   await observer.getByRole('button', { name: 'Close overlay', exact: true }).click()
-  let visible = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).some((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()))
+  let visible = async () => (await pluginViews()).length > 0
   await expect.poll(visible).toBe(false)
   expect((await rpc('plugin.runs')).find((run: any) => run.id === id).status).toBe('running')
   await chrome.evaluate(id => (window as any).bmux.command({ method: 'plugin.overlay.show', args: { id } }), id)
@@ -416,7 +425,7 @@ test('plugin overlays remain on visible panes and detach when switching windows'
   let original = client.paneId
   await rpc('select-pane', { client: client.id, pane: original })
   let id = await run('overlay', { tab: original })
-  let attached = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay')).length)
+  let attached = async () => (await pluginViews()).length
   await expect.poll(attached).toBe(1)
   let observer = await overlayForRun(id)
   await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
@@ -436,7 +445,7 @@ test('plugin overlays remain on visible panes and detach when switching windows'
     await rpc('select-pane', { client: client.id, pane: original })
     await expect.poll(attached).toBe(1)
     await expect.poll(async () => (await state()).pluginOverlay?.runId).toBe(id)
-    if (ended) await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
+    if (ended) { await observer.getByRole('tab', { name: 'Feed training', exact: true }).click(); await expect(observer.getByRole('status')).toHaveText('Session complete') }
     else await expect(observer.getByRole('status')).toHaveText('Browsing')
     if (!ended) {
       await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
@@ -451,7 +460,7 @@ test('completed plugin overlays disappear when opening a different page in the s
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let pane = client.paneId
   let id = await run('overlay', { tab: pane })
-  let attached = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay')).length)
+  let attached = async () => (await pluginViews()).length
   await expect.poll(attached).toBe(1)
   let observer = await overlayForRun(id)
   await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
@@ -462,7 +471,7 @@ test('completed plugin overlays disappear when opening a different page in the s
   await expect.poll(attached).toBe(1)
   await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
   await completed(id)
-  await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
+  await expect(observer.getByRole('tab', { name: 'Feed training', exact: true })).toHaveAttribute('aria-selected', 'false')
   await rpc('navigate', { pane, url: url + '/after-overlay' })
   await rpc('wait', { pane, selector: '#username' })
   await expect.poll(async () => (await state()).pluginOverlay).toBeUndefined()
@@ -827,7 +836,7 @@ test('four visible panes each retain a scaled plugin overlay with independent co
   let window = await rpc('new-window', { client: client.id, session: client.sessionId, url: url + '/four-overlays' })
   await rpc('wait', { pane: window.panes[0].id, selector: '#username' })
   let original = window.panes[0].id, panes = [original], ids: string[] = []
-  let views = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()).map((view: any) => ({ id: view.webContents.id, bounds: view.getBounds(), zoom: view.webContents.getZoomFactor() })))
+  let views = pluginViews
   try {
     for (let index = 1; index < 4; index++) {
       let pane = await rpc('split-window', { pane: original, url: url + '/overlay-' + index })
@@ -955,7 +964,7 @@ test('plugins and viewport controls share one resizable tabbed pane view', async
     await expect(viewport).toBeVisible()
     let attached = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()).length)
     await expect.poll(attached).toBe(1)
-    await observer.getByRole('tab', { name: 'Research notes', exact: true }).click()
+    await expect(observer.getByRole('tab', { name: 'Research notes', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(observer.locator('header strong')).toHaveText('Research notes')
     await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
     await expect(observer.getByRole('status')).toHaveText('Browsing')
@@ -980,7 +989,8 @@ test('plugins and viewport controls share one resizable tabbed pane view', async
     await observer.screenshot({ path: path.resolve('artifacts/shared-pane-overlay.png') })
     await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
     await expect.poll(() => observer.evaluate(() => innerHeight)).toBe(32)
-    await expect(observer.getByRole('tab')).toHaveCount(3)
+    await expect(observer.getByRole('tab')).toHaveCount(4)
+    await expect(observer.getByRole('tab', { name: 'Agent control', exact: true })).toBeVisible()
     expect((await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(pane)
   } finally {
     await rpc('plugin.cancel', { id: first })
