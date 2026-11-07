@@ -126,6 +126,52 @@ export let patchBitwardenLockedInline = (source: string, release = version) => {
   return source.replace(needle, `${prefix}return yield (${bitwardenTargetingRules.toString()})({authStatus:()=>this.main.authService.getAuthStatus(),unlockedStatus:${target.unlocked},lookup:${lookup}});/* ${marker} */`)
 }
 
+// Serialized into the pinned worker. Build display data against a snapshot so
+// older asynchronous work cannot overwrite the current menu's labels or count.
+export let bitwardenPublishSuggestions = async function (this: {
+  bmuxSuggestionRevision?: number
+  inlineMenuListPort: unknown
+  getInlineMenuCipherData: () => Promise<unknown>
+  checkFocusedFieldHasValue: (tab: unknown) => Promise<boolean>
+  shouldShowInlineMenuAccountCreation: () => boolean
+  showPasskeysLabelsWithinInlineMenu: boolean
+  currentInlineMenuCiphersCount: number
+  postMessageToPort: (port: unknown, message: unknown) => void
+}, tab: unknown, revision = this.bmuxSuggestionRevision) {
+  let snapshot = Object.create(this), port = this.inlineMenuListPort
+  let ciphers = await snapshot.getInlineMenuCipherData()
+  let focusedFieldHasValue = await this.checkFocusedFieldHasValue(tab)
+  if (revision !== this.bmuxSuggestionRevision || port !== this.inlineMenuListPort) return
+  this.showPasskeysLabelsWithinInlineMenu = snapshot.showPasskeysLabelsWithinInlineMenu
+  this.currentInlineMenuCiphersCount = snapshot.currentInlineMenuCiphersCount
+  this.postMessageToPort(port, {
+    command: 'updateAutofillInlineMenuListCiphers', ciphers,
+    showInlineMenuAccountCreation: this.shouldShowInlineMenuAccountCreation(),
+    showPasskeysLabels: this.showPasskeysLabelsWithinInlineMenu, focusedFieldHasValue,
+  })
+}
+
+export let patchBitwardenSuggestions = (source: string, release = version) => {
+  targets(release)
+  let marker = 'bmux-recovering-suggestion-updates'
+  if (source.includes(marker)) return source
+  let current = release === '2026.10.0', async = current ? 'CR' : 'qN', tabs = current ? 'PU' : 'YO'
+  let replacements: [string, string][] = [
+    ['e=>this.handleOverlayCiphersUpdate(e)', 'e=>this.handleOverlayCiphersUpdate(e).catch(error=>{this.logService.error(error)})'],
+    ['this.inlineMenuCiphers=new Map,this.updateOverlayCiphers$.next({updateAllCipherTypes:e,refocusField:t})', 'this.bmuxSuggestionRevision=(this.bmuxSuggestionRevision||0)+1,this.inlineMenuCiphers=new Map,this.updateOverlayCiphers$.next({updateAllCipherTypes:e,refocusField:t,bmuxRevision:this.bmuxSuggestionRevision})'],
+    ['function*({updateAllCipherTypes:e,refocusField:t}){var i;const r=yield '+tabs+'.getTabFromCurrentWindowId();', 'function*({updateAllCipherTypes:e,refocusField:t,bmuxRevision}){var i;const r=yield '+tabs+'.getTabFromCurrentWindowId();if(bmuxRevision!==this.bmuxSuggestionRevision)return;'],
+    ['const e=yield '+tabs+'.getTab(this.focusedFieldData.tabId);e&&this.closeInlineMenu', 'const e=yield '+tabs+'.getTab(this.focusedFieldData.tabId);if(bmuxRevision!==this.bmuxSuggestionRevision)return;e&&this.closeInlineMenu'],
+    ['const s=yield this.getCipherViews(r,e);for(let e=0;e<s.length;e++)', 'const bmuxLookup=Object.create(this);bmuxLookup.cardAndIdentityCiphers=this.cardAndIdentityCiphers?new Set(this.cardAndIdentityCiphers):null;const s=yield bmuxLookup.getCipherViews(r,e);if(bmuxRevision!==this.bmuxSuggestionRevision)return;this.cardAndIdentityCiphers=bmuxLookup.cardAndIdentityCiphers;for(let e=0;e<s.length;e++)'],
+    ['yield this.updateInlineMenuListCiphers(r),t&&', 'yield this.updateInlineMenuListCiphers(r,bmuxRevision),t&&bmuxRevision===this.bmuxSuggestionRevision&&'],
+    ['updateInlineMenuListCiphers(e){return '+async+'(this,void 0,void 0,function*(){const t=yield this.getInlineMenuCipherData();this.postMessageToPort(this.inlineMenuListPort,{command:"updateAutofillInlineMenuListCiphers",ciphers:t,showInlineMenuAccountCreation:this.shouldShowInlineMenuAccountCreation(),showPasskeysLabels:this.showPasskeysLabelsWithinInlineMenu,focusedFieldHasValue:yield this.checkFocusedFieldHasValue(e)})})}', `updateInlineMenuListCiphers(e,t=this.bmuxSuggestionRevision){return (${bitwardenPublishSuggestions.toString()}).call(this,e,t)}`],
+  ]
+  for (let [needle, replacement] of replacements) {
+    if (source.split(needle).length !== 2) throw new Error('Bitwarden suggestion compatibility target was not found')
+    source = source.replace(needle, replacement)
+  }
+  return source + `\n/* ${marker} */`
+}
+
 export let patchBitwardenPackage = async (directory: string, release = version) => {
   let fido = path.join(directory, 'content', 'fido2-page-script.js')
   let fidoSource = await fs.readFile(fido, 'utf8')
@@ -133,7 +179,7 @@ export let patchBitwardenPackage = async (directory: string, release = version) 
   if (fidoPatched !== fidoSource) await fs.writeFile(fido, fidoPatched)
   let background = path.join(directory, 'background.js')
   let source = await fs.readFile(background, 'utf8')
-  let patched = patchBitwardenLockedInline(patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release), release)
+  let patched = patchBitwardenSuggestions(patchBitwardenLockedInline(patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release), release), release)
   if (patched !== source) await fs.writeFile(background, patched)
   let popup = path.join(directory, 'popup', 'main.js')
   let popupSource = await fs.readFile(popup, 'utf8')

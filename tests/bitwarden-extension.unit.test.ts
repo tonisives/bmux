@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { bitwardenPasskeyPreflight, bitwardenTargetingRules, installBitwardenExtension, patchBitwardenConditionalAutofill, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
+import { bitwardenPasskeyPreflight, bitwardenPublishSuggestions, bitwardenTargetingRules, installBitwardenExtension, patchBitwardenConditionalAutofill, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, patchBitwardenSuggestions, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
 
 let source = 'before;const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})};after'
 
@@ -83,7 +83,7 @@ describe('Bitwarden passkey startup', () => {
       for (let location of [managed, unpacked]) {
         await fs.mkdir(location, { recursive: true })
         await fs.writeFile(path.join(location, 'manifest.json'), JSON.stringify({ name: '__MSG_extName__', version: '2026.6.1' }))
-        await fs.writeFile(path.join(location, 'background.js'), `${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
+        await fs.writeFile(path.join(location, 'background.js'), `/* bmux-recovering-suggestion-updates */${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
         await fs.mkdir(path.join(location, 'popup'))
         await fs.writeFile(path.join(location, 'popup', 'main.js'), '/* bmux-reconnecting-memory-port-v2 */')
         await fs.mkdir(path.join(location, 'content'))
@@ -95,7 +95,7 @@ describe('Bitwarden passkey startup', () => {
       expect(await fs.readFile(path.join(managed, 'content', 'fido2-page-script.js'), 'utf8')).toContain('bmux-conditional-passkeys-no-native-probe')
       await prepareBitwardenPackage(directory, managed)
       expect(await fs.readFile(path.join(managed, 'background.js'), 'utf8')).toBe(upgraded)
-      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).toBe(`${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
+      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).toBe(`/* bmux-recovering-suggestion-updates */${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
       expect(await fs.readFile(path.join(unpacked, 'content', 'fido2-page-script.js'), 'utf8')).toBe(conditionalSource)
     } finally { await fs.rm(directory, { recursive: true, force: true }) }
   })
@@ -283,4 +283,45 @@ describe('bounded Bitwarden field targeting', () => {
     expect(patched).not.toContain('bmux-locked-inline-targeting-rules')
     expect(patchBitwardenLockedInline(patched, release)).toBe(patched)
   })
+})
+
+for (let release of ['2026.6.1', '2026.10.0']) it(`patches suggestion recovery for ${release} and rejects changed bundles`, async () => {
+  let source = await fs.readFile(path.resolve('tests/fixtures/bitwarden-suggestions-source.txt'), 'utf8')
+  if (release === '2026.10.0') source = source.replaceAll('qN(', 'CR(').replaceAll('YO.', 'PU.')
+  let patched = patchBitwardenSuggestions(source, release)
+  expect(patched).toContain('bmux-recovering-suggestion-updates')
+  expect(patched).toContain('.catch(error=>{this.logService.error(error)})')
+  expect(patchBitwardenSuggestions(patched, release)).toBe(patched)
+  expect(() => patchBitwardenSuggestions(source.replace('const s=yield this.getCipherViews(r,e);', ''), release)).toThrow('suggestion compatibility target was not found')
+})
+
+it.each(['data', 'field', 'port'])('discards a suggestion publication invalidated during %s', async stage => {
+  let release: () => void = () => undefined
+  let held = new Promise<void>(resolve => { release = resolve })
+  let started: () => void = () => undefined
+  let waiting = new Promise<void>(resolve => { started = resolve })
+  let pause = async () => { started(); await held }
+  let overlay = {
+    bmuxSuggestionRevision: 1, inlineMenuListPort: {},
+    showPasskeysLabelsWithinInlineMenu: false, currentInlineMenuCiphersCount: 1,
+    async getInlineMenuCipherData() {
+      if (stage === 'data') await pause()
+      this.showPasskeysLabelsWithinInlineMenu = true
+      this.currentInlineMenuCiphersCount = 9
+      return ['obsolete']
+    },
+    async checkFocusedFieldHasValue() { if (stage !== 'data') await pause(); return false },
+    shouldShowInlineMenuAccountCreation: () => false, postMessageToPort: vi.fn(),
+  }
+  // Exercise exactly the self-contained function embedded in background.js.
+  let publish = vm.runInNewContext(`(${bitwardenPublishSuggestions.toString()})`)
+  let task = publish.call(overlay, { id: 1 })
+  await waiting
+  if (stage === 'port') overlay.inlineMenuListPort = {}
+  else overlay.bmuxSuggestionRevision++
+  release()
+  await task
+  expect(overlay.postMessageToPort).not.toHaveBeenCalled()
+  expect(overlay.currentInlineMenuCiphersCount).toBe(1)
+  expect(overlay.showPasskeysLabelsWithinInlineMenu).toBe(false)
 })

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { installBitwardenExtension } from '../src/main/bitwarden-extension'
 import { closeTestApplication } from './electron-fixture'
 
-test('official Bitwarden suggestion probes reproduce terminal update errors and stale empty menus', async ({}, info) => {
+test('official Bitwarden suggestion probes recover from lookup errors and discard stale results', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-suggestion-probe-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   try {
@@ -53,10 +53,11 @@ test('official Bitwarden suggestion probes reproduce terminal update errors and 
     let probe = await popup.evaluate(() => (self as any).bmuxSuggestionProbe)
     await info.attach('suggestion-probe.json', { body: JSON.stringify(probe, null, 2), contentType: 'application/json' })
     expect(probe).toEqual({ result: {
+      staleLookup: { sent: [['fixture-latest']], cached: ['fixture-latest'] },
       healthy: { subscribed: true, items: ['fixture-login'] },
-      afterFailure: { subscribed: false, callsAfterFailure: 2, callsAfterMoreUpdates: 2, cachedItems: 0, publications: 1 },
+      afterFailure: { subscribed: true, callsAfterFailure: 2, callsAfterMoreUpdates: 5, cachedItems: 1, publications: 4 },
       reinitialized: ['fixture-recovered'],
-      race: { builds: [[], ['fixture-current']], sent: [['fixture-current'], []], subscribed: true },
+      race: { builds: [[], ['fixture-current']], sent: [['fixture-current']], subscribed: true },
     } })
   } finally {
     if (application) await closeTestApplication(application)

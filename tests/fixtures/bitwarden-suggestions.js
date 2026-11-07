@@ -28,6 +28,7 @@ let runSuggestionProbe = async () => {
     return overlay
   }
   let expectedErrors = []
+  original.logService = { error: error => expectedErrors.push(error.message) }
   let onError = event => {
     if (!event.message.includes('bmux fixture lookup failed')) return
     expectedErrors.push(event.message)
@@ -43,10 +44,13 @@ let runSuggestionProbe = async () => {
     let healthy = { subscribed: overlay.updateOverlayCiphers$.observed, items: publications[0] }
     overlay.getCipherViews = async () => { calls++; throw new Error('bmux fixture lookup failed') }
     await overlay.updateOverlayCiphers()
-    await waitFor(() => !overlay.updateOverlayCiphers$.observed && expectedErrors.length === 1)
+    await waitFor(() => expectedErrors.length === 1)
     let callsAfterFailure = calls
     overlay.getCipherViews = async () => { calls++; return [{ id: 'fixture-recovered' }] }
-    for (let index = 0; index < 3; index++) await overlay.updateOverlayCiphers()
+    for (let index = 0; index < 3; index++) {
+      await overlay.updateOverlayCiphers()
+      await waitFor(() => publications.length === index + 2)
+    }
     let afterFailure = {
       subscribed: overlay.updateOverlayCiphers$.observed,
       callsAfterFailure, callsAfterMoreUpdates: calls,
@@ -60,8 +64,14 @@ let runSuggestionProbe = async () => {
 
     // Keep the original handler and updateInlineMenuListCiphers. Hold only
     // its async item-building dependency, then switch tabs and finish newer
-    // work first. switchMap cannot cancel side effects inside the old promise.
+    // work first. The old result must be discarded before publication.
     let racing = create(), builds = [], sent = []
+    let racingHandler = racing.handleOverlayCiphersUpdate.bind(racing), racingTasks = []
+    racing.handleOverlayCiphersUpdate = params => {
+      let task = racingHandler(params)
+      racingTasks.push(task)
+      return task
+    }
     racing.getCipherViews = async tab => tab.id === 101 ? [] : [{ id: 'fixture-current' }]
     racing.getInlineMenuCipherData = () => new Promise(resolve => {
       builds.push({ items: [...racing.inlineMenuCiphers.values()].map(item => item.id), resolve })
@@ -75,8 +85,25 @@ let runSuggestionProbe = async () => {
     builds[1].resolve(builds[1].items)
     await waitFor(() => sent.length === 1)
     builds[0].resolve(builds[0].items)
-    await waitFor(() => sent.length === 2)
-    return { healthy, afterFailure, reinitialized: restartedPublications[0], race: { builds: builds.map(build => build.items), sent, subscribed: racing.updateOverlayCiphers$.observed } }
+    await racingTasks[0]
+    let lookup = create(), pending = [], lookupSent = []
+    lookup.getCipherViews = () => new Promise(resolve => pending.push(resolve))
+    lookup.updateInlineMenuListCiphers = async () => lookupSent.push([...lookup.inlineMenuCiphers.values()].map(item => item.id))
+    let originalHandler = lookup.handleOverlayCiphersUpdate.bind(lookup), finished = []
+    lookup.handleOverlayCiphersUpdate = params => {
+      let task = originalHandler(params)
+      finished.push(task)
+      return task
+    }
+    await lookup.updateOverlayCiphers()
+    await waitFor(() => pending.length === 1)
+    await lookup.updateOverlayCiphers()
+    await waitFor(() => pending.length === 2)
+    pending[1]([{ id: 'fixture-latest' }])
+    await finished[1]
+    pending[0]([{ id: 'fixture-obsolete' }])
+    await finished[0]
+    return { healthy, staleLookup: { sent: lookupSent, cached: [...lookup.inlineMenuCiphers.values()].map(item => item.id) }, afterFailure, reinitialized: restartedPublications[0], race: { builds: builds.map(build => build.items), sent, subscribed: racing.updateOverlayCiphers$.observed } }
   } finally {
     chrome.tabs.query = query
     self.removeEventListener('error', onError)
