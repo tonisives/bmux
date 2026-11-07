@@ -45,8 +45,10 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     let state = () => chrome.evaluate(() => (window as any).bmux.state())
     let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let current = await state(), client = current.model.clients.find((client: { id: string }) => client.id === current.clientId)
+    let nativeWindowId = (await rpc('diagnostics')).windows.find((window: { id: string }) => window.id === client.id).nativeId
+    await application.evaluate((_electron, id) => { (globalThis as any).remoteLayoutWindowId = id }, nativeWindowId)
     await rpc('activate-client', { client: client.id })
-    await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setSize(1000, 500))
+    await application.evaluate(({ BaseWindow }, id) => BaseWindow.fromId(id)!.setSize(1000, 500), nativeWindowId)
     await expect.poll(() => chrome.evaluate(() => innerWidth)).toBe(1000)
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
@@ -110,7 +112,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       let runtime = (globalThis as any).remoteLayoutRuntime, original = runtime.setBounds
       runtime.setBounds = (id: number, bounds: unknown) => { (globalThis as any).viewportBounds = bounds; original(id, bounds) }
     })
-    let nativeResize = (width: number, height: number) => application.evaluate(({ BaseWindow }, size) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setSize(size.width, size.height), { width, height })
+    let nativeResize = (width: number, height: number) => application.evaluate(({ BaseWindow }, size) => BaseWindow.fromId(size.nativeWindowId)!.setSize(size.width, size.height), { width, height, nativeWindowId })
     await nativeResize(840, 360)
     for (let [pane, page] of [[client.paneId, first], [added.id, second]] as const) {
       await expect.poll(() => size(page)).toEqual(locked[pane])
@@ -357,10 +359,26 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     // to the middle instead of stopping at the native viewport edge.
     let fittedHand = (await controlPage(client.paneId)).getByRole('button', { name: 'Pan viewport', exact: true })
     if (process.platform === 'darwin') {
+      await application.evaluate(({ BaseWindow, screen }, id) => {
+        let window = BaseWindow.fromId(id)!
+        let area = screen.getPrimaryDisplay().workArea
+        window.setPosition(area.x, area.y)
+      }, nativeWindowId)
       await rpc('activate-client', { client: client.id })
-      await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().some(window => window.isVisible() && window.isFocused()))).toBe(true)
+      await expect.poll(() => application.evaluate(({ BaseWindow }, id) => BaseWindow.getFocusedWindow()?.id === id, nativeWindowId)).toBe(true)
       let button = (await controlBounds(client.paneId))!
-      for (let phase of [0, 1, 3]) await application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { x: button.x + button.width - 16, y: button.y + 16, phase, modifier: 0 })
+      let point = { x: button.x + button.width - 16, y: button.y + 16 }
+      await expect.poll(() => application.evaluate((_electron, points) => (globalThis as any).remoteLayoutHits(points), [point])).toEqual([`{${button.width}, ${button.height}}`])
+      let input = (phase: number) => application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { ...point, phase, modifier: 0 })
+      await input(0)
+      await fs.writeFile(info.outputPath('native-control-input.json'), JSON.stringify({
+        point, bounds: button, button: await fittedHand.boundingBox(),
+        desktop: await application.evaluate(({ BaseWindow, screen }) => ({ cursor: screen.getCursorScreenPoint(), display: screen.getPrimaryDisplay().bounds, windows: BaseWindow.getAllWindows().map(window => ({ bounds: window.getBounds(), focused: window.isFocused() })) })),
+      }))
+      await expect.poll(() => fittedHand.evaluate(button => button.matches(':hover'))).toBe(true)
+      await input(1)
+      try { await expect.poll(() => fittedHand.evaluate(button => button.matches(':active'))).toBe(true) }
+      finally { await input(3) }
     } else await fittedHand.click()
     await expect(fittedHand).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => first.locator('#bmux-viewport-pan').evaluate(element => {
