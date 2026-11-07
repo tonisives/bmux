@@ -940,7 +940,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
         checkControl('cdp', { tab: tabId })
         return debuggerApi.sendCommand(method, params, sessionId)
-      }, params, settings, lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : live.deviceScale ?? 1)
+      }, params, settings, live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : 1))
     }
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
@@ -1006,7 +1006,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     try {
       let metrics = await send('Runtime.evaluate', { expression: '({width:innerWidth,height:innerHeight,y:scrollY,heightFull:document.scrollingElement?.scrollHeight ?? innerHeight})', returnByValue: true })
       let { width, height, y, heightFull } = metrics.result.value
-      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING, lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : live.deviceScale ?? 1)
+      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING, live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : 1))
     } catch (error) { if (!controller.signal.aborted) throw error }
     finally { if (scrollControllers.get(tabId) === controller) scrollControllers.delete(tabId) }
   }

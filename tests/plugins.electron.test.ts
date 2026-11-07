@@ -848,7 +848,10 @@ test('four visible panes each retain a scaled plugin overlay with independent co
       await page.getByRole('button', { name: 'Start browsing', exact: true }).click()
       await expect(page.getByRole('status')).toHaveText('Browsing')
     }
-    expect((await views()).every(view => view.zoom === .5 && view.bounds.width === 192 && view.bounds.height === 300)).toBe(true)
+    for (let view of await views()) {
+      expect(view.zoom).toBeCloseTo(.5, 5)
+      expect(view.bounds).toMatchObject({ width: 192, height: 300 })
+    }
     await rpc('select-pane', { client: client.id, pane: original })
     await rpc('zoom', { pane: original, factor: 1 })
     let originalView = observers.get(ids[0])!
