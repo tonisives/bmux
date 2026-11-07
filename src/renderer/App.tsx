@@ -1805,6 +1805,8 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
   let sharedSettings = stack.selected === 'social:settings'
   let settingsPlugin = state.plugins?.find(plugin => plugin.enabled && plugin.category === 'Social Media' && plugin.settingsAction)
   let openSharedSettings = () => { if (settingsPlugin) void run('plugin.run', { action: `${settingsPlugin.id}/${settingsPlugin.settingsAction}`, sharedSettings: true }) }
+  let selectSharedSettings = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event); if (!prompt) openSharedSettings() }
+  let sharedSettingsRow = <div data-panel-row><button className={css.listRow} data-details="social:settings" aria-current={sharedSettings || undefined} onClick={selectSharedSettings}><strong>Settings</strong></button></div>
   let details = prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : sharedSettings ? <section aria-label="Shared social settings" className={css.extensionDetails}><h2>Settings</h2><p>Share browsing profiles and AI decisions across social platforms.</p><button type="button" disabled={!settingsPlugin} onClick={openSharedSettings}>Edit shared settings</button>{!settingsPlugin && <p>Enable a social browsing plugin to configure shared settings.</p>}</section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
     {builtin ? <><h2>{builtin.name}</h2><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <PluginDetails key={plugin!.id} plugin={plugin!} />}
   </section>
@@ -1823,7 +1825,7 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     <h2>Built-in</h2>
     {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={open}><strong>{tool.name}</strong></button></div>)}
     {plugins.filter(plugin => plugin.bundled && plugin.category !== 'Social Media').map(row)}
-    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2><div data-panel-row><button className={css.listRow} data-details="social:settings" aria-current={sharedSettings || undefined} onClick={event => { if (prompt) dismissPluginPrompt(prompt); stack.open(event); if (!prompt) openSharedSettings() }}><strong>Settings</strong></button></div>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
+    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{sharedSettingsRow}{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
     <h2>Custom</h2>
     {plugins.filter(plugin => !plugin.bundled && plugin.category !== 'Social Media').map(row)}
     {!plugins.some(plugin => !plugin.bundled && plugin.category !== 'Social Media') && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
@@ -1941,6 +1943,14 @@ let PluginParameterInput = ({ item, value, fallback, change, update }: { item: P
       </select> : item.multiline ? <textarea name={item.name} value={String(value ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(value ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : displayPluginParameter(item, fallback)} required={item.required} autoComplete="off" />}</label>}
     </div>
 }
+let PluginBrowsingDestination = ({ value, change, busy }: { value: string; change: (value: string) => void; busy: boolean }) => {
+  let select = (event: ChangeEvent<HTMLSelectElement>) => change(event.target.value)
+  return <label className={css.settingsRow}><span>Browse in</span><select aria-label="Browse in" value={value} onChange={select} disabled={busy}><option value="current">Current pane</option><option value="window">New window</option></select></label>
+}
+let applySharedSocialSettings = async (request: PluginPrompt, fields: PluginParameter[], values: Record<string, unknown>) => {
+  let result = await bridge.command({ method: 'plugin.respond', args: { id: request.id, applyAll: true, value: Object.fromEntries(fields.map(field => [field.name, values[field.name] ?? field.default]).filter(([, value]) => value !== undefined)) } }) as { applied: number }
+  return `Applied to ${result.applied} platform configurations`
+}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
@@ -2001,10 +2011,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     setBusy(true)
     try {
       await flush()
-      if (sharedSettings) {
-        let result = await bridge.command({ method: 'plugin.respond', args: { id: request.id, applyAll: true, value: Object.fromEntries(fields.map(field => [field.name, values[field.name] ?? field.default]).filter(([, value]) => value !== undefined)) } }) as { applied: number }
-        setSaveStatus(`Applied to ${result.applied} platform configurations`); return
-      }
+      if (sharedSettings) { setSaveStatus(await applySharedSocialSettings(request, fields, values)); return }
       if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await run('plugin.respond', { id: request.id, value: values, destination }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not save settings') } finally { setBusy(false) }
   }
   let cancel = async () => {
@@ -2031,7 +2038,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     <h2>{editingProfile ? 'Browsing profile' : sharedSettings ? 'Social Media settings' : `${request.pluginName} · ${request.title}`}</h2>
     <p>{request.launch && !editingProfile && !sharedSettings && destination === 'window' ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
-      {request.launch && !editingProfile && !sharedSettings && <label className={css.settingsRow}><span>Browse in</span><select aria-label="Browse in" value={destination} onChange={event => setDestination(event.target.value)} disabled={busy}><option value="current">Current pane</option><option value="window">New window</option></select></label>}
+      {request.launch && !editingProfile && !sharedSettings && <PluginBrowsingDestination value={destination} change={setDestination} busy={busy} />}
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access} idle={values.ai_source === 'included' && !usesIncludedAI(values)}>{sourceFields.map(field)}</PluginSubscription>}
