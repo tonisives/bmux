@@ -54,6 +54,8 @@ export let COMMANDS: CommandEntry[] = [
   { command: 'close-window', description: 'Close the current internal window', action: 'close-window', control: 'close-window' },
   { command: 'kill-window ', usage: 'kill-window [-t WINDOW] [--confirm]', description: 'Close an internal window by index or ID', complete: true },
   { command: 'next-window', description: 'Switch to the next window', action: 'next-window' },
+  { command: 'window-history-back', description: 'Go back in window history', action: 'window-history-back' },
+  { command: 'window-history-forward', description: 'Go forward in window history', action: 'window-history-forward' },
   { command: 'previous-window', description: 'Switch to the previous window', action: 'previous-window' },
   { command: 'move-window', usage: 'move-window -t INDEX', description: 'Move the current window to an index', action: 'move-window', control: 'move-window' },
   { command: 'movew', usage: 'movew -t INDEX', description: 'Move the current window to an index', action: 'move-window', control: 'move-window' },

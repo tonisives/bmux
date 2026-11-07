@@ -69,7 +69,9 @@ Common direct shortcuts:
 | Command+Shift+W | Detach the client |
 | Command+D | Bookmark the current page and choose its folder |
 | Command+E | Show extensions |
-| Command+, | Open settings |
+| Command+, / Command+. | Back / forward in window history |
+| Command+Shift+, | Open settings |
+| Command+Shift+. | Pin or unpin window |
 | Command+. (macOS) / Control+. (Linux and Windows) | Pin or unpin the current window |
 | F1 | Show help and shortcuts |
 | Escape | Dismiss a prompt or stop loading |
@@ -169,7 +171,7 @@ keyboard:
     CmdOrCtrl+F: find
     Cmd+Ctrl+Alt+Shift+W: sessions
     Cmd+E: extensions
-    Cmd+,: settings
+    Cmd+Shift+,: settings
     Escape: stop
   prefixBindings:
     "1": select-window-1

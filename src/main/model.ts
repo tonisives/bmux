@@ -1,3 +1,4 @@
+import { recordWindowSelection } from './window-navigation'
 import { validateAgentInfo } from '../shared/agent-info'
 import { assignWindowNumbers, windowNumber } from '../shared/window-number'
 import { randomUUID } from 'node:crypto'
@@ -309,13 +310,15 @@ export let validateModel = (value: unknown): Model => {
   return model
 }
 
-export let selectClientWindow = (client: Client, session: WorkspaceSession, window: InternalWindow) => {
+export let selectClientWindow = (client: Client, session: WorkspaceSession, window: InternalWindow, recordHistory = true) => {
+  if (recordHistory) recordWindowSelection(client)
   let sameWindow = client.windowId === window.id
   let zoomedPaneId = sameWindow ? client.zoomedPaneId : client.windowZooms?.[window.id]
   client.zoomedPaneId = window.panes.some(pane => pane.id === zoomedPaneId) ? zoomedPaneId : null
   client.paneId = client.zoomedPaneId ?? (sameWindow && window.panes.some(pane => pane.id === client.paneId) ? client.paneId : window.panes[0]?.id ?? null)
   client.sessionId = session.id
   client.windowId = window.id
+  if (recordHistory) recordWindowSelection(client)
 }
 
 export let repairClientSelections = (model: Model) => {
@@ -340,6 +343,7 @@ export let repairClientSelections = (model: Model) => {
       ?? session.windows.find(window => window.id === previous) ?? session.windows[0]
     if (client.windowId !== window.id) selectClientWindow(client, session, window)
     client.windowHistory = [window.id, ...history.filter(id => id !== window.id)]
+    recordWindowSelection(client)
     if (!window.panes.some(pane => pane.id === client.paneId)) client.paneId = window.panes[0]?.id ?? null
     if (!window.panes.some(pane => pane.id === client.zoomedPaneId)) client.zoomedPaneId = null
     client.windowZooms = Object.fromEntries(Object.entries(client.windowZooms ?? {}).filter(([windowId, paneId]) => existingWindows.get(windowId)?.panes.some(pane => pane.id === paneId)))

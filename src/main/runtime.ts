@@ -1,3 +1,4 @@
+import { navigateWindowHistory } from './window-navigation'
 import { arrangePanes, maximizePane } from './pane-layout'
 import { createAttentionRequests } from './remote-attention'
 import { createRemoteManagement } from './remote-management'
@@ -3709,6 +3710,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let [window] = session.windows.splice(index, 1)
       session.windows.splice(destination, 0, window)
       changed(); await visualQueue; return window
+    }
+    if (method === 'window-history') {
+      let client = resolve(model.clients, args.client, 'Client')
+      let window = navigateWindowHistory(model, client, Number(args.direction) < 0 ? -1 : 1)
+      if (window) {
+        selectClientWindow(client, model.sessions.find(session => session.windows.includes(window))!, window, false)
+        changed(); await visualQueue
+      }
+      return client
     }
     if (method === 'select-window' || method === 'cycle-window') {
       let client = resolve(model.clients, args.client, 'Client')

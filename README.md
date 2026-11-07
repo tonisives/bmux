@@ -207,7 +207,7 @@ Experimental Chrome extension support, including Bitwarden installation, is desc
 
 Do not expect Electron to provide every Chrome feature: DRM media, platform authentication integrations, and sites that reject embedded browsers may require additional work.
 
-To make bmux your default browser, open Settings with `Cmd+,` in the installed
+To make bmux your default browser, open Settings with `Cmd+Shift+,` in the installed
 app and choose **Make bmux the default browser**. Confirm the macOS prompt if
 shown. You can also select bmux in System Settings > Desktop & Dock > Default
 web browser. Links from other apps open in a new internal window in the active bmux session.
