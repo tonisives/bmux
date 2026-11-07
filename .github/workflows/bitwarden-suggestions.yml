@@ -1,0 +1,26 @@
+name: Bitwarden suggestion probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --child-concurrency=4
+      - run: xvfb-run -a pnpm test:electron --grep 'official Bitwarden suggestion probes' --repeat-each=3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bitwarden-suggestion-probe
+          path: test-results/
