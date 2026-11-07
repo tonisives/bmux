@@ -9,6 +9,7 @@ export type AutomationGroup = {
   daily: AutomationLimits
   requiredPlugins: Record<string, string>
   likesPerDay: Record<string, number>
+  followsPerWeek: Record<string, number>
 }
 export type AutomationSiteExclusion = { enabled: boolean; durationMinutes: 15 | 60 | null; expiresAt: number | null }
 export type AutomationSiteRule = boolean | AutomationSiteExclusion
@@ -148,13 +149,15 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
   for (let [id, entry] of Object.entries(groups)) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id)) throw new Error('Invalid automation group name')
     let group = mapping(entry, `automation.groups.${id}`)
-    if (Object.keys(group).some(key => !['profiles', 'hosts', 'maxConcurrent', 'hourly', 'daily', 'requiredPlugins', 'likesPerDay'].includes(key))) throw new Error(`Unknown automation group setting: ${id}`)
+    if (Object.keys(group).some(key => !['profiles', 'hosts', 'maxConcurrent', 'hourly', 'daily', 'requiredPlugins', 'likesPerDay', 'followsPerWeek'].includes(key))) throw new Error(`Unknown automation group setting: ${id}`)
     if (!Array.isArray(group.profiles) || !group.profiles.length || group.profiles.some(item => typeof item !== 'string' || !item)) throw new Error(`automation.groups.${id}.profiles must contain profile IDs`)
     let siteHosts = hosts(group.hosts, `automation.groups.${id}.hosts`)
     let maxConcurrent = group.maxConcurrent ?? 1
     if (!Number.isInteger(maxConcurrent) || Number(maxConcurrent) < 1 || Number(maxConcurrent) > 32) throw new Error(`Invalid automation.groups.${id}.maxConcurrent`)
     let requiredPlugins = mapping(group.requiredPlugins ?? {}, `automation.groups.${id}.requiredPlugins`)
     let likesPerDay = mapping(group.likesPerDay ?? {}, `automation.groups.${id}.likesPerDay`)
+    let followsPerWeek = mapping(group.followsPerWeek ?? {}, `automation.groups.${id}.followsPerWeek`)
+    for (let [host, amount] of Object.entries(followsPerWeek)) if (!siteHosts.includes(host) || !Number.isInteger(amount) || Number(amount) < 0 || Number(amount) > 10) throw new Error(`Invalid follow cap for ${host}; choose 0–10 per week`)
     for (let [host, plugin] of Object.entries(requiredPlugins)) if (!siteHosts.includes(host) || typeof plugin !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(plugin)) throw new Error(`Invalid required plugin for ${host}`)
     for (let [host, amount] of Object.entries(likesPerDay)) if (!siteHosts.includes(host) || !Number.isInteger(amount) || Number(amount) < 0) throw new Error(`Invalid like cap for ${host}`)
     for (let profile of group.profiles as string[]) for (let host of siteHosts) {
@@ -162,7 +165,7 @@ export let parseAutomationSettings = (value: unknown): AutomationSettings => {
       if ([...assigned].some(prior => prior.startsWith(`${profile}:`) && (host === prior.slice(profile.length + 1) || host.endsWith(`.${prior.slice(profile.length + 1)}`) || prior.slice(profile.length + 1).endsWith(`.${host}`)))) throw new Error(`Overlapping automation policy for ${key}`)
       assigned.add(key)
     }
-    result.groups[id] = { profiles: group.profiles as string[], hosts: siteHosts, maxConcurrent: Number(maxConcurrent), hourly: limits(group.hourly, `${id}.hourly`), daily: limits(group.daily, `${id}.daily`), requiredPlugins: requiredPlugins as Record<string, string>, likesPerDay: likesPerDay as Record<string, number> }
+    result.groups[id] = { profiles: group.profiles as string[], hosts: siteHosts, maxConcurrent: Number(maxConcurrent), hourly: limits(group.hourly, `${id}.hourly`), daily: limits(group.daily, `${id}.daily`), requiredPlugins: requiredPlugins as Record<string, string>, likesPerDay: likesPerDay as Record<string, number>, followsPerWeek: followsPerWeek as Record<string, number> }
   }
   return result
 }

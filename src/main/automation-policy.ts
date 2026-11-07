@@ -4,10 +4,11 @@ import { randomBytes } from 'node:crypto'
 import type { AutomationSettings } from '../shared/automation'
 import { matchingAutomationGroup } from '../shared/automation'
 
-type Event = { at: number; kind: 'run' | 'navigation' | 'activity' | 'like'; host?: string }
+type Event = { at: number; kind: 'run' | 'navigation' | 'activity' | 'like' | 'follow'; host?: string; url?: string }
 type Lease = { token: string; groupId: string; profileId: string; tabId: string; pluginId?: string; acquiredAt: number; lastUsed: number }
 type Ledger = Record<string, Event[]>
 let windowMs = { hourly: 60 * 60_000, daily: 24 * 60 * 60_000 }
+let weekMs = 7 * windowMs.daily
 let activeTailMs = 30_000
 let idleLeaseMs = 5 * 60_000
 
@@ -17,7 +18,7 @@ export let createAutomationPolicy = (options: { file: string; settings: () => Au
   let ledgerError: Error | undefined
   try {
     let loaded: unknown = JSON.parse(fs.readFileSync(options.file, 'utf8'))
-    if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded) || Object.values(loaded).some(events => !Array.isArray(events) || events.some(event => !event || typeof event.at !== 'number' || !['run', 'navigation', 'activity', 'like'].includes(event.kind)))) throw new Error('Invalid automation ledger')
+    if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded) || Object.values(loaded).some(events => !Array.isArray(events) || events.some(event => !event || typeof event.at !== 'number' || !['run', 'navigation', 'activity', 'like', 'follow'].includes(event.kind)))) throw new Error('Invalid automation ledger')
     ledger = loaded as Ledger
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') ledgerError = new Error('Automation ledger is unreadable; automation is disabled until repaired') }
   let ensureLedger = () => { if (ledgerError) throw ledgerError }
@@ -26,7 +27,7 @@ export let createAutomationPolicy = (options: { file: string; settings: () => Au
     ensureLedger()
     let cutoff = now() - windowMs.daily - activeTailMs
     for (let [key, events] of Object.entries(ledger)) {
-      ledger[key] = events.filter(event => event.at >= cutoff)
+      ledger[key] = events.filter(event => event.at >= (event.kind === 'follow' ? now() - weekMs : cutoff))
       if (!ledger[key].length) delete ledger[key]
     }
     fs.mkdirSync(path.dirname(options.file), { recursive: true, mode: 0o700 })
@@ -117,13 +118,28 @@ export let createAutomationPolicy = (options: { file: string; settings: () => Au
     append(match.id, args.profileId, { at: current, kind: 'like', host: match.host })
     return { reserved: true, remaining: cap - used - 1 }
   }
+  let follow = (args: { profileId: string; tabId: string; url: string; token: string }) => {
+    let lease = authorize({ ...args })
+    if (!lease?.pluginId) throw new Error('A site plugin is required to follow')
+    let target = new URL(args.url)
+    if (target.protocol !== 'https:' || target.username || target.password || target.port) throw new Error('Supply an HTTPS profile URL')
+    let match = matchingAutomationGroup(options.settings(), args.profileId, args.url)!
+    let cap = match.group.followsPerWeek[match.host] ?? 10
+    let current = now()
+    let follows = eventsFor(match.id, args.profileId).filter(event => event.kind === 'follow' && event.host === match.host && event.at > current - weekMs)
+    if (!cap || follows.length >= cap) throw new Error(`Weekly follow cap reached for ${match.host}`)
+    let url = `https://${match.host}${target.pathname.replace(/\/$/, '').replace(/^\/u\//, '/user/').toLowerCase()}`
+    if (follows.some(event => event.url === url)) throw new Error('Profile already reserved for follow this week')
+    append(match.id, args.profileId, { at: current, kind: 'follow', host: match.host, url })
+    return { reserved: true, remaining: cap - follows.length - 1 }
+  }
   let status = () => {
     ensureLedger()
     expire()
     return Object.entries(options.settings().groups).flatMap(([groupId, group]) => group.profiles.map(profileId => {
       let activeLeases = [...leases.values()].filter(lease => lease.groupId === groupId && lease.profileId === profileId).map(({ tabId, pluginId, acquiredAt, lastUsed }) => ({ paneId: tabId, pluginId: pluginId ?? null, acquiredAt, lastUsed }))
-      return { group: groupId, profileId, active: activeLeases.length, activeLeases, hourly: usage(eventsFor(groupId, profileId), now() - windowMs.hourly, now()), daily: usage(eventsFor(groupId, profileId), now() - windowMs.daily, now()), limits: { hourly: group.hourly, daily: group.daily, maxConcurrent: group.maxConcurrent } }
+      return { group: groupId, profileId, active: activeLeases.length, activeLeases, hourly: usage(eventsFor(groupId, profileId), now() - windowMs.hourly, now()), daily: usage(eventsFor(groupId, profileId), now() - windowMs.daily, now()), weekly: { follows: Object.fromEntries(group.hosts.map(host => [host, eventsFor(groupId, profileId).filter(event => event.kind === 'follow' && event.host === host && event.at > now() - weekMs).length])) }, limits: { hourly: group.hourly, daily: group.daily, maxConcurrent: group.maxConcurrent, followsPerWeek: Object.fromEntries(group.hosts.map(host => [host, group.followsPerWeek[host] ?? 10])) } }
     }))
   }
-  return { acquire, release, authorize, like, status, hasLease: (token: string) => { expire(); return leases.has(token) }, close: () => leases.clear() }
+  return { acquire, release, authorize, like, follow, status, hasLease: (token: string) => { expire(); return leases.has(token) }, close: () => leases.clear() }
 }

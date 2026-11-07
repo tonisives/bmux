@@ -2,7 +2,7 @@ schema_version: 1
 id: bmux.x
 name: X
 category: Social Media
-version: 1.0.0
+version: 1.1.0
 actions:
   - id: browse
     group: Research
@@ -14,3 +14,12 @@ actions:
     parameters:
       - { name: urls, title: JSON array of X URLs, kind: text, required: true }
       - { name: topic, title: Topic phrase, kind: text, required: true }
+  - id: follow
+    group: Following
+    title: Follow X profiles
+    description: Follow up to 10 profiles per week.
+    command: [node, ./follow.mjs, x]
+    capabilities: [browser.read, browser.write, browser.cdp]
+    timeout_seconds: 1800
+    parameters:
+      - { name: urls, title: JSON array of X profile URLs, kind: text, required: true }

@@ -28,7 +28,7 @@ type Options = {
   show: (clientId: string) => void
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
   finished?: (runId: string) => void
-  automation?: { acquire: (args: { profileId: string; tabId: string; url: string; pluginId?: string }) => { token: string; group: string }; release: (token: string) => unknown; like: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; authorize: (args: { profileId: string; tabId: string; url: string; token?: string; kind?: 'activity' | 'navigation'; record?: boolean }) => unknown; status: () => unknown }
+  automation?: { acquire: (args: { profileId: string; tabId: string; url: string; pluginId?: string }) => { token: string; group: string }; release: (token: string) => unknown; follow: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; like: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; authorize: (args: { profileId: string; tabId: string; url: string; token?: string; kind?: 'activity' | 'navigation'; record?: boolean }) => unknown; status: () => unknown }
 }
 let live = (run: Run) => ['queued', 'running'].includes(run.public.status)
 let record = (value: unknown): Record<string, unknown> => {
@@ -230,9 +230,9 @@ export let createPlugins = (options: Options) => {
       return { group: lease.group }
     }
     if (method === 'automation.status') return options.automation?.status() ?? []
-    if (method === 'automation.like') {
+    if (method === 'automation.like' || method === 'automation.follow') {
       if (!run.context.profileId || !run.context.paneId || !run.automationToken) throw new Error('Automation lease unavailable')
-      return policyCall(() => options.automation?.like({ profileId: run.context.profileId!, tabId: run.context.paneId!, url: shortText(args.url), token: run.automationToken! }))
+      return policyCall(() => options.automation?.[method === 'automation.follow' ? 'follow' : 'like']({ profileId: run.context.profileId!, tabId: run.context.paneId!, url: shortText(args.url), token: run.automationToken! }))
     }
     if (method === 'ui') { if (!run.action.capabilities.includes('ui')) throw new Error('Capability ui required'); return requestUI(run, args) }
     let capability = methods[method]

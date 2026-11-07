@@ -11,7 +11,7 @@ import type { PluginSettings, PluginContext } from '../src/shared/plugins'
 
 let cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (let dispose of cleanup.splice(0)) await dispose() })
-let fixture = (script: string, overrides: Record<string, unknown> = {}, decisions?: (method: 'usage' | 'create' | 'memory', args: Record<string, unknown>) => Promise<unknown>, prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>) => {
+let fixture = (script: string, overrides: Record<string, unknown> = {}, decisions?: (method: 'usage' | 'create' | 'memory', args: Record<string, unknown>) => Promise<unknown>, prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>, automation?: Parameters<typeof createPlugins>[0]['automation']) => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-plugin-test-'))
   let folder = path.join(directory, 'plugins', 'test')
   fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, 'run.mjs'), script)
@@ -21,7 +21,7 @@ let fixture = (script: string, overrides: Record<string, unknown> = {}, decision
   let settings: PluginSettings = { test: { enabled: true, hooks: false } }
   let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { paneId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
   let finished = vi.fn()
-  let plugins = createPlugins({ finished, bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, decisions, prepare, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
+  let plugins = createPlugins({ finished, bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, decisions, prepare, automation, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
   cleanup.push(async () => { plugins.close(); await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
   let writeManifest = (value: unknown) => fs.writeFileSync(path.join(folder, 'plugin.yaml'), typeof value === 'string' ? value : stringify(value))
   return { directory, plugins, browser, finished, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
@@ -43,6 +43,17 @@ describe('plugin definitions', () => {
     expect(finished).toHaveBeenCalledExactlyOnceWith(run.id)
     expect(browser).toHaveBeenCalledWith('dom', expect.any(Object), expect.objectContaining({ pacing: 'plugin', runId: run.id }), expect.any(AbortSignal))
   })
+  test('binds follow reservations to the invocation profile, pane and lease', async () => {
+    let automation = { acquire: vi.fn(() => ({ token: 'private-lease', group: 'social' })), release: vi.fn(), follow: vi.fn(() => ({ reserved: true, remaining: 9 })), like: vi.fn(), authorize: vi.fn(), status: vi.fn() }
+    let { plugins, context } = fixture(hostScript + "host('automation.acquire', {url:'https://x.com/person'}); host('result', host('automation.follow', {url:'https://x.com/person',profileId:'other',tabId:'other',token:'other'}));", {}, undefined, undefined, automation)
+    context.profileId = 'bot'
+    let run = plugins.run('test/run', { paneId: 'original' })
+    let result = await done(plugins, run.id)
+    expect(result.status).toBe('completed')
+    expect(result.result).toEqual({ reserved: true, remaining: 9 })
+    expect(automation.follow).toHaveBeenCalledExactlyOnceWith({ profileId: 'bot', tabId: 'original', url: 'https://x.com/person', token: 'private-lease' })
+    expect(automation.release).toHaveBeenCalledWith('private-lease')
+  })
   test('keeps social plugins optional and independently installable', () => {
     for (let [id, site] of [['bmux.x', 'x'], ['bmux.linkedin', 'linkedin'], ['bmux.reddit', undefined]] as const) {
       let folder = path.resolve('optional-plugins', id)
@@ -51,6 +62,8 @@ describe('plugin definitions', () => {
       expect(manifest.id).toBe(id)
       expect(manifest.actions[0].command).toEqual(site ? ['node', './browse.mjs', site] : ['node', './browse.mjs'])
       expect(fs.existsSync(path.join(folder, 'browse.mjs'))).toBe(true)
+      expect(manifest.actions.find(action => action.id === 'follow')?.command).toEqual(['node', './follow.mjs', site ?? 'reddit'])
+      expect(fs.existsSync(path.join(folder, 'follow.mjs'))).toBe(true)
     }
   })
   test('validates capability, parameter, timeout and hook contracts', () => {
