@@ -2943,10 +2943,9 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let changeUsername = (event: ChangeEvent<HTMLInputElement>) => setUsername(event.target.value)
   let changePassword = (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)
   let proxyArgs = { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile }
-  let proxySaved = (saved: Profile) => { preserveUsername.current = defaultConnectionId(saved) !== credentialProfile; setCredentialProfile(defaultConnectionId(saved)); setSavedUsername(username); setPassword('') }
-  let { saving, changeNewPanes } = useProxyDefault(proxyArgs, proxySaved)
-  let paneSaved = (pane: Pane) => { let connectionId = paneConnectionId(pane); preserveUsername.current = connectionId !== credentialProfile; setCredentialProfile(connectionId); setSavedUsername(username); setPassword('') }
-  let { pane, changingPane, changeCurrentPane } = usePaneProxy(proxyArgs, paneSaved)
+  let credentialsSaved = (connectionId: string) => { preserveUsername.current = connectionId !== credentialProfile; setCredentialProfile(connectionId); setSavedUsername(username); setPassword('') }
+  let { saving, changeNewPanes } = useProxyDefault(proxyArgs, saved => credentialsSaved(defaultConnectionId(saved)))
+  let { pane, changingPane, changeCurrentPane } = usePaneProxy(proxyArgs, saved => credentialsSaved(paneConnectionId(saved)))
   let preventSubmit = (event: FormEvent) => event.preventDefault()
   let testProxy = async () => {
     if (testing || !form.current?.reportValidity()) return
