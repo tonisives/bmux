@@ -470,7 +470,19 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     expect((await windowState()).lockedViewports[third.id]).toEqual({ width: 1280, height: 800 })
     await expect.poll(() => size(first)).toEqual({ width: 1512, height: 900 })
     await openSettings()
-    await settingsForm.getByLabel('Viewport preset', { exact: true }).selectOption('1512x982')
+    for (let [label, width, height] of [
+      ['MacBook Pro 16″ · 1728 × 1117', '1728', '1117'],
+      ['iMac 24″ · 2240 × 1260', '2240', '1260'],
+      ['iPhone 17 · 402 × 874', '402', '874'],
+      ['iPhone 17 Pro Max · 440 × 956', '440', '956'],
+      ['MacBook Pro 14″ · 1512 × 982', '1512', '982'],
+    ]) {
+      await settingsForm.getByLabel('Zoom (%)', { exact: true }).fill('125')
+      await settingsForm.getByLabel('Viewport preset', { exact: true }).selectOption({ label })
+      await expect(settingsForm.getByLabel('Width', { exact: true })).toHaveValue(width)
+      await expect(settingsForm.getByLabel('Height', { exact: true })).toHaveValue(height)
+      await expect(settingsForm.getByLabel('Zoom (%)', { exact: true })).toHaveValue('100')
+    }
     await expect(settingsForm.getByLabel('Zoom (%)', { exact: true })).toHaveValue('100')
     await settingsPage.screenshot({ path: info.outputPath('viewport-settings-popup.png') })
     await settingsForm.getByRole('button', { name: 'Apply', exact: true }).click()
