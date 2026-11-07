@@ -113,7 +113,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await expect.poll(() => size(page)).toEqual(locked[pane])
       await expect.poll(() => content(pane).evaluate(element => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
     }
-    let native = () => application.evaluate(({ BaseWindow }, url) => {
+    let native = (pageUrl = url) => application.evaluate(({ BaseWindow }, url) => {
       let visit = (parent: Electron.View, root = parent): any => {
         for (let view of parent.children) {
           if ('webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url) return { page: view.getBounds(), clip: parent.getBounds(), clipped: parent !== root }
@@ -122,7 +122,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         }
       }
       return BaseWindow.getAllWindows().map(window => visit(window.contentView)).find(Boolean)
-    }, url)
+    }, pageUrl)
     try {
       await expect.poll(async () => {
         let area = await content(client.paneId).evaluate(element => ({ width: element.clientWidth, height: element.clientHeight })), bounds = await native()
@@ -414,6 +414,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     for (let [pane, page, zoom] of [[client.paneId, first, .5], [added.id, second, 1], [third.id, thirdPage, 2], [client.paneId, first, .5845]] as const) {
       await rpc('zoom', { tab: pane, factor: zoom })
       await expect.poll(() => size(page)).toEqual({ width: 1512, height: 900 })
+      await expect.poll(async () => { let bounds = await native(page.url()); return { width: bounds.page.width, height: bounds.page.height } }).toEqual({ width: Math.round(1512 * zoom), height: Math.round(900 * zoom) })
       await expect.poll(() => page.evaluate(() => matchMedia('(min-width: 1512px)').matches && !matchMedia('(min-width: 1513px)').matches)).toBe(true)
       await expect.poll(() => content(pane).evaluate(element => ({
         width: Number.parseFloat(getComputedStyle(element).getPropertyValue('--remote-width')),
@@ -431,6 +432,14 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       await button.click()
       await expect(button).toHaveAttribute('aria-pressed', 'false')
     }
+    await first.reload()
+    await expect.poll(() => size(first)).toEqual({ width: 1512, height: 900 })
+    await rpc('viewport.pan-mode', { pane: client.paneId, enabled: true })
+    await first.mouse.move(100, 100)
+    await first.mouse.wheel(20, 30)
+    await expect.poll(() => content(client.paneId).evaluate(element => ({ x: element.scrollLeft - Number(element.dataset.panOriginX), y: element.scrollTop - Number(element.dataset.panOriginY) }))).toEqual({ x: 20, y: 30 })
+    expect(await first.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 })
+    await rpc('viewport.pan-mode', { pane: client.paneId, enabled: false })
     await otherChrome.screenshot({ path: info.outputPath('viewport-controls-zoom.png') })
     for (let pane of [client.paneId, added.id, third.id]) await rpc('zoom', { tab: pane, factor: 1 })
     await expect.poll(() => size(first)).toEqual({ width: 1512, height: 900 })
