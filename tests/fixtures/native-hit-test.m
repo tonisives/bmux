@@ -49,7 +49,7 @@ static napi_value scroll(napi_env env, napi_callback_info info) {
 }
 // Post each physical drag phase separately so the test can await pointer capture.
 static napi_value mouse(napi_env env, napi_callback_info info) {
-  size_t count = 5; napi_value args[5], result;
+  size_t count = 6; napi_value args[6], result;
   napi_get_cb_info(env, info, &count, args, NULL, NULL);
   void *data = NULL; size_t size = 0;
   napi_get_buffer_info(env, args[0], &data, &size);
@@ -60,6 +60,15 @@ static napi_value mouse(napi_env env, napi_callback_info info) {
   NSPoint point = [window.contentView convertPoint:NSMakePoint(x, window.contentView.isFlipped ? y : window.contentView.bounds.size.height - y) toView:nil];
   NSPoint screen = [window convertPointToScreen:point];
   CGPoint location = CGPointMake(screen.x, CGDisplayBounds(CGMainDisplayID()).size.height - screen.y);
+  bool direct = false;
+  if (count > 5) napi_get_value_bool(env, args[5], &direct);
+  if (direct) {
+    NSEventType type = phase == 1 ? NSEventTypeLeftMouseDown : phase == 2 ? NSEventTypeLeftMouseDragged : phase == 3 ? NSEventTypeLeftMouseUp : NSEventTypeMouseMoved;
+    NSEventModifierFlags flags = modifier == 1 ? NSEventModifierFlagOption : modifier == 2 ? NSEventModifierFlagCommand : 0;
+    NSEvent *event = [NSEvent mouseEventWithType:type location:point modifierFlags:flags timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:phase == 1 ? 1 : 0];
+    [window sendEvent:event];
+    napi_get_undefined(env, &result); return result;
+  }
   CGEventType type = phase == 1 ? kCGEventLeftMouseDown : phase == 2 ? kCGEventLeftMouseDragged : phase == 3 ? kCGEventLeftMouseUp : kCGEventMouseMoved;
   CGEventRef event = CGEventCreateMouseEvent(NULL, type, location, kCGMouseButtonLeft);
   CGEventSetFlags(event, modifier == 1 ? kCGEventFlagMaskAlternate : modifier == 2 ? kCGEventFlagMaskCommand : 0);

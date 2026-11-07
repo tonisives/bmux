@@ -369,7 +369,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
       let button = (await controlBounds(client.paneId))!
       let point = { x: button.x + button.width - 16, y: button.y + 16 }
       await expect.poll(() => application.evaluate((_electron, points) => (globalThis as any).remoteLayoutHits(points), [point])).toEqual([`{${button.width}, ${button.height}}`])
-      let input = (phase: number) => application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { ...point, phase, modifier: 0 })
+      let input = (phase: number) => application.evaluate((_electron, event) => (globalThis as any).remoteLayoutMouse(event), { ...point, phase, modifier: 0, direct: true })
       await input(0)
       await fs.writeFile(info.outputPath('native-control-input.json'), JSON.stringify({
         point, bounds: button, button: await fittedHand.boundingBox(),
