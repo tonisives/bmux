@@ -939,6 +939,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (method === 'Page.setInterceptFileChooserDialog') filePickers.interception(tabId, params, sessionId)
     return result
   }
+  let applyLockedViewportMetrics = async (contents: Electron.WebContents, size: { width: number; height: number }, scale: number) => {
+    if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
+    await contents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { ...size, deviceScaleFactor: 0, mobile: false, scale, dontSetVisibleSize: true })
+  }
   let applyDeviceMetrics = async (contents: Electron.WebContents, persona: DevicePersona, scale = 1) => {
     let debuggerApi = contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
@@ -1919,7 +1923,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       live.disposed = true
       let destroyed = live.contents.isDestroyed()
       clearViewportInput(live.contents)
-      if (!destroyed && live.viewportEmulation) { live.contents.disableDeviceEmulation(); live.viewportEmulation = undefined }
+      live.viewportEmulation = undefined
       if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(pageRoot(live))
       live.remoteFrame?.removeChildView(live.view)
       if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
@@ -2153,12 +2157,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         let emulation = JSON.stringify([lockedSize.width, lockedSize.height, pane.zoom || 1, pane.device])
         if (live.viewportEmulation !== emulation) {
           live.contents.setZoomFactor(1)
-          if (pane.device && live.viewportEmulation) { live.contents.disableDeviceEmulation(); live.deviceScale = undefined }
-          if (!pane.device) live.contents.enableDeviceEmulation({ screenPosition: 'desktop', screenSize: lockedSize, viewPosition: { x: 0, y: 0 }, viewSize: lockedSize, deviceScaleFactor: 0, scale: pane.zoom || 1 })
           live.viewportEmulation = emulation
+          if (!pane.device) void live.ready.then(() => {
+            if (isLiveTabOpen(live) && live.viewportEmulation === emulation) return applyLockedViewportMetrics(live.contents, lockedSize, pane.zoom || 1)
+          }).catch(error => {
+            if (!isLiveTabOpen(live) || live.viewportEmulation !== emulation) return
+            live.viewportEmulation = undefined; reportError(error)
+          })
         }
       } else if (live.viewportEmulation) {
-        live.contents.disableDeviceEmulation(); live.viewportEmulation = undefined; live.deviceScale = undefined
+        live.viewportEmulation = undefined; live.deviceScale = undefined
+        if (!pane.device && live.contents.debugger.isAttached()) void live.contents.debugger.sendCommand('Emulation.clearDeviceMetricsOverride').catch(reportError)
         live.contents.setZoomFactor(pane.zoom || 1)
       }
       if (!fixedSize) removeRemoteFrame(live)

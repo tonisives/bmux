@@ -37,6 +37,8 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
   let launch = () => electron.launch({ args: [path.join(fixtureDirectory, 'main/remote-layout-main.js')], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml') } })
   let application = await launch()
   let applicationProcess = application.process()
+  let processErrors = ''
+  applicationProcess.stderr?.on('data', data => { processErrors += data.toString() })
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -549,6 +551,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await closeTestApplication(application, applicationProcess)
     application = await launch()
     applicationProcess = application.process()
+    applicationProcess.stderr?.on('data', data => { processErrors += data.toString() })
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
     chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     await expect.poll(async () => (await windowState()).lockedViewports).toEqual(saved)
@@ -557,6 +560,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect(first.getByRole('heading')).toHaveText('Viewport lock')
     await expect.poll(() => size(first)).toEqual(saved[client.paneId])
   } finally {
+    await info.attach('electron-stderr', { body: processErrors, contentType: 'text/plain' })
     await closeTestApplication(application, applicationProcess)
     server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
