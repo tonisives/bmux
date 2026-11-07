@@ -836,21 +836,22 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     delete connection.seedFrom
     save()
   }
-  let saveDefaultConnection = (profile: Model['profiles'][number], proxy?: ReturnType<typeof parseProfileProxy>, credentials?: ProxyCredentials) => {
-    let currentId = defaultConnectionId(profile)
-    let currentCredentials = profile.proxy?.authenticated ? proxyCredentials.get(currentId) : undefined
-    if (JSON.stringify(profile.proxy) === JSON.stringify(proxy) && (!proxy?.authenticated || credentials?.username === currentCredentials?.username && credentials?.password === currentCredentials?.password)) return profile
-    let saved = profile.connections?.find(connection => {
+  let saveConnection = (profile: Model['profiles'][number], proxy?: ReturnType<typeof parseProfileProxy>, credentials?: ProxyCredentials, seedFrom = defaultConnectionId(profile)) => {
+    let connections: NonNullable<Model['profiles'][number]['connections']> = profile.connections ?? [{ id: profile.id, ...(profile.proxy ? { proxy: { ...profile.proxy } } : {}) }]
+    let saved = connections.find(connection => {
       if (JSON.stringify(connection.proxy) !== JSON.stringify(proxy)) return false
       let previous = proxy?.authenticated ? proxyCredentials.get(connection.id) : undefined
       return !proxy?.authenticated || previous?.username === credentials?.username && previous?.password === credentials?.password
     })
-    if (saved) { profile.connectionId = saved.id; profile.proxy = saved.proxy; save(); return profile }
+    if (saved) { profile.connections ??= connections; return saved.id }
     let connectionId = id('profile')
     proxyCredentials.set(connectionId, proxy?.authenticated ? credentials : undefined)
-    profile.connections ??= [{ id: profile.id, ...(profile.proxy ? { proxy: { ...profile.proxy } } : {}) }]
-    profile.connections.push({ id: connectionId, ...(proxy ? { proxy } : {}), seedFrom: currentId })
-    profile.connectionId = connectionId
+    profile.connections = connections
+    profile.connections.push({ id: connectionId, ...(proxy ? { proxy } : {}), seedFrom })
+    return connectionId
+  }
+  let saveDefaultConnection = (profile: Model['profiles'][number], proxy?: ReturnType<typeof parseProfileProxy>, credentials?: ProxyCredentials) => {
+    profile.connectionId = saveConnection(profile, proxy, credentials)
     profile.proxy = proxy
     save()
     return profile
@@ -3394,6 +3395,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let profile = resolve(model.profiles, args.profile, 'Profile')
       let { proxy, replacement } = proxySettings(args, profile)
       return saveDefaultConnection(profile, proxy, replacement)
+    }
+    if (method === 'pane.proxy.set') {
+      if (hostProxy) throw new Error('Host proxy is required')
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let { pane } = paneById(model, required(args, 'pane'))
+      let profile = resolve(model.profiles, args.profile, 'Profile')
+      if (pane.profileId !== profile.id) throw new Error('Pane profile changed')
+      let { proxy, replacement } = proxySettings(args, profile)
+      let connectionId = saveConnection(profile, proxy, replacement, paneConnectionId(pane))
+      if (paneConnectionId(pane) === connectionId) return pane
+      disposeTab(pane.id)
+      pane.connectionId = connectionId
+      changed(); await visualQueue
+      return pane
     }
     if (method === 'profile.proxy.clear') {
       if (hostProxy) throw new Error('Host proxy is required')

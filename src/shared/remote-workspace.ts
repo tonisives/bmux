@@ -31,7 +31,7 @@ let mutations = new Set([
   'kill-pane', 'kill-window', 'kill-session', 'rename-session', 'rename-window', 'toggle-window-pin', 'lock-window', 'unlock-window', 'lock-viewport', 'unlock-viewport',
   'move-window', 'swap-window', 'reorder-window', 'renumber-windows', 'move-pane', 'swap-pane',
   'break-pane', 'join-pane', 'rotate-window', 'resize-pane', 'layout.apply', 'layout.save', 'layout.remove',
-  'float.bounds', 'pane.close', 'pane.profile.set', 'session.profile.set', 'window.audio.toggle', 'session.audio.toggle',
+  'float.bounds', 'pane.close', 'pane.profile.set', 'pane.proxy.set', 'session.profile.set', 'window.audio.toggle', 'session.audio.toggle',
   'select-layout', 'maximize-pane', 'save-layout', 'restore-layout', 'bookmark.open', 'history.open',
   'window.menu', 'browser.set', 'browser.script', 'browser.reset', 'find', 'site-data.clear', 'pane.menu', 'pane.keep-alive', 'tab.keep-alive', 'history.go-to',
 ])
