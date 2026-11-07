@@ -1652,11 +1652,8 @@ test('pane address bars navigate independently and leave window switching availa
   await address.fill('edited-second-pane')
   let suggestions = chrome.getByRole('listbox', { name: 'Address suggestions' })
   await expect(suggestions).toBeVisible()
-  // Captures are best effort and bounded; suggestions must still fit when a
-  // capture is skipped or times out. Check the preview when one was captured.
-  let snapshot = (await cli('state')).snapshots[second.id]
-  if (snapshot) await expect(secondPane.getByRole('img', { name: 'Page preview' })).toHaveAttribute('src', snapshot.image)
-  await expect.poll(() => application.evaluate(({ BaseWindow }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)), `${url}/edited-second-pane`)).toBe(false)
+  await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === target && view.getVisible())), `${url}/edited-second-pane`)).toBe(true)
+  await expect(secondPane.locator('[data-pane-content]')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   let suggestionBounds = await suggestions.boundingBox()
   let contentWithSuggestions = await secondPane.locator('[data-browser-content]').boundingBox()
   expect(contentWithSuggestions!.y).toBe(contentBeforeSuggestions!.y)
