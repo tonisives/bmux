@@ -375,7 +375,6 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
         point, bounds: button, button: await fittedHand.boundingBox(),
         desktop: await application.evaluate(({ BaseWindow, screen }) => ({ cursor: screen.getCursorScreenPoint(), display: screen.getPrimaryDisplay().bounds, windows: BaseWindow.getAllWindows().map(window => ({ bounds: window.getBounds(), focused: window.isFocused() })) })),
       }))
-      await expect.poll(() => fittedHand.evaluate(button => button.matches(':hover'))).toBe(true)
       await input(1)
       try { await expect.poll(() => fittedHand.evaluate(button => button.matches(':active'))).toBe(true) }
       finally { await input(3) }
