@@ -493,7 +493,10 @@ test('Social Media details launch one settings form and a muted window with the 
   let command = chrome.getByRole('combobox', { name: 'Command', exact: true }); await command.fill('extensions'); await command.press('Enter')
   let panel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
   await expect(panel.getByRole('heading', { name: 'Social Media', exact: true })).toBeVisible()
-  await panel.getByRole('button', { name: 'Fixture plugin', exact: true }).click()
+  let shared = panel.getByRole('button', { name: 'Settings', exact: true }), platform = panel.getByRole('button', { name: 'Fixture plugin', exact: true })
+  await expect(shared).toBeVisible()
+  expect(await shared.evaluate((element, other) => !!(element.compareDocumentPosition(other as Node) & Node.DOCUMENT_POSITION_FOLLOWING), await platform.elementHandle())).toBe(true)
+  await platform.click()
   let details = panel.getByRole('region', { name: 'Plugin details' })
   await expect(details.getByText('Feed browsing and all platform tools.')).toBeVisible()
   let tabs = details.getByRole('tablist', { name: 'Plugin features' })
@@ -912,4 +915,36 @@ test('four visible panes each retain a scaled plugin overlay with independent co
     await rpc('select-window', { client: client.id, window: previousWindow })
     await rpc('kill-window', { window: window.id, confirm: true })
   }
+})
+
+test('shared social Settings apply profile and AI choices without starting browsing', async () => {
+  await activate()
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  await rpc('select-pane', { client: client.id, pane: client.paneId })
+  await rpc('plugin.run', { action: 'test/profiles', sharedSettings: true })
+  let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await expect(dialog.getByRole('heading', { name: 'Social Media settings', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toHaveCount(0)
+  await dialog.getByLabel('AI source').selectOption('personal')
+  await dialog.getByRole('button', { name: 'Apply all', exact: true }).click()
+  await expect(dialog.getByRole('status').filter({ hasText: 'Applied to' })).toBeVisible()
+  let request = (await state()).pluginPrompt
+  let saved = JSON.parse(await fs.readFile(path.join(directory, 'plugins/test', 'settings-' + encodeURIComponent(request.profileId) + '.json'), 'utf8'))
+  expect(saved.ai_source).toBe('personal')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+})
+
+test('browsing can use the current pane without creating a window', async () => {
+  await activate()
+  let before = await state(), client = before.model.clients.find((item: any) => item.id === before.clientId), pane = client.paneId
+  await rpc('select-pane', { client: client.id, pane })
+  let windows = await rpc('list-windows', { session: client.sessionId })
+  let id = await run('launch')
+  let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await dialog.getByLabel('Browse in').selectOption('current')
+  await dialog.getByLabel('AI source').selectOption('personal')
+  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await completed(id)
+  expect((await rpc('plugin.runs')).find((item: any) => item.id === id).result.pane).toBe(pane)
+  expect(await rpc('list-windows', { session: client.sessionId })).toHaveLength(windows.length)
 })
