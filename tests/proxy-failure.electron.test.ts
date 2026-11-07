@@ -34,7 +34,7 @@ test('a failed proxy never falls back to direct HTTP or HTTPS for an already loa
     let command = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
     let state = await command('state'), profile = state.model.profiles[0], session = state.model.sessions[0]
     await command('profile.proxy.set', { profile: profile.id, protocol: 'http', host: '127.0.0.1', port: proxy.port, authenticated: false })
-    let window = await command('new-window', { session: session.id, profile: profile.id, client: state.clientId }), pane = window.panes[0]
+    let createdWindow = await command('new-window', { session: session.id, profile: profile.id, client: state.clientId }), pane = createdWindow.panes[0]
     await command('navigate', { pane: pane.id, url: `${origin}/healthy` })
     await command('wait', { pane: pane.id, expression: "document.querySelector('main')?.textContent === 'Proxy failure fixture'" })
     expect(requests).toContain('/healthy')
@@ -47,7 +47,11 @@ test('a failed proxy never falls back to direct HTTP or HTTPS for an already loa
       let address = area.getByRole('textbox', { name: 'URL or search', exact: true })
       if (!await address.count()) await area.getByRole('button', { name: 'Address', exact: true }).click()
       await address.fill(url); await address.press('Enter')
-      await expect.poll(async () => (await command('state')).crashes[pane.id]).toBeTruthy()
+      await expect(address).toHaveCount(0)
+      await expect.poll(async () => {
+        let current = await command('state')
+        return !!current.crashes[pane.id] && !current.loading[pane.id]
+      }).toBe(true)
     }
     await open(`${origin}/blocked-http`)
     expect(requests).not.toContain('/blocked-fetch')
