@@ -5,7 +5,8 @@ The two direct browser restarts in the recovery fixtures waited only for
 reuse the shared launch helper's control-socket check and require the response
 PID to match their newly launched process. This prevents a CLI startup attempt
 against an isolated profile while restore is still running. Repeat both recovery
-cases in CI.
+cases in CI. The Bot settings fixture also waits for its isolated control server
+before its first CLI request and after relaunch.
 
 # Remote layout pan after native resizing
 
