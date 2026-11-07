@@ -1,3 +1,12 @@
+# Remote layout pan after native resizing
+
+Linux exposed a pan being set while the chrome renderer still had the previous
+native window size. Its pending ResizeObserver then recentered the viewport.
+The fixture now waits for renderer dimensions to match native content bounds
+and for pan origins to reflect the new viewport before setting the requested
+100 by 120 pixel pan. The native offset assertion remains exact. Repeat both
+status-bar positions in the Portable hosts workflow.
+
 # Headless capture socket readiness
 
 The November 7 full Check exposed capture fixtures issuing their first CLI

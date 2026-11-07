@@ -662,6 +662,10 @@ for (let position of ['top', 'bottom']) test(`remote viewport stays inside the n
     for (let size of [{ width: 480, height: 240 }, { width: 1920, height: 1080 }]) {
       await application.evaluate(async (_electron, { pane, generation, size }) => (globalThis as any).remoteLayoutRuntime.remote.resize('layout-test', generation, pane, size.width, size.height), { pane: ids.pane, generation: lease.generation, size })
       await application.evaluate(({ BaseWindow }, size) => BaseWindow.getAllWindows().find(window => window.isVisible())!.setSize(size.width === 480 ? 900 : 1000, size.width === 480 ? 650 : 700), size)
+      await expect.poll(async () => {
+        let native = await application.evaluate(({ BaseWindow }) => { let { width, height } = BaseWindow.getAllWindows().find(window => window.isVisible())!.getContentBounds(); return { width, height } })
+        return JSON.stringify(await chrome.evaluate(() => ({ width: innerWidth, height: innerHeight }))) === JSON.stringify(native)
+      }).toBe(true)
       await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual(size)
       await expect.poll(async () => {
         let rect = (await content.boundingBox())!, bounds = await nativeBounds()
@@ -681,6 +685,7 @@ for (let position of ['top', 'bottom']) test(`remote viewport stays inside the n
           await fs.writeFile(info.outputPath('overflow-state.json'), JSON.stringify({ renderer, windows, native: await nativeBounds() }, null, 2))
           throw error
         }
+        await expect.poll(() => content.evaluate(element => Number((element as HTMLElement).dataset.panOriginX) === Math.round(element.clientWidth / 2) && Number((element as HTMLElement).dataset.panOriginY) === Math.round(element.clientHeight / 2))).toBe(true)
         await content.evaluate(element => { element.scrollLeft = Number(element.dataset.panOriginX ?? 0) + 100; element.scrollTop = Number(element.dataset.panOriginY ?? 0) + 120 })
         await expect.poll(async () => {
           let rect = (await content.boundingBox())!, bounds = await nativeBounds()
