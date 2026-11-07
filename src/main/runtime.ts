@@ -3225,10 +3225,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!current || !owner) throw new Error('Page overlay is no longer visible')
       let key = sourceClientId + ':' + paneId
       if (method === 'pane.overlay.select') {
-        if (!current.tabs.some(tab => tab.id === args.tab)) throw new Error('Overlay tab unavailable')
-        selectedOverlayTabs.set(key, String(args.tab))
+        if (!current.tabs.some(tab => tab.id === args.panel)) throw new Error('Overlay tab unavailable')
+        selectedOverlayTabs.set(key, String(args.panel))
         let preferred = pluginOverlayBounds.get(key)!
-        pluginOverlayBounds.set(key, { ...preferred, collapsed: args.tab === current.selectedTab && !current.bounds.collapsed, compact: false })
+        pluginOverlayBounds.set(key, { ...preferred, collapsed: args.panel === current.selectedTab && !current.bounds.collapsed, compact: false })
       } else if (method === 'pane.overlay.bounds') {
         if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid page overlay bounds')
         let preferred = pluginOverlayBounds.get(key)!

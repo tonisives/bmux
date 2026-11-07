@@ -56,7 +56,7 @@ let bridge = (window as unknown as { bmux: Bridge }).bmux
 let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;update:(event:PointerEvent)=>void;end:()=>void }) => {
   let { overlay, command } = useOverlay()
   let tabs = overlay.tabs ?? [{ id: overlay.runId, title: overlay.content.title, icon: 'plugin' as const }]
-  let select = (event: MouseEvent<HTMLButtonElement>) => void command('pane.overlay.select', { tab: event.currentTarget.dataset.tab })
+  let select = (event: MouseEvent<HTMLButtonElement>) => void command('pane.overlay.select', { panel: event.currentTarget.dataset.tab })
   let minimize = () => void command('pane.overlay.bounds', { ...overlay.bounds, collapsed: true, compact: false })
   let close = () => void command('plugin.overlay.close')
   let keys = (event: KeyboardEvent<HTMLElement>) => {
@@ -66,7 +66,7 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
     event.preventDefault()
     let next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
     buttons[next].focus()
-    void command('pane.overlay.select', { tab: buttons[next].dataset.tab })
+    void command('pane.overlay.select', { panel: buttons[next].dataset.tab })
   }
   return <header className={css.dockHeader} onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}>
     {!overlay.bounds.collapsed && <strong className={css.dockTitle}>{tabs.find(tab => tab.id === overlay.selectedTab)?.title || overlay.content.title}</strong>}
