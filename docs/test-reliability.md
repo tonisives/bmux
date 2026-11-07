@@ -781,3 +781,8 @@ native page to detach while address suggestions were open. The address overlay
 now keeps pages attached. Both fixtures wait for the suggestion list and visible
 native page before navigating. The Escape, Enter, prompt focus, page visibility,
 and unsaved content assertions remain in place.
+
+The pane-address geometry fixture also checks the visible native page rather
+than a captured snapshot. The pin-window fixture uses the current Cmd+Shift+.
+binding; Cmd+. is window history forward. Repeat both cases together when
+changing address overlays or the pin binding.
