@@ -20,8 +20,9 @@ Set the profile for future regular sessions in the session picker; create a new
 profile there if needed. New sessions use the saved choice without asking each
 time. Private sessions use an isolated temporary browser partition, do not use
 this setting, and show no profile icon. Their cookies, site storage, and extension
-data are discarded when the session closes. The profile panel can change a session's
-default profile at any time; loaded panes keep their existing profiles. On a
+data are discarded when the session closes. In the profile panel, **Default
+profile for this session** sets the profile for new windows and panes in that session. Other sessions and the saved preference
+for future sessions stay unchanged; loaded panes keep their existing profiles. On a
 blank pane, use the profile button beside its address to choose a different
 profile before loading a page. After navigation, the button remains visible
 only for panes that differ from the session default.

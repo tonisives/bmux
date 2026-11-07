@@ -2204,8 +2204,16 @@ test('new sessions use the saved preference and loaded panes keep their profile 
   await expect(panel.getByRole('tab', { name: 'Device' })).toBeVisible()
   await expect(panel.getByRole('tab', { name: 'Connection' })).toBeVisible()
   await expect(panel).not.toContainText('Sessions organize windows')
-  await panel.getByRole('combobox', { name: 'Default profile for new windows and panes' }).selectOption(model.profiles[1].id)
+  let otherDefaults = (await state()).model.sessions.filter((item: { id: string }) => item.id !== created.id).map((item: { id: string; defaultProfileId: string }) => [item.id, item.defaultProfileId])
+  await panel.getByRole('combobox', { name: 'Default profile for this session' }).selectOption(model.profiles[1].id)
   await expect.poll(async () => (await state()).model.sessions.find((item: { id: string }) => item.id === created.id)?.windows[0].panes[0].profileId).toBe(model.profiles[1].id)
+  let changedState = await state()
+  expect(changedState.model.newSessionProfileId).toBe(fresh.id)
+  expect(changedState.model.sessions.filter((item: { id: string }) => item.id !== created.id).map((item: { id: string; defaultProfileId: string }) => [item.id, item.defaultProfileId])).toEqual(otherDefaults)
+  let nextSession = await rpc('new-session', { name: 'Session default isolation' }) as { id: string; defaultProfileId: string; windows: { panes: { profileId: string }[] }[] }
+  expect(nextSession.defaultProfileId).toBe(fresh.id)
+  expect(nextSession.windows[0].panes[0].profileId).toBe(fresh.id)
+  await rpc('kill-session', { session: nextSession.id, confirm: true })
   await panel.getByRole('button', { name: 'Close', exact: true }).click()
   let blank = created.windows[0].panes[0].id
   await rpc('navigate', { pane: blank, url: `${url}/profile-changed` })
@@ -2221,7 +2229,7 @@ test('new sessions use the saved preference and loaded panes keep their profile 
   let nextWindow = await rpc('new-window', { session: created.id }) as { panes: { profileId: string }[] }
   expect(nextWindow.panes[0].profileId).toBe(fresh.id)
   await chrome.locator(`[data-pane-id="${blank}"]`).getByRole('button', { name: `Profile: ${model.profiles[1].name}`, exact: true }).click()
-  await expect(chrome.getByRole('dialog', { name: 'Profile' }).getByRole('combobox', { name: 'Default profile for new windows and panes' })).toHaveValue(fresh.id)
+  await expect(chrome.getByRole('dialog', { name: 'Profile' }).getByRole('combobox', { name: 'Default profile for this session' })).toHaveValue(fresh.id)
   await rpc('session.new-profile.set', { profile: model.profiles[0].id })
 })
 
