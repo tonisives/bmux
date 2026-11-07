@@ -2026,6 +2026,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
       </>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
+    {editingProfile && <div className={css.settingsFooter}><button type="button" onClick={backToBrowsing} disabled={busy}>Save</button></div>}
     {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy || usesIncludedAI(values) && !!access.problem}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
   </form>
 }
