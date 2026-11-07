@@ -857,12 +857,23 @@ test('four visible panes each retain a scaled plugin overlay with independent co
       expect(view.bounds.height).toBeLessThanOrEqual(300)
     }
     await rpc('select-pane', { client: client.id, pane: original })
-    await rpc('zoom', { pane: original, factor: 1 })
     let originalView = observers.get(ids[0])!
+    let originalBounds = (await originalView.evaluate(() => (window as any).bmux.state())).pluginOverlay.bounds
+    await rpc('zoom', { pane: original, factor: 1 })
     await expect.poll(async () => (await views()).find(view => view.zoom === 1)?.bounds.width).toBe(384)
-    let beforeMove = (await originalView.evaluate(() => (window as any).bmux.state())).pluginOverlay
-    await originalView.evaluate(({ id, bounds }) => (window as any).bmux.command({ method: 'plugin.overlay.bounds', args: { id, ...bounds, x: 0, y: 100 } }), { id: ids[0], bounds: beforeMove.bounds })
-    await expect.poll(async () => (await originalView.evaluate(() => (window as any).bmux.state())).pluginOverlay.bounds.x).toBe(0)
+    await rpc('zoom', { pane: original, factor: .5 })
+    await expect.poll(async () => (await originalView.evaluate(() => (window as any).bmux.state())).pluginOverlay.bounds.height).toBe(originalBounds.height)
+    let lastView = observers.get(ids[3])!
+    let pageBounds = await application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL() === url)!.getBounds(), url + '/overlay-3')
+    let moving = (await lastView.evaluate(() => (window as any).bmux.state())).pluginOverlay
+    for (let position of [-10000, 10000]) {
+      await lastView.evaluate(({ id, bounds, position }) => (window as any).bmux.command({ method: 'plugin.overlay.bounds', args: { id, ...bounds, x: position, y: position } }), { id: ids[3], bounds: moving.bounds, position })
+      let placed = (await lastView.evaluate(() => (window as any).bmux.state())).pluginOverlay
+      expect(placed.bounds.x).toBeGreaterThanOrEqual(pageBounds.x)
+      expect(placed.bounds.y).toBeGreaterThanOrEqual(pageBounds.y)
+      expect(placed.bounds.x + Math.round(placed.bounds.width * placed.zoom)).toBeLessThanOrEqual(pageBounds.x + pageBounds.width)
+      expect(placed.bounds.y + Math.round(placed.bounds.height * placed.zoom)).toBeLessThanOrEqual(pageBounds.y + pageBounds.height)
+    }
     await originalView.getByRole('button', { name: 'Pause session', exact: true }).click()
     await expect(originalView.getByRole('status')).toHaveText('Paused')
     for (let id of ids.slice(1)) await expect(observers.get(id)!.getByRole('status')).toHaveText('Browsing')

@@ -801,5 +801,6 @@ and hit testing retain CSS coordinates while native mouse events are scaled.
 Every visible pane owns a separate plugin overlay. Each renderer receives its
 own run state and uses a separate transient session so one pane's zoom cannot
 change another overlay's zoom. The four-pane fixture exercises independent
-start, pause and close controls, page zoom, and placement beyond a pane. Hidden
+start, pause and close controls, page zoom, and drag clamping within each pane. Zoom changes retain the preferred popup size
+so zooming back restores its previous dimensions. Hidden
 windows still detach overlays, and page captures still exclude plugin controls.

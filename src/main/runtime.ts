@@ -518,13 +518,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let value = plugins?.overlay(paneId), area = owner.bounds.find(bounds => bounds.paneId === paneId)
     if (!value || !area || area.width < 1 || area.height < 1 || dismissedPluginOverlays.has(clientId + ':' + value.runId)) return
     let zoom = paneById(model, paneId).pane.zoom || 1
-    let placement = { x: 0, y: 0, width: client.width, height: client.height }
-    let key = clientId + ':' + paneId, bounds = fitPluginOverlay(pluginOverlayBounds.get(key) ?? fitPluginOverlay(undefined, area, zoom), placement, zoom)
+    let key = clientId + ':' + paneId, preferred = pluginOverlayBounds.get(key)
+    let bounds = fitPluginOverlay(preferred, area, zoom)
     let previous = pluginOverlayRuns.get(key)
     let failed = Boolean(value.error || value.content.error)
-    if (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, placement, zoom)
+    if (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, area, zoom)
     pluginOverlayRuns.set(key, { id: value.runId, ended: value.ended, failed })
-    pluginOverlayBounds.set(key, bounds)
+    pluginOverlayBounds.set(key, { ...bounds, width: preferred?.width ?? 384, height: preferred?.height ?? 600 })
     return { ...value, bounds, zoom }
   }
   let refreshPluginOverlay = (clientId: string, owner: LiveClient) => {
@@ -3240,7 +3240,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (method === 'plugin.overlay.restart') return plugins?.restartOverlay(current.runId)
       if (method === 'plugin.overlay.bounds') {
         if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid page overlay bounds')
-        pluginOverlayBounds.set(sourceClientId + ':' + current.paneId, { x: Number(args.x), y: Number(args.y), width: Number(args.width), height: Number(args.height), collapsed: args.collapsed, compact: args.compact === true })
+        let key = sourceClientId + ':' + current.paneId, preferred = pluginOverlayBounds.get(key)
+        pluginOverlayBounds.set(key, { x: Number(args.x), y: Number(args.y), width: args.width === current.bounds.width ? preferred?.width ?? current.bounds.width : Number(args.width), height: args.height === current.bounds.height ? preferred?.height ?? current.bounds.height : Number(args.height), collapsed: args.collapsed, compact: args.compact === true })
         refreshPluginOverlay(sourceClientId, owner); publish(); return null
       }
       throw new Error('Unknown page overlay command')
