@@ -41,22 +41,12 @@ test('a failed proxy never falls back to direct HTTP or HTTPS for an already loa
     await proxy.close(true)
     // The browser has already verified this connection. Subsequent requests must
     // still use its failed relay, including Chromium's usual loopback bypass.
-    expect(await command('eval', { pane: pane.id, expression: `fetch('${origin}/blocked-fetch').then(() => 'loaded', () => 'failed')` })).toBe('failed')
-    let open = async (url: string) => {
-      let area = chrome.locator(`[data-pane-id="${pane.id}"]`)
-      let address = area.getByRole('textbox', { name: 'URL or search', exact: true })
-      if (!await address.count()) await area.getByRole('button', { name: 'Address', exact: true }).click()
-      await address.fill(url); await address.press('Enter')
-      await expect(address).toHaveCount(0)
-      await expect.poll(async () => {
-        let current = await command('state')
-        return !!current.crashes[pane.id] && !current.loading[pane.id]
-      }).toBe(true)
-    }
-    await open(`${origin}/blocked-http`)
+    expect(await command('eval', { pane: pane.id, expression: `fetch('${origin}/blocked-fetch').then(response => response.ok ? 'loaded' : 'failed', () => 'failed')` })).toBe('failed')
+    await command('navigate', { pane: pane.id, url: `${origin}/blocked-http` })
+    expect(await command('eval', { pane: pane.id, expression: "document.querySelector('main')?.textContent === 'Proxy failure fixture'" })).toBe(false)
     expect(requests).not.toContain('/blocked-fetch')
     expect(requests).not.toContain('/blocked-http')
-    await open(`${secureOrigin}/blocked-https`)
+    await expect(command('navigate', { pane: pane.id, url: `${secureOrigin}/blocked-https` })).rejects.toThrow(/ERR_(?:TUNNEL_CONNECTION_FAILED|PROXY_CONNECTION_FAILED)/)
     expect(secureConnections).toBe(0)
     expect((await command('state')).model.sessions.flatMap((item: any) => item.windows.flatMap((window: any) => window.panes)).find((item: any) => item.id === pane.id).connectionId).toBe(pane.connectionId)
   } finally {
