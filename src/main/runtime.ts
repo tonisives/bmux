@@ -1919,6 +1919,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       live.disposed = true
       let destroyed = live.contents.isDestroyed()
       clearViewportInput(live.contents)
+      if (!destroyed && live.viewportEmulation) { live.contents.disableDeviceEmulation(); live.viewportEmulation = undefined }
       if (!live.parent.isDestroyed()) live.parent.contentView.removeChildView(pageRoot(live))
       live.remoteFrame?.removeChildView(live.view)
       if (live.camera && !live.parent.isDestroyed()) live.parent.contentView.removeChildView(live.camera)
