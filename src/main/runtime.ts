@@ -919,17 +919,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+    let inputScale = live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : 1)
+    let sendInput = (method: string, values: Record<string, unknown>) => debuggerApi.sendCommand(method, method === 'Input.dispatchMouseEvent' ? { ...values, x: Number(values.x) * inputScale, y: Number(values.y) * inputScale } : values, sessionId)
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && (params.type === 'mousePressed' || params.type === 'mouseMoved' && !params.buttons && (!params.button || params.button === 'none'))) {
       let { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
       if (automationProfileLimits(safety, pane.profileId).simulateMouseMovement !== false) {
         automationPointerTabs.add(tabId)
         let document = documents.get(tabId)
-        await virtualMouse.move(tabId, params, (method, params) => debuggerApi.sendCommand(method, params, sessionId), () => {
+        await virtualMouse.move(tabId, params, sendInput, () => {
           if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
           checkControl('cdp', { tab: tabId })
           automationSafety?.assertAvailable(pane.profileId, pane.id, live.contents.getURL(), { paneId: pane.id, ...agentInfo(pane) })
         })
-        if (params.type === 'mousePressed') await virtualMouse.click(tabId, (method, params) => debuggerApi.sendCommand(method, params, sessionId))
+        if (params.type === 'mousePressed') await virtualMouse.click(tabId, sendInput)
       }
     }
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && params.type === 'mouseWheel') {
@@ -940,11 +942,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
         checkControl('cdp', { tab: tabId })
         return debuggerApi.sendCommand(method, params, sessionId)
-      }, params, settings, live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : 1))
+      }, params, settings, inputScale)
     }
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
-    let send = () => debuggerApi.sendCommand(method, params, sessionId)
+    let send = () => automatedMouse && method === 'Input.dispatchMouseEvent' ? sendInput(method, params) : debuggerApi.sendCommand(method, params, sessionId)
     try {
       result = process.platform === 'darwin' && /^(Input\.|Runtime\.(evaluate|callFunctionOn))/.test(method)
         ? await filePickers.input(tabId, params => debuggerApi.sendCommand('Page.setInterceptFileChooserDialog', params, sessionId), send, sessionId)

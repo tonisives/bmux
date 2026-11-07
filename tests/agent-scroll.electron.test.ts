@@ -109,7 +109,7 @@ test('agent wheel scrolling reaches a nested feed in a scaled locked viewport', 
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html' })
-    response.end(`<!doctype html><title>Nested scaled feed</title><style>html,body{margin:0;height:100%;overflow:hidden}main{position:absolute;inset:52px 0 0;overflow:auto}.posts{height:6000px;background:#eee}</style><main id="workspace"><div class="posts">Feed</div></main><script>window.positions=[];window.wheels=[];let feed=document.querySelector('main');feed.addEventListener('scroll',()=>positions.push({y:feed.scrollTop,at:performance.now()}));feed.addEventListener('wheel',e=>wheels.push(e.deltaY),{passive:true});</script>`)
+    response.end(`<!doctype html><title>Nested scaled feed</title><style>html,body{margin:0;height:100%;overflow:hidden}main{position:absolute;inset:52px 0 0;overflow:auto}.posts{height:6000px;background:#eee}button{position:fixed;left:800px;top:580px;width:120px;height:48px}</style><main id="workspace"><div class="posts">Feed</div></main><button id="comments">Comments</button><script>window.clicks=0;document.querySelector("button").onclick=()=>window.clicks++;window.positions=[];window.wheels=[];let feed=document.querySelector('main');feed.addEventListener('scroll',()=>positions.push({y:feed.scrollTop,at:performance.now()}));feed.addEventListener('wheel',e=>wheels.push(e.deltaY),{passive:true});</script>`)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let url = `http://127.0.0.1:${(server.address() as {port:number}).port}`
@@ -126,7 +126,7 @@ test('agent wheel scrolling reaches a nested feed in a scaled locked viewport', 
     await rpc('zoom', { pane, factor: .375 })
     let page = application.context().pages().find(page => page.url() === url + '/')!
     await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width: 1512, height: 900 })
-    let scrolling = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'cdp', JSON.stringify({ pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x: 832, y: 604, deltaX: 0, deltaY: 300 } })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'scaled-scroll-agent' }, timeout: 20000 })
+    let scrolling = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'cdp', JSON.stringify({ pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x: 760, y: 560, deltaX: 0, deltaY: 300 } })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'scaled-scroll-agent' }, timeout: 20000 })
     expect(JSON.parse(scrolling.stdout).ok).toBe(true)
     await expect.poll(() => page.evaluate(() => document.querySelector('main')!.scrollTop)).toBe(300)
     let motion = await page.evaluate(() => ({ positions: (window as any).positions as {y:number;at:number}[], wheels: (window as any).wheels as number[], documentTop: scrollY }))
@@ -137,6 +137,9 @@ test('agent wheel scrolling reaches a nested feed in a scaled locked viewport', 
     // Chromium exposes wheel deltas divided by the emulation scale, while
     // the observed feed offset retains the requested CSS distance.
     expect(motion.wheels.reduce((sum, delta) => sum + delta, 0)).toBeCloseTo(300 / .375, 4)
+    let click = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'click', JSON.stringify({ pane, selector: '#comments' })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'scaled-scroll-agent' }, timeout: 20000 })
+    expect(JSON.parse(click.stdout).ok).toBe(true)
+    await expect.poll(() => page.evaluate(() => (window as any).clicks)).toBe(1)
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))

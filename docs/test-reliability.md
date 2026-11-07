@@ -794,7 +794,9 @@ Locked desktop viewports retain CSS dimensions while Emulation scales their
 native input surface. Agent wheel calls now transform only their native target
 coordinates; DOM hit testing and scroll distance remain in CSS pixels. The
 nested-feed fixture locks a 1512 by 900 viewport at 37.5 percent, observes more
-than ten wheel and scroll updates, and requires an exact 300 pixel feed advance.
+than ten wheel and scroll updates, and requires an exact 300 pixel feed advance. The same fixture clicks a local
+comment button through native agent input at its CSS position; cursor animation
+and hit testing retain CSS coordinates while native mouse events are scaled.
 
 Every visible pane owns a separate plugin overlay. Each renderer receives its
 own run state and uses a separate transient session so one pane's zoom cannot
