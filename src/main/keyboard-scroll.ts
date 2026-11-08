@@ -16,7 +16,7 @@ export let keyboardScroll = (action: string, settings: ScrollingSettings) => {
   if (!node) return
   let element = node, previous = motions.get(element), start = element.scrollTop
   let max = Math.max(0, element.scrollHeight - element.clientHeight)
-  let step = (action.includes('half') ? innerHeight / 2 : 100) * (down ? 1 : -1)
+  let step = (action.includes('half') ? Math.round(innerHeight / 2) : 100) * (down ? 1 : -1)
   let base = previous && Math.sign(previous.target - start) === Math.sign(step) ? previous.target : start
   let target = Math.max(0, Math.min(max, action === 'scroll-top' ? 0 : action === 'scroll-bottom' ? max : base + step))
   if (previous) { cancelAnimationFrame(previous.frame); previous.finish() }
