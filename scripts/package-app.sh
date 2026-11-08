@@ -29,6 +29,6 @@ case "$architecture" in
   arm64) bundle=release/mac-arm64/bmux.app ;;
   *) bundle=release/mac/bmux.app ;;
 esac
-python3 scripts/build-local.py run --prepare-node --output "$bundle=$PWD/$bundle" --   sh -c 'pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac --dir'
+python3 scripts/build-local.py run --prepare-node --output "$bundle=$PWD/$bundle" --   sh -c 'node scripts/install-electron.mjs && pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac --dir --config.electronDist=node_modules/electron/dist'
 BMUX_OUTPUT_DIR="$directory" BMUX_DEFAULT_SIGNING_IDENTITY=EF765C5EE39AC9C656688DD1DFB230405C03F735   node scripts/install-app.mjs --source "$bundle"
 rm -rf "$bundle"

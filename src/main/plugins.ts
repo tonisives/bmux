@@ -216,7 +216,7 @@ export let createPlugins = (options: Options) => {
     if (request.kind === 'form') {
       if (run.sharedSettings) throw new Error('Use Apply all to save shared settings')
       if (request.launch) {
-        if (args.destination !== undefined && args.destination !== 'current' && args.destination !== 'window') throw new Error('Choose Current pane or New window')
+        if (args.destination !== 'current' && args.destination !== 'window') throw new Error('Choose Current pane or New window')
         run.destination = args.destination === 'current' ? 'current' : 'window'
       }
       let values = record(value)
