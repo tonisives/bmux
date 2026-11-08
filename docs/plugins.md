@@ -416,3 +416,29 @@ An overlay can supply `error: {title, message, diagnostic?, controls?: string[]}
 BMUX replaces post cards, metrics and details with the error and only the named
 recovery buttons. A recovery button with `setting` opens its editable control
 inside this view. Recovery IDs must refer to existing button controls.
+
+### Social post hooks
+
+Social Media plugins have a **Hooks** tab. Configure a shared endpoint for each
+platform, or select a browser profile to override the shared settings. Saving a
+profile configuration creates an override; **Use shared settings** removes it.
+Hooks observe rendered posts in ordinary and automated browsing. Private
+sessions are excluded. Disabling the social plugin also pauses observation and
+delivery.
+
+The default JSON body is `{ "version": 1, "platform": "reddit", "posts": [] }`.
+Posts include their URL, text, available author/media metadata, observation time
+and browser profile ID. X also supports the existing TweetTrace `{ "tweets": [] }`
+format. Authentication supports Bearer tokens and a configurable API key header.
+Credentials are encrypted on this computer and never sent to page scripts.
+
+Successful counts persist across launches. Recent results include inserted and
+skipped counts when the receiver supplies them. HTTP 429 and server/network
+failures retry with backoff; other HTTP errors remain failed. Saving corrected
+settings retries failed batches for the same endpoint. Changing the endpoint
+keeps older batches from being sent to the new destination.
+
+On launch, enabled TweetTrace installations migrate their endpoint and credential
+before being unregistered. Different credentials or endpoints become profile
+overrides. Extension files remain available; old recent logs are preserved under
+`tweettrace-history` in the browser data directory. New counters start at zero.
