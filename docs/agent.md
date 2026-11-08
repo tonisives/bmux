@@ -225,6 +225,9 @@ needed for these defaults:
   these settings from their context and override them per call. They finish
   scrolling before the action pause starts. Reduced motion uses immediate
   scrolling. Modified wheel events keep their normal zoom or shortcut behavior.
+  Shorter distances finish faster. Keyboard scroll shortcuts animate the scroll
+  container directly, so page wheel handlers cannot swallow them; repeated keys
+  add to the pending target.
 - Reading page content through CLI or plugins gives the page a subtle blue pulse
   during the read and for 2.4 seconds afterward. Reduced motion uses a steady
   highlight. Read commands do not show or refresh the agent cursor.

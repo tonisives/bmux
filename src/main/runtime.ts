@@ -43,6 +43,7 @@ import { createVirtualMouse } from './virtual-mouse'
 import { readsPage, withAgentReading } from './agent-reading'
 import { agentAction, agentActionInput, createAgentActions } from './agent-actions'
 import { agentScrollParams, smoothAgentScroll } from './agent-scroll'
+import { keyboardScroll } from './keyboard-scroll'
 import { createPluginOverlayDelivery } from './plugin-overlay-delivery'
 import { createAgentInputLock, createAgentInputOverrides, scheduleAgentInputUnlock } from './agent-input-lock'
 import { DEFAULT_AGENT_FEEDBACK, parseAgentFeedback, resolveAgentFeedback } from '../shared/agent-feedback'
@@ -1030,6 +1031,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       debuggerApi.sendCommand('Emulation.setHardwareConcurrencyOverride', { hardwareConcurrency: persona.platform === 'android' ? 8 : 6 }),
     ])
   }
+  let keyboardScrollTab = async (tabId: string, action: string) => {
+    let live = tabs.get(tabId)
+    if (!live || live.contents.isDestroyed()) return
+    let debuggerApi = live.contents.debugger
+    if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
+    let { frameTree } = await debuggerApi.sendCommand('Page.getFrameTree')
+    let { executionContextId } = await debuggerApi.sendCommand('Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: 'bmux:keyboard-scroll' })
+    await debuggerApi.sendCommand('Runtime.evaluate', { expression: `(${keyboardScroll.toString()})(${JSON.stringify(action)}, ${JSON.stringify(configuration?.scrolling ?? DEFAULT_SCROLLING)})`, contextId: executionContextId, awaitPromise: true })
+  }
   let scrollControllers = new Map<string, AbortController>()
   let scrollTab = async (tabId: string, action: string) => {
     let live = tabs.get(tabId)
@@ -1090,7 +1100,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
     if (action === 'new-private-session') { invoke({ method: 'new-session', args: { client: client.id, private: true } }); return }
     if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { invoke({ method: action, args: { tab } }); return }
-    if (action.startsWith('scroll-') && tab) { void scrollTab(tab, action).catch(reportError); return }
+    if (action.startsWith('scroll-') && tab) { void keyboardScrollTab(tab, action).catch(reportError); return }
     if (action.startsWith('zoom-') && tab) {
       let current = tabById(model, tab).tab.zoom
       invoke({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }); return

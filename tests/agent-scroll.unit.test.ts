@@ -19,7 +19,7 @@ test('mouse wheel follows a sine velocity curve and awaits the final input', asy
     let middle = Number(wheels[Math.floor(wheels.length / 2)].params.deltaY)
     expect(middle).toBeGreaterThan(Number(wheels[0].params.deltaY) * 4)
     expect(middle).toBeGreaterThan(Number(wheels.at(-1)!.params.deltaY) * 4)
-    expect(wheels.at(-1)!.at - wheels[0].at).toBeGreaterThan(500)
+    expect(wheels.at(-1)!.at - wheels[0].at).toBeGreaterThan(200)
     expect(wheels.every(call => call.params.type === 'mouseWheel' && call.params.x === 400 && call.params.y === 300)).toBe(true)
     expect(completed).toBe(false)
     finish(); await vi.runAllTimersAsync(); await scrolling
@@ -29,7 +29,7 @@ test('mouse wheel follows a sine velocity curve and awaits the final input', asy
 
 test('successive scrolls vary the sine envelope and timing without drifting the endpoint', async () => {
   vi.useFakeTimers()
-  let sample = 0, random = vi.spyOn(Math, 'random').mockImplementation(() => (sample++ % 17) / 17)
+  let sample = 0, random = vi.spyOn(Math, 'random').mockImplementation(() => (sample++ * .61803398875) % 1)
   try {
     let runs: { delta: number; at: number }[][] = []
     for (let index = 0; index < 2; index++) {
@@ -120,7 +120,7 @@ test('scaled viewports keep DOM hit testing in CSS pixels and transform only nat
     await vi.runAllTimersAsync(); await scrolling
     expect(calls[0].params.expression).toContain('document.elementFromPoint(832, 604)')
     let wheels = calls.filter(call => call.method === 'Input.dispatchMouseEvent')
-    expect(wheels.length).toBeGreaterThan(10)
+    expect(wheels.length).toBeGreaterThan(8)
     expect(wheels.every(call => call.params.x === 312 && call.params.y === 226.5)).toBe(true)
     expect(wheels.reduce((sum, call) => sum + Number(call.params.deltaY), 0)).toBe(300)
   } finally { vi.useRealTimers() }
@@ -183,5 +183,23 @@ test('cancellation interrupts a pending wheel and ignores its late reply', async
     controller.abort(new Error('Stopped by user')); await rejected
     finish(); await vi.runAllTimersAsync()
     expect(calls).toBe(1)
+  } finally { vi.useRealTimers() }
+})
+
+
+test('small scrolls finish promptly and larger distances retain a longer animation', async () => {
+  vi.useFakeTimers()
+  try {
+    let durations: number[] = []
+    for (let deltaY of [10, 100, 600]) {
+      let scroll = smoothAgentScroll(async () => ({ result: { value: false } }), { x: 20, y: 30, deltaY }, { enabled: true, randomize: false, overshoot: false })
+      await vi.runAllTimersAsync()
+      durations.push((await scroll).scroll.durationMs)
+    }
+    expect(durations[0]).toBeLessThan(100)
+    expect(durations[1]).toBeLessThan(180)
+    expect(durations[2]).toBeLessThan(350)
+    expect(durations[0]).toBeLessThan(durations[1])
+    expect(durations[1]).toBeLessThan(durations[2])
   } finally { vi.useRealTimers() }
 })
