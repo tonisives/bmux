@@ -1,3 +1,5 @@
+import { createSocialHooks } from './social-hooks'
+import type { SocialHookConfig } from '../shared/social-hooks'
 import { createBrowseRecorder } from './browse-recorder'
 import { DEFAULT_SCROLLING, parseScrolling } from '../shared/scrolling'
 import { navigateWindowHistory } from './window-navigation'
@@ -423,6 +425,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return [tabId, { origin: pageOrigin(url), error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), siteDefaults: siteSettings(browserSettings(), pane.profileId, url), ...siteSettings(browserSettings(), pane.profileId, url), ...(pane.adblock === undefined ? {} : { adblock: pane.adblock }), ...filters!.counts(tabId) }]
     })),
   } : undefined
+  let socialHooks: ReturnType<typeof createSocialHooks> | undefined
+  let socialHookTimer: ReturnType<typeof setInterval> | undefined
   let plugins: ReturnType<typeof createPlugins> | undefined
   let automation: ReturnType<typeof createAutomationPolicy> | undefined
   let activeAgents = new Map<string, { paneId: string; lastUsed: number; pending: number } & ReturnType<typeof agentInfo>>()
@@ -593,7 +597,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       view.setVisible(true)
     }
   }
-  let state = (clientId = '', contentsId?: number): PublicState => ({ browseRecording: { ...(configuration?.browseRecording ?? { enabled: true, manual: true }), error: browseRecorder.error }, nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayState(clientId, contentsId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list(), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = '', contentsId?: number): PublicState => ({ browseRecording: { ...(configuration?.browseRecording ?? { enabled: true, manual: true }), error: browseRecorder.error }, nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayState(clientId, contentsId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list().map(plugin => ({...plugin,sent:plugin.category === 'Social Media' ? socialHooks?.sent(plugin.id) : undefined})), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -3067,6 +3071,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (context.paneId && tabById(model, context.paneId).session.private) throw new Error('Saved forms are unavailable in private sessions')
       return savedForms(method, args, context, (args._formsSignal as AbortSignal | undefined) ?? new AbortController().signal)
     }
+    if (method === 'plugin.social-hooks.get') return socialHooks?.state(required(args, 'id'), String(args.profile ?? ''))
+    if (method === 'plugin.social-hooks.save') return socialHooks?.save(required(args, 'id'), String(args.profile ?? ''), args.config as SocialHookConfig | null)
     if (method === 'plugin.enable' || method === 'plugin.hooks') {
       let id = required(args, 'id')
       if (!configuration || !plugins?.list().some(plugin => plugin.id === id) || typeof args.enabled !== 'boolean') throw new Error('Plugin and enabled flag required')
@@ -4503,6 +4509,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!source) throw new Error('Bookmark attachment unavailable')
       return execute({ method: 'bookmark.plugins.update', args: { id: attachment.id, enabled: attachment.enabled, values: attachment.values, profile: source.profileId, bookmark: source.bookmarkId } })
     } })
+    socialHooks = createSocialHooks({ directory: dataDirectory, ...credentialEncryption, changed: publish, enabled: id => plugins?.list().some(plugin => plugin.id === id && plugin.enabled) ?? false, targets: () => [...tabs].filter(([,live]) => !live.disposed && !live.contents.isDestroyed()).map(([id,live]) => { let target = tabById(model,id); return { contents:live.contents, profile:paneConnectionId(target.pane), private:target.session.private === true } }) })
+    await socialHooks.ready
+    let migratingSocial = false, socialMigrationRetry = new Map<string,number>()
+    socialHookTimer = setInterval(() => {
+      if (migratingSocial) return
+      migratingSocial = true
+      void (async () => {
+        let profiles = [...new Set([...tabs.keys()].map(id => paneConnectionId(tabById(model,id).pane)))].sort((a,b) => (a === 'profile_default' ? -1 : b === 'profile_default' ? 1 : a.localeCompare(b)))
+        for (let profile of profiles) {
+          if ((socialMigrationRetry.get(profile) ?? 0) > Date.now()) continue
+          await extensions.migrateTweetTrace(profile, async settings => { await socialHooks!.migrate(profile,settings); if (!configuration!.plugins['bmux.x']?.enabled) configuration!.update(['plugins','bmux.x','enabled'],true) }).catch(() => { socialMigrationRetry.set(profile,Date.now()+60000) })
+        }
+        await socialHooks?.tick()
+      })().catch(reportError).finally(() => { migratingSocial = false })
+    }, 2000)
     await plugins.ready
     refreshSettings()
     await scheduleVisuals()
@@ -4563,6 +4584,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     crashRecovery.close()
     extensions.close()
     for (let window of extensionWindows) if (!window.isDestroyed()) window.destroy()
+    if (socialHookTimer) clearInterval(socialHookTimer)
     bookmarkPluginPages?.close()
     pageTools?.close()
     filters?.close()

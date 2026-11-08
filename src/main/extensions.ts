@@ -287,11 +287,28 @@ export let createExtensions = (directory: string, options: (profile: string) => 
     if (activate) { window.show(); window.focus() } else window.showInactive()
     return { opened: extension.id }
   }
+  let migrateTweetTrace = async (profile: string, accept: (settings: {apiKey?:string;endpoint?:string;log?:unknown[]}) => Promise<void>) => {
+    await ready
+    await pending.get(profile)
+    let session = sessions.get(profile), entry = entries.find(item => item.profile === profile && item.name === 'TweetTrace' && item.enabled !== false)
+    if (!session || !entry?.id) return
+    let extension = session.extensions.getExtension(entry.id)
+    if (!extension) return
+    let window = new BrowserWindow({show:false,webPreferences:{session,nodeIntegration:false,contextIsolation:true,sandbox:true}})
+    window.webContents.setAudioMuted(true)
+    window.webContents.setWindowOpenHandler(() => ({action:'deny'}))
+    try {
+      await window.loadURL(`chrome-extension://${entry.id}/html/about.html`)
+      let settings = await window.webContents.executeJavaScript('chrome.storage.local.get(["apiKey","endpoint","log"])')
+      await accept(settings)
+    } finally { if (!window.isDestroyed()) window.destroy() }
+    await remove(profile,entry.id)
+  }
   let close = () => {
     for (let popup of popups.values()) if (!popup.isDestroyed()) popup.destroy()
     popups.clear()
     for (let host of compatibility.values()) host.dispose()
     compatibility.clear()
   }
-  return { attach, attachPrivate, list, listPrivate, load, enable, enablePrivate, disable, disablePrivate, remove, open, close, closePrivate, track }
+  return { migrateTweetTrace, attach, attachPrivate, list, listPrivate, load, enable, enablePrivate, disable, disablePrivate, remove, open, close, closePrivate, track }
 }

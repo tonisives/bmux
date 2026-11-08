@@ -1,3 +1,4 @@
+import { SocialHooksPanel } from './SocialHooksPanel'
 import { usePluginAI, usesIncludedAI } from './plugin-ai'
 import { PluginConfigurationProfiles } from './PluginConfigurationProfiles'
 import { remoteWorkspaceShortcut } from '../shared/remote-workspace'
@@ -1816,7 +1817,7 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
   let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.category ?? ''} ${plugin.name} ${plugin.actions.map(action => `${action.group ?? ''} ${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
   let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row className={css.extensionRow}>
-    <button className={css.extensionName} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
+    <button className={css.extensionName} aria-label={plugin.name} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={open}><strong>{plugin.name}</strong>{plugin.sent !== undefined && <span>{plugin.sent} sent</span>}{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
   </div>
   return <div className={css.extensionWorkspace} data-details-open={!!details} data-browsing-settings={!!prompt} onKeyDown={keys}>
@@ -1870,9 +1871,9 @@ let PluginActions = ({ plugin, actions }: { plugin: PluginInfo; actions: PluginI
   </div>)}</div>
 }
 let PluginDetails = ({ plugin }: { plugin: PluginInfo }) => {
-  let { run } = useUI()
+  let { state, run } = useUI()
   let groups = [...new Set(plugin.actions.map(action => action.group ?? 'Actions'))]
-  let tabs = [...groups.map(group => ({ id: `feature:${group}`, title: group })), { id: 'settings', title: 'Settings' }, { id: 'activity', title: 'Activity' }, ...(plugin.category === 'Social Media' ? [{ id: 'recordings', title: 'Recordings' }] : [])]
+  let tabs = [...groups.map(group => ({ id: `feature:${group}`, title: group })), { id: 'settings', title: 'Settings' }, { id: 'activity', title: 'Activity' }, ...(plugin.category === 'Social Media' ? [{ id: 'hooks', title: 'Hooks' }, { id: 'recordings', title: 'Recordings' }] : [])]
   let [tab, setTab] = useState(tabs[0].id)
   let selected = tabs.find(item => item.id === tab) ?? tabs[0], id = useId()
   let choose = (event: MouseEvent<HTMLButtonElement>) => setTab(event.currentTarget.dataset.feature!)
@@ -1888,7 +1889,7 @@ let PluginDetails = ({ plugin }: { plugin: PluginInfo }) => {
     <h2>{plugin.name}</h2>
     <div className={css.panelTabs} role="tablist" aria-label="Plugin features" onKeyDown={move}>{tabs.map((item, index) => <button type="button" key={item.id} id={`${id}-tab-${index}`} role="tab" aria-selected={selected.id === item.id} aria-controls={`${id}-content`} tabIndex={selected.id === item.id ? 0 : -1} data-feature={item.id} onClick={choose}>{item.title}</button>)}</div>
     <div className={css.pluginFeaturePanel} role="tabpanel" id={`${id}-content`} aria-labelledby={`${id}-tab-${tabs.indexOf(selected)}`}>
-      {selected.id === 'recordings' ? <RecordingPanel run={run} context={plugin.id} /> : selected.id === 'settings' ? <><p>Version {plugin.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin.id} compact settingsOnly /></> : selected.id === 'activity' ? <PluginActivity pluginId={plugin.id} /> : <>{plugin.description && <p>{plugin.description}</p>}{!plugin.enabled && <p>Enable {plugin.name} in Settings to use these actions.</p>}<PluginActions plugin={plugin} actions={plugin.actions.filter(action => `feature:${action.group ?? 'Actions'}` === selected.id)} /></>}
+      {selected.id === 'hooks' ? <SocialHooksPanel pluginId={plugin.id} profiles={state.model.profiles.flatMap(profile => profile.connections?.length ? profile.connections.map((connection,index) => ({id:connection.id,name:profile.name+(index ? ` (${index+1})` : '')})) : [profile])} run={run} /> : selected.id === 'recordings' ? <RecordingPanel run={run} context={plugin.id} /> : selected.id === 'settings' ? <><p>Version {plugin.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin.id} compact settingsOnly /></> : selected.id === 'activity' ? <PluginActivity pluginId={plugin.id} /> : <>{plugin.description && <p>{plugin.description}</p>}{!plugin.enabled && <p>Enable {plugin.name} in Settings to use these actions.</p>}<PluginActions plugin={plugin} actions={plugin.actions.filter(action => `feature:${action.group ?? 'Actions'}` === selected.id)} /></>}
     </div>
   </>
 }
