@@ -12,7 +12,7 @@ export let PluginOverlay = () => {
   let [setting, openSetting] = useState<{ id: string; runId: string }>()
   let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];zoom:number;edge:string} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
   useEffect(() => { let unsubscribe = bridge.subscribeOverlay(setOverlay); void bridge.overlayState().then(setOverlay); return unsubscribe }, [])
-  let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await bridge.command({ method, args: { ...args, id: overlay?.runId, pane: overlay?.paneId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
+  let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await bridge.command({ method, args: { ...args, id: args.id ?? overlay?.runId, pane: overlay?.paneId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
   let input = async (id: string, value?: string | boolean) => { setBusy(true); await command('plugin.overlay.input', { control: id, value }); setBusy(false) }
   let stop = () => { setReturnToSetup(true); void input('stop') }
   useEffect(() => { setReturnToSetup(false); setError(''); openSetting(undefined) }, [overlay?.runId])
@@ -69,7 +69,7 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
       let selected = !overlay.bounds.collapsed && tab.id === overlay.selectedTab
       return <div key={tab.id} className={appCss.panelTab} role="presentation" data-selected={selected || undefined}>
         <button role="tab" aria-label={tab.title} aria-selected={selected} aria-controls="pane-panel" tabIndex={tab.id === overlay.selectedTab ? 0 : -1} title={tab.title} data-tab={tab.id} onClick={select}><PanelIcon icon={tab.icon} />{selected && <strong>{tab.title}</strong>}</button>
-        {selected && !['agent','viewport'].includes(tab.id) && <DismissTab tab={tab} />}
+        {(selected || overlay.bounds.collapsed) && !['agent','viewport'].includes(tab.id) && <DismissTab tab={tab} />}
       </div>
     })}</nav>
     {!overlay.bounds.collapsed && <nav aria-label="Overlay controls"><button aria-label="Minimize page overlay" title="Minimize page overlay" onClick={minimize}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg></button></nav>}

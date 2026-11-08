@@ -552,7 +552,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     pluginOverlayRuns.set(key + ':' + value.runId, { id: value.runId, ended: value.ended, failed })
     pluginOverlayBounds.set(key, { ...bounds, width: preferred?.width ?? 384, height: preferred?.height ?? 600 })
     // A collapsed dock owns only its buttons, leaving the rest of the page exposed.
-    if (bounds.collapsed) { let right = bounds.x + bounds.width * zoom; bounds = { ...bounds, width: Math.min(bounds.width, tabs.length * 32), x: right - Math.min(bounds.width, tabs.length * 32) * zoom } }
+    if (bounds.collapsed) { let right = bounds.x + bounds.width * zoom, width = Math.min(bounds.width, tabs.reduce((width, tab) => width + 32 + (['agent','viewport'].includes(tab.id) ? 0 : 24), 2)); bounds = { ...bounds, width, x: right - width * zoom } }
     return { ...value, bounds, zoom, tabs, selectedTab, agent, viewport }
   }
 

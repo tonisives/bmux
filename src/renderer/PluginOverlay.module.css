@@ -90,17 +90,21 @@
 .panel { background: #181818; }
 .panel .dockHeader { height: 32px; padding: 0 16px 0 8px; gap: 4px; }
 .panel[data-collapsed="true"] .dockHeader { padding: 0; border: 0; }
-.panel .dockHeader .panelTabs { flex: 1; min-width: 0; gap: 2px; overflow: auto; justify-content: flex-end; }
-.panel .panelTabs button { gap: 8px; min-width: 32px; height: 30px; padding: 8px; border-radius: 0; }
+.panel .dockHeader .panelTabs { flex: 1; min-width: 0; gap: 2px; border: 0; overflow: auto; justify-content: flex-end; }
+.panel .dockHeader .panelTabs button { gap: 8px; min-width: 32px; height: 30px; padding: 6px 8px; border-radius: 0; }
 .panel .panelTabs button[aria-selected="true"] { flex-shrink: 1; min-width: 0; }
 .panel .panelTabs button strong { min-width: 0; }
 .panel .panelTabs svg, .panel .panelTabs img { flex-shrink: 0; }
-.panel .panelTabs .tabClose { width: 24px; min-width: 24px; padding: 4px; }
+.panel .dockHeader .panelTabs .tabClose { width: 24px; min-width: 24px; padding: 0; }
 .panel .panelTabs .tabClose svg { width: 12px; height: 12px; }
 
 .panel .panelTabs button:active { transform: translateY(1px); }
 .panel .panelTabs svg { width: 16px; height: 16px; }
-.panel[data-collapsed="true"] .panelTabs { width: 100%; justify-content: flex-end; gap: 0; border: 0; }
+.panel[data-collapsed="true"] .dockHeader { height: 100%; }
+.panel[data-collapsed="true"] .dockHeader .panelTabs { height: 100%; justify-content: flex-start; gap: 0; overflow-y: hidden; scrollbar-width: none; }
+.panel[data-collapsed="true"] .panelTabs > div { height: 100%; flex: 0 0 auto; border: 0; }
+.panel[data-collapsed="true"] .dockHeader .panelTabs button { width: 32px; min-width: 32px; height: 100%; padding: 0; }
+.panel[data-collapsed="true"] .dockHeader .panelTabs .tabClose { width: 24px; min-width: 24px; }
 .resize[data-edge="top-right"] { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; border-top: 2px solid #8e98a4; border-right: 2px solid #8e98a4; }
 .viewportForm { display: grid; gap: 12px; margin-top: 16px; }
 .viewportForm label { display: grid; gap: 4px; }

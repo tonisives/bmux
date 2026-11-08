@@ -1043,18 +1043,37 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
     await expect(selected).toHaveCSS('border-radius', '0px')
     await expect(observer.getByRole('status')).toHaveText('Browsing')
     await observer.screenshot({ path: path.resolve('artifacts/shared-pane-overlay.png') })
+    await observer.getByRole('tab', { name: 'Agent control', exact: true }).click()
     await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
     await expect.poll(async () => (await pluginViews())[0].bounds.height).toBe(Math.round(32 * scaled.zoom))
-    await expect(selected).toHaveAttribute('aria-selected', 'false')
-    expect(Math.abs(await observer.evaluate(() => innerHeight) - 32)).toBeLessThanOrEqual(1)
+    await expect(observer.getByRole('tab', { name: 'Agent control', exact: true })).toHaveAttribute('aria-selected', 'false')
     await expect(observer.getByRole('tab')).toHaveCount(4)
-    await expect(observer.getByRole('tab', { name: 'Agent control', exact: true })).toBeVisible()
-    await observer.getByRole('tab', { name: 'Research notes', exact: true }).click()
+    await expect(observer.getByRole('button', { name: /^Close .+ tab$/ })).toHaveCount(2)
+    expect((await overlayState()).selectedTab).toBe('agent')
+    for (let zoom of [scaled.zoom, 1, 2]) {
+      await observer.evaluate(({ pane, zoom }) => (window as any).bmux.command({ method: 'pane.overlay.zoom', args: { pane, zoom } }), { pane, zoom })
+      await expect.poll(async () => (await pluginViews())[0].bounds.width).toBe(Math.round(178 * zoom))
+      let geometry = await observer.evaluate(() => {
+        let panel = document.querySelector('[role="tabpanel"]')!, strip = document.querySelector('[role="tablist"]')!
+        let bounds = panel.getBoundingClientRect(), tabs = [...strip.querySelectorAll<HTMLButtonElement>('button')]
+        return { left: tabs[0].getBoundingClientRect().left - bounds.left, right: bounds.right - tabs.at(-1)!.getBoundingClientRect().right, bottom: bounds.bottom - tabs[0].getBoundingClientRect().bottom, top: tabs[0].getBoundingClientRect().top - bounds.top, overflow: strip.scrollWidth - strip.clientWidth, centers: tabs.map(tab => {
+          let button = tab.getBoundingClientRect(), icon = tab.querySelector('svg,img')!.getBoundingClientRect()
+          return { x: (icon.left + icon.right - button.left - button.right) / 2, y: (icon.top + icon.bottom - button.top - button.bottom) / 2 }
+        }) }
+      })
+      expect(Math.abs(geometry.left - geometry.right)).toBeLessThanOrEqual(1)
+      expect(Math.abs(geometry.top - geometry.bottom)).toBeLessThanOrEqual(1)
+      expect(geometry.overflow).toBeLessThanOrEqual(1)
+      expect(geometry.centers.every(center => Math.abs(center.x) <= 1 && Math.abs(center.y) <= 1)).toBe(true)
+    }
+    await observer.screenshot({ path: path.resolve('artifacts/collapsed-pane-overlay.png') })
     let dismiss = observer.getByRole('button', { name: 'Close Research notes tab', exact: true })
     await expect(dismiss.locator('..').getByRole('tab', { name: 'Research notes', exact: true })).toBeVisible()
     await dismiss.click()
     await expect(observer.getByRole('tab', { name: 'Research notes', exact: true })).toHaveCount(0)
     await expect(observer.getByRole('tab', { name: 'Feed training', exact: true })).toBeVisible()
+    await expect(observer.getByRole('tab', { name: 'Agent control', exact: true })).toBeVisible()
+    expect((await overlayState()).bounds.collapsed).toBe(true)
     expect((await rpc('plugin.runs')).find((run: any) => run.id === second).status).toBe('running')
     expect((await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(pane)
   } finally {
