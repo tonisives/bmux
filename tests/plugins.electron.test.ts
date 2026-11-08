@@ -180,6 +180,9 @@ test('viewport screenshots preserve visible and hidden device pages without CDP 
       await page.evaluate(() => {
         document.body.style.minHeight = '2600px'
         document.documentElement.style.scrollBehavior = 'auto'
+        let post = document.createElement('div')
+        post.style.cssText = 'position:fixed;left:20px;top:30px;width:160px;height:100px;background:rgb(255,36,0);z-index:2147483647'
+        document.body.append(post)
         window.scrollTo(0, 180)
       })
       await expect.poll(() => page.evaluate(() => scrollY)).toBe(180)
@@ -232,6 +235,14 @@ test('viewport screenshots preserve visible and hidden device pages without CDP 
         let size = captures.native.at(-1).size
         expect({ width: png.readUInt32BE(16), height: png.readUInt32BE(20) }).toEqual(size)
         expect(Math.abs(jpeg.width / jpeg.height - size.width / size.height)).toBeLessThan(0.01)
+        let clipped = await rpc('screenshot', { pane: pane.id, fullPage: false, encoding: 'base64', format: 'png', clip: { x: 20, y: 30, width: 160, height: 100 }, viewport: [beforePage.width, beforePage.height] })
+        let post = await application.evaluate(({ nativeImage }, data) => {
+          let image = nativeImage.createFromBuffer(Buffer.from(data, 'base64')), pixels = image.toBitmap()
+          return { size: image.getSize(), corner: [...pixels.subarray(0, 3)].sort((a, b) => a - b) }
+        }, clipped.data)
+        expect(post.size.width).toBe(Math.round(180 * size.width / beforePage.width) - Math.round(20 * size.width / beforePage.width))
+        expect(post.size.height).toBe(Math.round(130 * size.height / beforePage.height) - Math.round(30 * size.height / beforePage.height))
+        expect(post.corner).toEqual([0, 36, 255])
         expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scrollY, visibility: document.visibilityState, dpr: devicePixelRatio, touch: navigator.maxTouchPoints }))).toEqual(beforePage)
         expect(await page.evaluate(() => (window as any).screenshotChanges)).toEqual([])
         expect(await windows()).toEqual(beforeWindows)
