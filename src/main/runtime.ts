@@ -4344,7 +4344,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       migratingSocial = true
       void (async () => {
         let profiles = [...new Set([...tabs.keys()].map(id => paneConnectionId(tabById(model,id).pane)))].sort((a,b) => (a === 'profile_default' ? -1 : b === 'profile_default' ? 1 : a.localeCompare(b)))
-        for (let profile of profiles) await extensions.migrateTweetTrace(profile, settings => socialHooks!.migrate(profile,settings)).catch(() => undefined)
+        for (let profile of profiles) await extensions.migrateTweetTrace(profile, async settings => { await socialHooks!.migrate(profile,settings); if (!configuration!.plugins['bmux.x']?.enabled) configuration!.update(['plugins','bmux.x','enabled'],true) }).catch(() => undefined)
         await socialHooks?.tick()
       })().catch(reportError).finally(() => { migratingSocial = false })
     }, 2000)

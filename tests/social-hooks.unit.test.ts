@@ -42,3 +42,17 @@ describe('social hooks', () => {
     } finally { await rm(directory,{recursive:true,force:true}) }
   })
 })
+
+it('imports TweetTrace credentials once and preserves shared settings and profile differences', async () => {
+  let directory = await mkdtemp(join(tmpdir(),'social-migration-'))
+  try {
+    let hooks = createSocialHooks({directory,available:()=>true,encrypt:Buffer.from,decrypt:data=>data.toString(),targets:()=>[],enabled:()=>true,changed:()=>{}})
+    await hooks.migrate('default',{apiKey:'first',endpoint:'https://first.test'})
+    await hooks.migrate('second',{apiKey:'second',endpoint:'https://second.test'})
+    expect((await hooks.state('bmux.x')).config.url).toBe('https://first.test/v1/tweets')
+    expect((await hooks.state('bmux.x','second')).override).toBe(true)
+    await hooks.save('bmux.x','',{...emptySocialHook(),url:'https://edited.test'})
+    await hooks.migrate('default',{apiKey:'first',endpoint:'https://first.test'})
+    expect((await hooks.state('bmux.x')).config.url).toBe('https://edited.test/')
+  } finally { await rm(directory,{recursive:true,force:true}) }
+})
