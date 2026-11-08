@@ -11,8 +11,8 @@ identity errors, stored context, and terminal focus.
 
 ## Start a bot session
 
-Browser commands require an agent ID by default, including raw RPC calls and
-commands that open a URL in a new pane. Use any stable identifier for the agent;
+Browser commands work without an agent identity by default, including raw RPC
+calls and commands that open a URL in a new pane. Agents can supply a stable identifier;
 it can come from a terminal, an editor, or another application. Set it in each
 command shell, or pass `--agent-id ID`:
 
@@ -22,14 +22,14 @@ export BMUX_AGENT_NAME='Research agent'
 export BMUX_AGENT_PURPOSE='Compare browser features'
 ```
 
-By default, only the ID is required. The name and browsing reason are optional. The agent
+Identity, name and browsing reason are optional by default. The agent
 icon in an alert shows the agents that used that website. Each pane toolbar
 shows an **Active agent** icon while commands run in that pane and for 60 seconds
 after its last command, even when there are no alerts. Hover to identify the
 agent, or click to inspect its live context and focus its terminal.
 
-To disable the ID requirement, open the agent dialog's **Bot settings** and
-turn off **Require agent ID**, or set `automation.agents.requireId: false` in
+To require an ID, open the agent dialog's **Bot settings** and
+turn on **Require agent ID**, or set `automation.agents.requireId: true` in
 `config.yaml`. The setting reloads live.
 
 ### Agent types and focus commands

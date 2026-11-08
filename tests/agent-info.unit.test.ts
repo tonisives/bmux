@@ -7,9 +7,11 @@ import type { AgentInfo } from '../src/shared/agent-info'
 import { focusAgent } from '../src/main/agent-focus'
 import { createAgentRegistry } from '../src/main/agent-registry'
 
-test('agent definitions default to requiring identity and validate configured field types', () => {
-  expect(parseAgentSettings(undefined)).toEqual({ requireId: true, requireType: false, definitions: {} })
-  expect(parseAgentSettings({ requireId: false }).requireId).toBe(false)
+test('agent definitions default to optional identity and validate configured field types', () => {
+  expect(parseAgentSettings(undefined)).toEqual({ requireId: false, requireType: false, definitions: {} })
+  expect(parseAgentSettings({}).requireId).toBe(false)
+  expect(createAgentRegistry([]).resolve({}, parseAgentSettings(undefined), true)).toEqual({})
+  expect(parseAgentSettings({ requireId: true }).requireId).toBe(true)
   expect(parseAgentSettings({ definitions: { terminal: { fields: { pane: { label: 'Terminal pane', type: 'pane' } }, focusCommand: 'tmux select-pane -t "$BMUX_AGENT_PANE_ID"' } } }).definitions.terminal.fields.pane.type).toBe('pane')
   for (let value of [{ requireId: 'false' }, { requireType: 'true' }, { definitions: { terminal: { fields: { pane: { label: 'Pane', required: 'yes' } } } } }, { definitions: [] }, { definitions: { terminal: { fields: { pane: { label: 'Pane', type: 'command' } } } } }]) expect(() => parseAgentSettings(value)).toThrow()
   expect(() => validateAgentInfo({ agentData: { paneId: '%42' } })).not.toThrow()
@@ -61,8 +63,8 @@ test('tmux identifiers show the session, window number and pane while retaining 
 
 test('identity errors describe configured required fields and follow settings changes', () => {
   let registry = createAgentRegistry([])
-  expect(() => registry.resolve({}, parseAgentSettings(undefined), true)).toThrow('Agent ID required. Expected JSON: {"agentId":"<id>"}')
-  let settings = parseAgentSettings({ requireType: true, definitions: {
+  expect(() => registry.resolve({}, parseAgentSettings({ requireId: true }), true)).toThrow('Agent ID required. Expected JSON: {"agentId":"<id>"}')
+  let settings = parseAgentSettings({ requireId: true, requireType: true, definitions: {
     editor: { fields: { pane_id: { label: 'Editor pane', type: 'pane', required: true }, project: { label: 'Project', required: true }, optional: { label: 'Optional' } }, focusCommand: 'editor-focus-command' },
     terminal: { fields: { session: { label: 'Session', type: 'session', required: true } } },
   } })
@@ -75,7 +77,7 @@ test('identity errors describe configured required fields and follow settings ch
   settings.definitions.editor.fields = { workspace_id: { label: 'Workspace', type: 'window', required: true } }
   expect(() => registry.resolve({}, settings, true)).toThrow('Expected JSON: {"agentId":"<id>","agentType":"editor","agentData":{"workspace_id":"<window>"}}')
   expect(() => registry.resolve({}, { ...settings, requireId: false }, true)).toThrow('Expected JSON: {"agentType":"editor","agentData":{"workspace_id":"<window>"}}')
-  expect(() => registry.resolve({ agentId: 'new' }, parseAgentSettings({ requireType: true }), true)).toThrow('Expected JSON: {"agentId":"<id>","agentType":"<type>","agentData":{}}; configure automation.agents.definitions')
+  expect(() => registry.resolve({ agentId: 'new' }, parseAgentSettings({ requireId: true, requireType: true }), true)).toThrow('Expected JSON: {"agentId":"<id>","agentType":"<type>","agentData":{}}; configure automation.agents.definitions')
 })
 
 test('focus commands receive literal agent fields and EOF on unused standard input', async () => {
@@ -93,7 +95,7 @@ test('focus commands receive literal agent fields and EOF on unused standard inp
 
 test('registered agent context follows its ID across panes and survives sparse restored records', () => {
   let complete = { agentId: '%76', agentName: 'Publishing agent', agentPurpose: 'Publish a video', agentType: 'tmux', agentData: { sessionId: '$5', windowId: '@59', paneId: '%76' } }
-  let settings = parseAgentSettings({ requireType: true, definitions: { tmux: { fields: { sessionId: { label: 'Session', required: true }, windowId: { label: 'Window', required: true }, paneId: { label: 'Pane', required: true } } } } })
+  let settings = parseAgentSettings({ requireId: true, requireType: true, definitions: { tmux: { fields: { sessionId: { label: 'Session', required: true }, windowId: { label: 'Window', required: true }, paneId: { label: 'Pane', required: true } } } } })
   let registry = createAgentRegistry([complete, { agentId: '%76' }])
   expect(registry.resolve({ agentId: 'generic' }, parseAgentSettings(undefined), true)).toEqual({ agentId: 'generic' })
   expect(() => registry.resolve({ agentId: 'typed', agentType: 'tmux' }, { ...settings, requireType: false }, true)).toThrow('agentData.paneId')

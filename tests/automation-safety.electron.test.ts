@@ -975,7 +975,7 @@ test('alert agents keep their focus target after another agent uses the pane and
   }
 })
 
-test('agent identity is required by default, typed context can focus its terminal, and the requirement can be disabled', async () => {
+test('agent identity is optional by default, typed context can focus its terminal, and requirements are opt-in', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-agent-identity-'))
   let marker = path.join(directory, 'focused.json')
   let expectedIdentity = '{"agentId":"<id>","agentType":"terminal","agentData":{"sessionId":"<session>","windowId":"<window>","paneId":"<pane>"}}'
@@ -995,6 +995,9 @@ test('agent identity is required by default, typed context can focus its termina
       let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: undefined, BMUX_AGENT_NAME: undefined, BMUX_AGENT_PURPOSE: undefined, BMUX_AGENT_TYPE: undefined, BMUX_AGENT_DATA: undefined }, timeout: 20000 }).catch(error => { if (error.stdout) return { stdout: error.stdout }; throw error })
       return JSON.parse(result.stdout)
     }
+    expect(await cli(['eval', '-t', pane, '1 + 1'])).toMatchObject({ ok: true, result: 2 })
+    expect(await cli(['rpc', 'eval', JSON.stringify({ pane, expression: '1 + 1' })])).toMatchObject({ ok: true, result: 2 })
+    await chrome.evaluate(() => (window as any).bmux.command({ method: 'automation.agents.set', args: { requireId: true } }))
     let failedUrl = 'http://two.example.com:1/unreachable'
     expect((await cli(['navigate', '-t', pane, failedUrl, '--agent-id', 'research'])).ok).toBe(false)
     expect((await cli(['automation', 'safety'])).result.profiles).toEqual([])

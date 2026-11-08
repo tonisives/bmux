@@ -1615,7 +1615,7 @@ let AgentLockIcon = ({ unlocked }: { unlocked: boolean }) => <svg viewBox="0 0 1
 
 let AgentRequirementSwitch = ({ setting, label }: { setting: 'requireId' | 'requireType'; label: string }) => {
   let { state, run } = useUI()
-  let savedRequired = state.automationAgents?.[setting] ?? setting === 'requireId'
+  let savedRequired = state.automationAgents?.[setting] ?? false
   let [required, setRequired] = useState(savedRequired), [busy, setBusy] = useState(false)
   useEffect(() => { setRequired(savedRequired) }, [savedRequired])
   let changeIdentity = async (event: ChangeEvent<HTMLInputElement>) => {

@@ -3,7 +3,7 @@ export type AgentInfo = { agentId?: string; agentName?: string; agentPurpose?: s
 export type AgentField = { label: string; type?: 'text' | 'session' | 'window' | 'pane'; required?: boolean }
 export type AgentDefinition = { fields: Record<string, AgentField>; identifierField?: string; focusCommand?: string }
 export type AgentSettings = { requireId: boolean; requireType: boolean; definitions: Record<string, AgentDefinition> }
-export let DEFAULT_AGENTS: AgentSettings = { requireId: true, requireType: false, definitions: {} }
+export let DEFAULT_AGENTS: AgentSettings = { requireId: false, requireType: false, definitions: {} }
 export let AGENT_KEYS = ['agentId', 'agentName', 'agentPurpose', 'agentContext', 'agentType', 'agentData', 'agentOrigin'] as const
 export let agentIdentifier = (actor: AgentInfo, definition?: AgentDefinition): { label: string; value: string } => {
   let data = actor.agentData
@@ -77,5 +77,5 @@ export let parseAgentSettings = (value: unknown): AgentSettings => {
       if (Object.keys(rest).length || typeof label !== 'string' || !label.trim() || label.length > 128 || type !== undefined && (typeof type !== 'string' || !['text', 'session', 'window', 'pane'].includes(type)) || required !== undefined && typeof required !== 'boolean') throw new Error('Invalid agent field label, type or requirement')
     }
   }
-  return { requireId: raw.requireId as boolean ?? true, requireType: raw.requireType as boolean ?? false, definitions: definitions as AgentSettings['definitions'] }
+  return { requireId: raw.requireId as boolean ?? false, requireType: raw.requireType as boolean ?? false, definitions: definitions as AgentSettings['definitions'] }
 }
