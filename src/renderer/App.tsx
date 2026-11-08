@@ -1951,6 +1951,17 @@ let applySharedSocialSettings = async (request: PluginPrompt, fields: PluginPara
   let result = await bridge.command({ method: 'plugin.respond', args: { id: request.id, applyAll: true, value: Object.fromEntries(fields.map(field => [field.name, values[field.name] ?? field.default]).filter(([, value]) => value !== undefined)) } }) as { applied: number }
   return `Applied to ${result.applied} platform configurations`
 }
+let BrowseRecordSettings = () => {
+  let { state, run } = useUI()
+  let recording = state.browseRecording ?? { enabled: true, manual: true }
+  let change = (event: ChangeEvent<HTMLInputElement>) => { void run('settings.set', { key: event.target.name, value: event.target.checked }) }
+  return <details className={css.settingsGroup} open><summary>Record</summary>
+    <label className={css.settingsRow}><span>Record browsing</span><input type="checkbox" name="browseRecording.enabled" checked={recording.enabled} onChange={change} /></label>
+    <label className={css.settingsRow}><span>Include manual browsing</span><input type="checkbox" name="browseRecording.manual" disabled={!recording.enabled} checked={recording.manual} onChange={change} /></label>
+    <p>/Volumes/sam/app-support/bmux/browse-history/local</p>
+    {recording.error && <p role="alert">{recording.error}</p>}
+  </details>
+}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
@@ -2043,7 +2054,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access} idle={values.ai_source === 'included' && !usesIncludedAI(values)}>{sourceFields.map(field)}</PluginSubscription>}
       {!request.profiles && <section aria-label="Browsing profile"><h3>Browsing profile</h3>{presets}</section>}
-      <div className={css.pluginSettingsHeading}><h3>{sharedSettings ? 'Shared settings' : 'Session settings'}</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
+      <div className={css.pluginSettingsHeading}><h3>{sharedSettings ? 'Shared settings' : 'Session settings'}</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sharedSettings && <BrowseRecordSettings />}{sections}</div>
       </>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>

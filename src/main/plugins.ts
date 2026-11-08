@@ -17,6 +17,7 @@ import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifes
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
 type Run = { sharedSettings?: boolean; destination?: 'current' | 'window'; profiles?: PluginSettingsProfiles; saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
+  browseHistory?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<unknown>;
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
   decisions?: (method: 'usage' | 'create' | 'memory', args: Record<string, unknown>) => Promise<unknown>
@@ -240,10 +241,14 @@ export let createPlugins = (options: Options) => {
     let run = runs.get(String(request.runId))
     if (!run || !live(run) || !run.token || request.token !== run.token) throw new Error('Invalid plugin invocation')
     let method = String(request.method), args = record(request.args ?? {})
+    if (method === 'history.status' || method === 'history.record') {
+      if (!run.action.capabilities.includes('browser.read') || run.definition.manifest.category !== 'Social Media') throw new Error('Social browsing capability required')
+      return options.browseHistory?.({ ...run.context, runId: run.public.id }, method, args)
+    }
     let policyCall = <T>(operation: () => T): T => { try { return operation() } catch (error) { run.policyError = error instanceof Error ? error.message : 'Automation policy failed'; throw error } }
       if (method === 'context') {
       if (args.refresh === true) run.context = { ...options.context(run.context), ...(run.context.launchApproved ? { launchApproved: true, launchUrl: run.context.launchUrl } : {}) }
-      return { ...run.context, scrolling: options.context(run.context).scrolling, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
+      return { ...run.context, browseRecording: await options.browseHistory?.(run.context, 'history.status', {}), scrolling: options.context(run.context).scrolling, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
     }
     if (method === 'overlay.update' || method === 'overlay.events') {
       if (!run.action.capabilities.includes('ui') || run.public.hook || !run.context.paneId) throw new Error('Manual ui capability required for overlay')
