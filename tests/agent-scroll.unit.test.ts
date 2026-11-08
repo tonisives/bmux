@@ -29,7 +29,7 @@ test('mouse wheel follows a sine velocity curve and awaits the final input', asy
 
 test('successive scrolls vary the sine envelope and timing without drifting the endpoint', async () => {
   vi.useFakeTimers()
-  let sample = 0, random = vi.spyOn(Math, 'random').mockImplementation(() => (sample++ % 17) / 17)
+  let sample = 0, random = vi.spyOn(Math, 'random').mockImplementation(() => (sample++ * .61803398875) % 1)
   try {
     let runs: { delta: number; at: number }[][] = []
     for (let index = 0; index < 2; index++) {
