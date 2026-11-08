@@ -259,14 +259,15 @@ void app.whenReady().then(async () => {
           let command = JSON.parse(request) as Command
           if (!command || typeof command.method !== 'string' || (command.args !== undefined && (typeof command.args !== 'object' || command.args === null || Array.isArray(command.args)))) throw new Error('Invalid request')
           if (process.env.BMUX_INTERACTIVE_ONLY === 'true' && command.method !== 'status') throw new Error('This browser supports interactive access only')
-          command = socketAgent(command, process.env.BMUX_DEFAULT_AGENT_ID)
+          if (command.inputSource !== undefined && command.inputSource !== 'human') throw new Error('Invalid input source')
+          if (command.inputSource !== 'human') command = socketAgent(command, process.env.BMUX_DEFAULT_AGENT_ID)
           let result = command.method.startsWith('record.') ? await recordingCommand(command) : command.method.startsWith('hooks.') ? await hookCommand(command) : command.method === 'remote.status' ? remoteHost?.status() ?? { enabled: false }
             : command.method === 'remote.job' ? (() => {
               if (!remoteHost) throw new Error('Remote reporting is not enabled')
               let args = command.args ?? {}
               if (typeof args.id !== 'string' || typeof args.attempt !== 'string' || args.result !== undefined && !['succeeded', 'failed'].includes(String(args.result))) throw new Error('Invalid job event')
               return remoteHost.job(args.id, args.attempt, args.result as 'succeeded' | 'failed' | undefined)
-            })() : await runtime!.execute(command)
+            })() : command.inputSource === 'human' ? await runtime!.executeHuman(command) : await runtime!.execute(command)
           connection.end(`${JSON.stringify({ ok: true, result })}\n`)
         } catch (error) {
           connection.end(`${JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) })}\n`)

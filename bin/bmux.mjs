@@ -73,7 +73,7 @@ Automation: automation status | automation safety | automation acquire -t PANE -
             remote attention-wait -t PANE --episode STABLE_ID [--timeout 300000]
             remote attention-verify -t PANE --episode STABLE_ID --attempt ID --outcome verified|verification-failed
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
-            Browser commands require --agent-id ID or BMUX_AGENT_ID by default.
+            Agent identity is optional. Use --human for immediate user-driven input without agent pacing or feedback.
             Add --agent-name NAME, --agent-purpose REASON, --agent-context PLATFORM, --agent-type TYPE and --agent-data JSON for agent details.
             agent context prints verified tmux context for the calling agent.
 Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
@@ -94,22 +94,31 @@ let socketPath = controlSocketPath(dataDirectory)
 
 let parse = () => {
   let info = { agentId: process.env.BMUX_AGENT_ID, agentName: process.env.BMUX_AGENT_NAME, agentPurpose: process.env.BMUX_AGENT_PURPOSE, agentContext: process.env.BMUX_AGENT_CONTEXT, agentType: process.env.BMUX_AGENT_TYPE, agentData: process.env.BMUX_AGENT_DATA }
+  let human = false
   let explicit = new Set()
   let flags = { '--agent-id': 'agentId', '--agent-name': 'agentName', '--agent-purpose': 'agentPurpose', '--agent-context': 'agentContext', '--agent-type': 'agentType', '--agent-data': 'agentData' }
   let switches = new Set(['confirm', 'background', 'html', 'allow', 'viewport', 'next', 'floating', 'history', 'enabled', 'wait', 'stdin', 'no-start', 'h', 'v', 'W', 'a', 'b', 'd', 'U', 'D', 'Z'])
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break
     let flag = argv[index].split('=')[0], key = flags[flag]
-    if (key) {
+    if (flag === '--human') {
+      if (argv[index] !== '--human') throw new Error('Use --human without a value')
+      human = true; argv.splice(index, 1); index--
+    } else if (key) {
       let inline = argv[index].includes('='), value = inline ? argv[index].slice(flag.length + 1) : argv[index + 1]
       if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`)
       info[key] = value; explicit.add(key); argv.splice(index, inline ? 1 : 2); index--
     } else if (argv[index].startsWith('-') && !argv[index].includes('=') && !switches.has(argv[index].replace(/^-+/, '')) && !(['switchc', 'switch-client'].includes(argv[0]) && /^-(?:[ElnprZ]+|[ElnprZ]*[ctTO].+)$/.test(argv[index]))) index++
   }
+  if (human) info = {}
   for (let [key, value] of Object.entries(info)) if (key !== 'agentData' && value !== undefined && (!value.trim() || value.length > (key === 'agentPurpose' ? 1000 : 128) || /[\x00-\x1f\x7f]/.test(value))) throw new Error(`Invalid ${key}`)
   if (info.agentData !== undefined) { info.agentData = JSON.parse(info.agentData); if (!info.agentData || typeof info.agentData !== 'object' || Array.isArray(info.agentData)) throw new Error('agentData must be a JSON object') }
   let identify = command => {
     let args = { ...command.args }
+    if (human) {
+      for (let key of ['agentId', 'agentName', 'agentPurpose', 'agentContext', 'agentType', 'agentData', 'agentOrigin', '_automationLease']) delete args[key]
+      return { ...command, args, inputSource: 'human' }
+    }
     for (let [key, value] of Object.entries(info)) if (value !== undefined && (explicit.has(key) || args[key] === undefined)) args[key] = value
     return { ...command, args }
   }
@@ -294,7 +303,7 @@ try {
   }
   let observing=command.method==='observe'
   if(observing){if(command.args?.format && command.args.format!=='webm')throw new Error('Observation streams use WebM');command={...command,method:'record.start'}}
-  command = await identifyTmuxAgent(command)
+  if (command.inputSource !== 'human') command = await identifyTmuxAgent(command)
   let response
   try { response = await request(command) } catch (error) {
     if (!['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error

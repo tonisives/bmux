@@ -218,6 +218,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let pluginActor = new AsyncLocalStorage<boolean>()
   let pluginCommand = new AsyncLocalStorage<PluginContext & { signal?: AbortSignal }>(), websiteLocks = createWebsiteLocks()
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
+  let humanInput = new AsyncLocalStorage<boolean>()
+  let isAutomationCommand = (sourceClientId?: string) => !sourceClientId && !remoteActor.getStore() && !humanInput.getStore()
   let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait', 'client.tooltip'])
   let checkControl = (method: string, args: Record<string, unknown>, sourceClientId?: string) => {
     if (controlObservation.has(method)) return
@@ -914,6 +916,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
   let automationPointerTabs = new Set<string>()
   let runAgentAction = <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner = String(args.agentId ?? '')) => {
+    if (humanInput.getStore()) return operation()
     assertAgentTarget(pane)
     let original = paneById(model, pane).pane
     let urls = () => {
@@ -933,6 +936,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }, agentActionInput(method, args, owner), readsPage(method, args), pluginCommand.getStore()?.pacing !== 'plugin')).finally(() => { if (remotePreviewsEnabled && currentPane(pane) === original) previewRefresh.request(pane) })
   }
   let readAutomationPage = <T>(tabId: string, read: () => Promise<T>): Promise<T> => {
+    if (humanInput.getStore()) return read()
     let live = tabs.get(tabId), document = documents.get(tabId)
     if (!live || live.contents.isDestroyed() || live.contents.isCrashed()) return read()
     return withAgentReading(async (method, params) => {
@@ -943,6 +947,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }, read, () => documents.get(tabId) === document)
   }
   let showAutomationPointer = (tabId: string, point?: { x: number; y: number }) => {
+    if (humanInput.getStore()) return
     let live = tabs.get(tabId), { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
     if (automationProfileLimits(safety, pane.profileId).simulateMouseMovement === false) return
     automationPointerTabs.add(tabId)
@@ -957,6 +962,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     })().catch(() => undefined)
   }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false, automatedMouse = false, scrolling?: unknown) => {
+    let scaleInput = automatedMouse
+    automatedMouse = automatedMouse && !humanInput.getStore()
     let live = await ensureLiveTab(tabId)
     if (method === 'Page.captureScreenshot' || method === 'Page.startScreencast') assertFrameCapture(live.contents)
     if (!readOnly && !['Page.captureScreenshot', 'Page.getLayoutMetrics'].includes(method)) checkControl('cdp', { tab: tabId })
@@ -990,7 +997,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
-    let send = () => automatedMouse && method === 'Input.dispatchMouseEvent' ? sendInput(method, params) : debuggerApi.sendCommand(method, params, sessionId)
+    let send = () => scaleInput && method === 'Input.dispatchMouseEvent' ? sendInput(method, params) : debuggerApi.sendCommand(method, params, sessionId)
     try {
       result = process.platform === 'darwin' && /^(Input\.|Runtime\.(evaluate|callFunctionOn))/.test(method)
         ? await filePickers.input(tabId, params => debuggerApi.sendCommand('Page.setInterceptFileChooserDialog', params, sessionId), send, sessionId)
@@ -2647,7 +2654,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     publish()
   }
   let guardAutomation = async (context: PluginContext, targetUrl?: string, pace = true, recover = false) => {
-    if (!context.profileId || !context.paneId) return
+    if (humanInput.getStore() || !context.profileId || !context.paneId) return
     assertAgentTarget(context.paneId)
     attention.assert(context.paneId)
     let { pane, session } = paneById(model, context.paneId)
@@ -2682,9 +2689,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
 
   let execute = async (command: Command, sourceClientId?: string): Promise<unknown> => {
+    if (command.inputSource !== undefined) throw new Error('Human input is available through the local control socket')
     if (sourceClientId && model.clients.find(client => client.id === sourceClientId)?.readOnly && !['switch-client', 'command-line', 'detach-client', 'activate-client', 'focus-page'].includes(command.method)) throw new Error('Client is read-only; use switchc -r to enable input')
     let creation = ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(command.method)
-    if (!sourceClientId && !remoteActor.getStore() && (agentCommands.has(command.method) || command.method === 'automation.acquire' || creation)) {
+    if (isAutomationCommand(sourceClientId) && (agentCommands.has(command.method) || command.method === 'automation.acquire' || creation)) {
       let required = !creation || command.args?.url !== undefined
       let actor = agentRegistry.resolve(command.args ?? {}, configuration?.automation.agents ?? DEFAULT_AGENTS, required && !pluginActor.getStore())
       command = { ...command, args: { ...command.args, ...actor } }
@@ -2701,7 +2709,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let paneId = command.args?.pane ?? command.args?.tab
     let targetPane = !sourceClientId && typeof paneId === 'string' && agentCommands.has(command.method) ? paneById(model, paneId).pane : undefined
     if (targetPane) assertAgentTarget(targetPane.id)
-    let activity = !sourceClientId && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
+    let activity = !sourceClientId && !humanInput.getStore() && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
     if (activity) { validateAgentInfo(activity); paneById(model, activity.paneId).pane.lastUsedBy = 'agent'; activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); publish() }
     let finishActivity: ((outcome?: 'success' | 'error') => void) | undefined
     let actionOutcome: 'success' | 'error' = 'error'
@@ -2709,7 +2717,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     try {
       finishActivity = activity && targetPane ? trackActivity(targetPane.id, String(command.args?.agentId ?? targetPane.agentId ?? 'agent'), command.method, activity) : undefined
       let read = () => { if (targetPane) assertAgentTarget(targetPane.id); return perform(command, sourceClientId) }
-      let automationPane = !sourceClientId && !remoteActor.getStore() && typeof paneId === 'string' ? paneId : undefined
+      let automationPane = isAutomationCommand(sourceClientId) && typeof paneId === 'string' ? paneId : undefined
       let operation = () => automationPane && readsPage(command.method, command.args) ? readAutomationPage(automationPane, read) : read()
       let run = () => automationPane && agentAction(command.method, command.args) ? runAgentAction(automationPane, command.method, command.args ?? {}, operation) : operation()
       result = await (targetPane ? agentTarget.run(targetPane, run) : run())
@@ -2731,6 +2739,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (remoteActor.getStore() && typeof paneId === 'string' && agentCommands.has(command.method)) recordSessionActivity(paneId)
     return result
+  }
+  // Only the local socket dispatches this path. UI and remote commands cannot
+  // opt out of their own origin checks by adding a field to their arguments.
+  let executeHuman = (command: Command) => {
+    let args = Object.fromEntries(Object.entries(command.args ?? {}).filter(([key]) => !AGENT_KEYS.includes(key as typeof AGENT_KEYS[number]) && key !== '_automationLease'))
+    return humanInput.run(true, () => execute({ method: command.method, args }))
   }
   let perform = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
@@ -2790,7 +2804,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       publish(); return result
     }
     checkControl(method, args, sourceClientId)
-    if (!sourceClientId && !remoteActor.getStore() && typeof args.tab === 'string' && ['navigate','back','forward','reload','hard-reload','stop','eval','click','type','key','cdp','forms.fill','plugin.run','kill-pane','kill-window','kill-session'].includes(method)) attention.assert(args.tab)
+    if (isAutomationCommand(sourceClientId) && typeof args.tab === 'string' && ['navigate','back','forward','reload','hard-reload','stop','eval','click','type','key','cdp','forms.fill','plugin.run','kill-pane','kill-window','kill-session'].includes(method)) attention.assert(args.tab)
     if (method === 'remote.attention') {
       if (!sourceClientId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
       let { pane, session } = paneById(model, required(args,'pane'))
@@ -2943,31 +2957,31 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     let automatedMethods = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill'])
     if (sourceClientId && ['navigate', 'reload', 'hard-reload', 'back', 'forward', 'history.go-to'].includes(method) && typeof args.tab === 'string') automationPointerTabs.delete(args.tab)
-    if (!sourceClientId && !remoteActor.getStore() && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? false) && !args.agentId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
-    if (!sourceClientId && (AGENT_KEYS.some(key => args[key] !== undefined)) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
+    if (isAutomationCommand(sourceClientId) && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? false) && !args.agentId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
+    if (!sourceClientId && !humanInput.getStore() && (AGENT_KEYS.some(key => args[key] !== undefined)) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
       let { pane } = tabById(model, args.tab)
       updateAgentInfo(pane, args); save(); publish()
     }
-    if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method) && typeof args.tab === 'string') {
+    if (isAutomationCommand(sourceClientId) && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, session } = tabById(model, args.tab)
       let targetUrl = automationTargetUrl(method, args)
       await guardAutomation({ profileId: pane.profileId, paneId: args.tab }, targetUrl ? normalizeUrl(targetUrl, searchAppForSession(session)) : undefined, paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
       tabs.get(args.tab)?.inputLock?.showCommand(agentCommandLabel(method, args))
       if (['navigate', 'back', 'forward', 'reload', 'hard-reload', 'history.go-to'].includes(method) || method === 'cdp' && ['Page.navigate', 'Page.reload', 'Page.navigateToHistoryEntry'].includes(String(args.method))) showAutomationPointer(args.tab)
     }
-    if (!sourceClientId && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
+    if (!sourceClientId && !humanInput.getStore() && automation && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, tab, session } = tabById(model, args.tab)
       let url = method === 'navigate' ? normalizeUrl(required(args, 'url'), searchAppForSession(session)) : tabs.get(args.tab)?.contents.getURL() || tab.url
       let token = typeof args._automationLease === 'string' ? args._automationLease : undefined
       automation.authorize({ profileId: pane.profileId, tabId: args.tab, url, token, kind: ['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) ? 'navigation' : ['click', 'type', 'key', 'scroll'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: !['navigate', 'back', 'forward', 'reload', 'hard-reload'].includes(method) })
       if (token) tabAutomation.set(args.tab, token)
     }
-    if (!sourceClientId && automation && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
+    if (!sourceClientId && !humanInput.getStore() && automation && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let profileId = typeof args.profile === 'string' ? args.profile : method === 'new-window' ? resolve(model.sessions, args.session, 'Session').defaultProfileId : typeof args.pane === 'string' ? paneById(model, args.pane).session.defaultProfileId : ''
       let searchApp = method === 'new-window' ? searchAppForSession(resolve(model.sessions, args.session, 'Session')) : typeof args.pane === 'string' ? searchAppForSession(paneById(model, args.pane).session) : undefined
       if (matchingAutomationGroup(configuration?.automation ?? DEFAULT_AUTOMATION, profileId, normalizeUrl(args.url, searchApp))) throw new Error('Create a blank pane, then acquire an automation lease before navigating to this site')
     }
-    if (!sourceClientId && !remoteActor.getStore() && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
+    if (isAutomationCommand(sourceClientId) && ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && typeof args.url === 'string') {
       let session = method === 'new-window' ? resolve(model.sessions, args.session, 'Session') : paneById(model, args.pane).session
       let profileId = resolve(model.profiles, args.profile ?? session.defaultProfileId, 'Profile').id
       await automationSafety?.before(profileId, async () => ({ url: 'about:blank' }), normalizeUrl(args.url, searchAppForSession(session)), true, { paneId: '', ...agentInfo(args) }, false)
@@ -3365,7 +3379,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (method === 'scroll') {
       let tabId = required(args, 'tab'); await ensureLiveTab(tabId)
-      if (sourceClientId || remoteActor.getStore()) await scrollTab(tabId, required(args, 'action'))
+      if (sourceClientId || remoteActor.getStore() || humanInput.getStore()) await scrollTab(tabId, required(args, 'action'))
       else {
         let metrics = await cdp(tabId, 'Runtime.evaluate', { expression: '({width:innerWidth,height:innerHeight,y:scrollY,heightFull:document.scrollingElement?.scrollHeight ?? innerHeight})', returnByValue: true }, undefined, true)
         let { width, height, y, heightFull } = metrics.result.value
@@ -3402,6 +3416,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!clientId || clientId !== focusedClientId) throw new Error('Click mode requires the focused client')
       return { active: await activateClickMode(clientId) }
     }
+    if (method === 'input.capabilities') return { human: true }
     if (method === 'state' || method === 'status') return state()
     if (method === 'client.tooltip') {
       if (!sourceClientId) throw new Error('Trusted UI required')
@@ -4310,7 +4325,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       save(); void scheduleVisuals()
       // did-navigate owns the committed URL; do not overwrite it with a pending request.
       // did-fail-load reports failures, including failures before a navigation commits.
-      let actor = !sourceClientId && !remoteActor.getStore() ? trackAutomatedNavigation(tabId) : undefined
+      let actor = isAutomationCommand(sourceClientId) ? trackAutomatedNavigation(tabId) : undefined
       void live.ready.then(async () => { checkControl(method, args); if (isLiveTabOpen(live) && live.pendingNavigation === navigation) { await interruptHistoryRestore(live); if (isLiveTabOpen(live) && live.pendingNavigation === navigation) return guardedLoad(live, url).then(() => { navigationCrashMarker.clear(tabId, url) }) } }).catch(error => { if (!live.disposed && live.pendingNavigation === navigation && !navigationAborted(error)) { setNavigationError(tabId, errorText(error), url); publish() } }).finally(() => {
         if (live.pendingNavigation !== navigation) return
         live.pendingNavigation = undefined
@@ -4327,9 +4342,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     return serializeTab(tabId, async () => {
       checkControl(method, args)
       let { tab, pane, session } = tabById(model, tabId)
-      if (!sourceClientId && !remoteActor.getStore() && !controlObservation.has(method)) attention.assert(pane.id)
+      if (isAutomationCommand(sourceClientId) && !controlObservation.has(method)) attention.assert(pane.id)
       let destination = automationTargetUrl(method, args)
-      if (!sourceClientId && !remoteActor.getStore() && automatedMethods.has(method)) automationSafety?.assertAvailable(pane.profileId, tabId, destination ? normalizeUrl(destination, searchAppForSession(session)) : tab.url, { paneId: pane.id, ...agentInfo(pane) })
+      if (isAutomationCommand(sourceClientId) && automatedMethods.has(method)) automationSafety?.assertAvailable(pane.profileId, tabId, destination ? normalizeUrl(destination, searchAppForSession(session)) : tab.url, { paneId: pane.id, ...agentInfo(pane) })
       if (typeof args._pluginGuard === 'function') args._pluginGuard()
       let live = method === 'navigate' ? await ensureLiveTab(tabId, false) : await ensureLiveTab(tabId)
       checkControl(method, args)
@@ -4348,7 +4363,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           let responseCode = 0
           let response = (_event: Electron.Event, _url: string, code: number) => { responseCode = code }
           contents.on('did-navigate', response)
-          let actor = !sourceClientId && !remoteActor.getStore() ? trackAutomatedNavigation(tabId) : undefined
+          let actor = isAutomationCommand(sourceClientId) ? trackAutomatedNavigation(tabId) : undefined
           try { await guardedLoad(live, normalizeUrl(required(args, 'url'), searchAppForSession(session))) }
           catch (error) { if (hostProxy && /PROXY|TUNNEL|SOCKS/.test(errorText(error))) throw new Error('PROXY_UNAVAILABLE'); throw error }
           finally { contents.off('did-navigate', response); if (actor && automatedNavigations.get(tabId) === actor) automatedNavigations.delete(tabId) }
@@ -4751,5 +4766,5 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return remoteViewport(pane)
     },
   }
-  return { activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane,...agentInfo(paneById(model,pane).pane)} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, state, overlayState, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  return { activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane,...agentInfo(paneById(model,pane).pane)} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, executeHuman, state, overlayState, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }
