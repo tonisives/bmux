@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import type { WebContents } from 'electron'
+import { captureViewportScreenshot } from './viewport-screenshot'
 
 let defaultRoot = '/Volumes/sam/app-support/bmux/browse-history/local'
 let hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
@@ -52,12 +53,11 @@ export let createBrowseRecorder = (options: { directory?: string; mount?: string
         if (!contribution || !contribution.hosts.some((host: string) => url.hostname === host || url.hostname.endsWith('.' + host))) continue
         let before = await contents.executeJavaScript(contribution.expression)
         if (!before?.ok || !enabled()) return
-        let rect = before.cardRect, viewport = before.viewport
-        let crop = rect && viewport ? { x: Math.max(0, Math.floor(rect.x)), y: Math.max(0, Math.floor(rect.y)), width: Math.floor(Math.min(rect.right, viewport[0]) - Math.max(0, rect.x)), height: Math.floor(Math.min(rect.bottom, viewport[1]) - Math.max(0, rect.y)) } : undefined
-        if (crop && (crop.width <= 0 || crop.height <= 0)) return
-        let image = await contents.capturePage(crop), after = await contents.executeJavaScript(contribution.expression)
-        if (!enabled() || before.identity !== after.identity || before.text !== after.text) return
-        await store(after, { format: 'jpeg', data: image.toJPEG(80).toString('base64') }, { ...context, platform })
+        if (!before.cardRect || !before.viewport) return
+        let image = await captureViewportScreenshot(contents, { clip: before.cardRect, viewport: before.viewport, format: 'jpeg', quality: 85, maxDimension: 1024 })
+        let after = await contents.executeJavaScript(contribution.expression)
+        if (!enabled() || before.identity !== after.identity || before.text !== after.text || JSON.stringify(before.cardRect) !== JSON.stringify(after.cardRect) || JSON.stringify(before.viewport) !== JSON.stringify(after.viewport)) return
+        await store(after, { format: 'jpeg', data: image.data.toString('base64') }, { ...context, platform })
         return
       }
     } catch (failure) { error = (failure as Error).message }
