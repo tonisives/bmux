@@ -83,7 +83,7 @@ type Notification = { id: string; text: string; warning?: AutomationWarning; det
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
-type UIContext = { panelBack: PanelBack | null; settingsTarget: 'build' | null; setSettingsTarget: (target: 'build' | null) => void; agentDetails: AgentDetails; setAgentDetails: (details: AgentDetails) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
+type UIContext = { panelBack: PanelBack | null; settingsTarget: 'build' | null; setSettingsTarget: (target: 'build' | null) => void; agentDetails: AgentDetails; setAgentDetails: (details: AgentDetails) => void; bookmarkViews: Record<string, BookmarkView>; rememberBookmarkView: (profileId: string, view: BookmarkView) => void; settingsMemory: Map<string, { initial: unknown; value: unknown }>; initialPlugin: BuiltinTool | null; state: PublicState; control: Control | null; historyPopup: HistoryPopup | null; setHistoryPopup: (popup: HistoryPopup | null) => void; bookmarkDestination: BookmarkDestination | null; addressFocusVersion: number; setAddressSuggestionsVisible: (visible: boolean) => void; message: string; onMessage: (message: string) => void; run: (method: string, args?: Record<string, unknown>) => Promise<unknown>; show: (control: Control, paneId?: string, destination?: BookmarkDestination, plugin?: BuiltinTool) => void; dismiss: () => void; revealPage: () => void; allBookmarkProfiles: boolean; setAllBookmarkProfiles: (enabled: boolean) => void; bookmarkSearches: Record<string, string>; rememberBookmarkSearch: (profileId: string, query: string) => void; bookmarkSelections: Record<string, string>; rememberBookmarkSelection: (profileId: string, bookmarkId: string) => void; acknowledgeDownload: (downloadId: string) => void; acknowledgedDownloads: Set<string> }
 
 export let App = () => {
   let settingsMemory = useRef(new Map<string, { initial: unknown; value: unknown }>()).current, [state, setState] = useState<PublicState | null>(null)
@@ -135,10 +135,11 @@ export let App = () => {
     setPanelHistory(history => isPanel(parent.control) && isPanel(control) && parent.control !== control ? [...history, parent] : [])
     setBookmarkDestination(control === 'bookmark' ? destination ?? null : null); setMessage(''); setControl(control)
   }, [accept, run])
+  let revealPage = useCallback(() => { setPanelHistory([]); setControl(null); setHistoryPopup(null); setMessage('') }, [])
   let dismiss = useCallback(() => {
     if (state?.pluginPrompt) return dismissPluginPrompt(state.pluginPrompt)
-    setPanelHistory([]); setControl(null); setHistoryPopup(null); setMessage('')
-  }, [state?.pluginPrompt])
+    revealPage()
+  }, [state?.pluginPrompt, revealPage])
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
@@ -171,7 +172,7 @@ export let App = () => {
     ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...(!alertsCollapsed ? agentAlerts : []),
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
-  let context = { panelBack, settingsTarget, setSettingsTarget, agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
+  let context = { panelBack, settingsTarget, setSettingsTarget, agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, revealPage, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
   return <Context.Provider value={context}><div className={css.app} data-page-overlay={!!state.dialogPrompt || keepPages || undefined} data-status-bar={state.statusBar ?? 'top'}>
     <main className={css.workspace}>{layout ? <Branch node={layout} /> : !window.floating?.length && <EmptyWorkspace />}{!client.zoomedPaneId && window.floating?.map(item => <FloatingPreview key={item.paneId} paneId={item.paneId} />)}{panel === 'profiles' && !sessionsBehind && <Panel key={panel} type={panel} hidden={!!state.pluginPrompt} />}{control === 'command' && !client.zoomedPaneId && window.floating?.some(item => item.paneId === client.paneId) && <CommandPrompt key={`${client.windowId}:${client.paneId}`} />}</main>
     <BrowserStatus collapsedAlerts={alertsCollapsed ? agentAlerts : []} expandAlerts={() => setAlertsCollapsed(false)} />
@@ -1961,9 +1962,16 @@ let BrowseRecordSettings = () => {
     {recording.error && <p role="alert">{recording.error}</p>}
   </details>
 }
+let usePluginFormResponse = (request: PluginPrompt) => {
+  let { run, revealPage } = useUI()
+  return async (value: Record<string, unknown>, destination?: string) => {
+    let response = await run('plugin.respond', { id: request.id, value, destination })
+    if (request.launch && response !== undefined) revealPage()
+  }
+}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
-  let request = state.pluginPrompt!
+  let request = state.pluginPrompt!, respond = usePluginFormResponse(request)
   let [subscription, setSubscription] = useState(false), [choosingDestination, setChoosingDestination] = useState(false)
   let sharedSettings = request.sharedSettings === true
   let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
@@ -2023,7 +2031,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     try {
       await flush()
       if (sharedSettings) { setSaveStatus(await applySharedSocialSettings(request, fields, values)); return }
-      if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await run('plugin.respond', { id: request.id, value: values, destination }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not save settings') } finally { setBusy(false) }
+      if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await respond(values, destination) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not save settings') } finally { setBusy(false) }
   }
   let cancel = async () => {
     if (busy) return
