@@ -144,3 +144,14 @@ test('wait requests validate exclusive modes and reject invalid durations and st
   expect(waitOptions({ ms: '100', timeout: '10' })).toEqual({ ms: 10, timeout: 10 })
   expect(waitOptions({ expression: 'window.ready', timeout: 100000 })).toEqual({ expression: 'window.ready', timeout: 60000 })
 })
+
+
+test('session lists include agent-created windows before any client visits them', () => {
+  let bot = newSession('bot', 'profile_bot')
+  let window = newWindow('agent research', 'profile_bot')
+  window.panes[0].agentId = 'research-agent'
+  bot.windows.push(window)
+  expect(searchSessions([bot], '')[0].windows).toContain(window)
+  expect(searchRecentWindows([bot], '', { windowHistory: [] })).toContain(window)
+  expect(searchSessions([bot], 'agent research')[0].windows).toContain(window)
+})
