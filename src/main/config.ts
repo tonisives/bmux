@@ -1,3 +1,8 @@
+export let parseBrowseRecording = (value: unknown) => {
+  if (value === undefined) return { enabled: true, manual: true }
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.entries(value).some(([key, item]) => !['enabled', 'manual'].includes(key) || typeof item !== 'boolean')) throw new Error('Invalid browsing recording settings')
+  return { enabled: true, manual: true, ...value as { enabled?: boolean; manual?: boolean } }
+}
 import { DEFAULT_SCROLLING, parseScrolling } from '../shared/scrolling'
 import type { ScrollingSettings } from '../shared/scrolling'
 import fs from 'node:fs'
@@ -24,7 +29,7 @@ import { DEFAULT_REMOTE_PREVIEWS, parseRemotePreviews } from '../shared/remote-p
 import type { RemotePreviewSettings } from '../shared/remote-preview-settings'
 
 export let DEFAULT_MEMORY: MemorySettings = { lazyRestore: true, idleUnloadMinutes: 0, maxLoadedBackgroundPages: 8 }
-type Settings = { scrolling: ScrollingSettings; remotePreviews: RemotePreviewSettings; agentFeedback: AgentFeedbackSettings; automaticUpdates: boolean; keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showBuildId: boolean; showTabCloseButtons: boolean; showDarkModeButton: boolean; vimEditing: boolean; searchApps: SearchApps; memory: MemorySettings; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
+type Settings = { browseRecording: { enabled: boolean; manual: boolean }; scrolling: ScrollingSettings; remotePreviews: RemotePreviewSettings; agentFeedback: AgentFeedbackSettings; automaticUpdates: boolean; keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showBuildId: boolean; showTabCloseButtons: boolean; showDarkModeButton: boolean; vimEditing: boolean; searchApps: SearchApps; memory: MemorySettings; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
 
 export let configPath = (dataDirectory: string) => {
   let configured = process.env.BMUX_CONFIG ?? process.env.BROWMUX_CONFIG
@@ -166,10 +171,10 @@ export let parseConfig = (text: string): Settings => {
       plugins[id] = { enabled: entry.enabled === true, hooks: entry.hooks === true }
     }
   }
-  return { scrolling: parseScrolling(value.scrolling), remotePreviews: parseRemotePreviews(value.remotePreviews), agentFeedback: parseAgentFeedback(value.agentFeedback), automaticUpdates: value.automaticUpdates ?? true, keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showBuildId: value.showBuildId ?? false, showTabCloseButtons: value.showTabCloseButtons ?? false, showDarkModeButton: value.showDarkModeButton ?? false, vimEditing: value.vimEditing ?? true, searchApps: parseSearchApps(value.searchApps), memory: parseMemory(value.memory), plugins, browser: parseBrowserSettings(value.browser), automation: parseAutomationSettings(value.automation) }
+  return { browseRecording: parseBrowseRecording(value.browseRecording), scrolling: parseScrolling(value.scrolling), remotePreviews: parseRemotePreviews(value.remotePreviews), agentFeedback: parseAgentFeedback(value.agentFeedback), automaticUpdates: value.automaticUpdates ?? true, keyboard: result, clickMode: parseClickMode(value.clickMode), accessibility: value.accessibility ?? false, statusBar: value.statusBar ?? 'top', showBuildId: value.showBuildId ?? false, showTabCloseButtons: value.showTabCloseButtons ?? false, showDarkModeButton: value.showDarkModeButton ?? false, vimEditing: value.vimEditing ?? true, searchApps: parseSearchApps(value.searchApps), memory: parseMemory(value.memory), plugins, browser: parseBrowserSettings(value.browser), automation: parseAutomationSettings(value.automation) }
 }
 export let createConfig = (file: string, onChange: () => void, initialPrefix?: string) => {
-  let settings: Settings = { scrolling: { ...DEFAULT_SCROLLING }, remotePreviews: { ...DEFAULT_REMOTE_PREVIEWS }, agentFeedback: { ...DEFAULT_AGENT_FEEDBACK }, automaticUpdates: true, keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showBuildId: false, showTabCloseButtons: false, showDarkModeButton: false, vimEditing: true, searchApps: { ...DEFAULT_SEARCH_APPS }, memory: { ...DEFAULT_MEMORY }, plugins: {}, browser: structuredClone(DEFAULT_BROWSER), automation: structuredClone(DEFAULT_AUTOMATION) }, error: string | null = null
+  let settings: Settings = { browseRecording: { enabled: true, manual: true }, scrolling: { ...DEFAULT_SCROLLING }, remotePreviews: { ...DEFAULT_REMOTE_PREVIEWS }, agentFeedback: { ...DEFAULT_AGENT_FEEDBACK }, automaticUpdates: true, keyboard: structuredClone(DEFAULT_KEYBOARD), clickMode: structuredClone(DEFAULT_CLICK_MODE), accessibility: false, statusBar: 'top', showBuildId: false, showTabCloseButtons: false, showDarkModeButton: false, vimEditing: true, searchApps: { ...DEFAULT_SEARCH_APPS }, memory: { ...DEFAULT_MEMORY }, plugins: {}, browser: structuredClone(DEFAULT_BROWSER), automation: structuredClone(DEFAULT_AUTOMATION) }, error: string | null = null
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, defaultConfigText(initialPrefix), { flag: 'wx', mode: 0o600 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   let reload = () => {
@@ -191,6 +196,7 @@ export let createConfig = (file: string, onChange: () => void, initialPrefix?: s
     fs.writeFileSync(temporary, text, { mode: 0o600 }); fs.renameSync(temporary, file); reload()
   }
   return {
+    get browseRecording() { return settings.browseRecording },
     get scrolling() { return settings.scrolling },
     get remotePreviews() { return settings.remotePreviews },
     get agentFeedback() { return settings.agentFeedback },

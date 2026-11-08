@@ -25,7 +25,7 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
   try { previous = JSON.parse(fs.readFileSync(manifest,'utf8')) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
   let history = () => [...previous.filter(old => !records.has(old.id)).map(old => ({...old,state:old.finishedAt ? old.state : 'interrupted'})),...list()]
   let recordingDirectory = (output?: string) => {
-    let base=output??(process.platform==='darwin'&&fs.existsSync('/Volumes/sam')?'/Volumes/sam/movies/bmux/observations':path.join(os.homedir(),'Movies','BMUX'))
+    let base=output??(process.platform==='darwin'&&fs.existsSync('/Volumes/sam')?'/Volumes/sam/app-support/bmux/browse-history':path.join(os.homedir(),'Movies','BMUX'))
     if(!path.isAbsolute(base))throw new Error('Choose an absolute recording directory')
     if(base.startsWith('/Volumes/sam/')&&(!fs.existsSync('/Volumes/sam')||fs.statSync('/Volumes/sam').dev===fs.statSync('/Volumes').dev))throw new Error('Recording volume is not mounted')
     return base
@@ -104,6 +104,7 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
     if(!options.pane)throw new Error('Select a pane to record')
     if([...records.values()].filter(record=>!record.finishedAt).length>=4)throw new Error('Four recordings are already active')
     let base=recordingDirectory(options.output)
+    if (!options.output && base.startsWith('/Volumes/sam/')) base=path.join(base, options.host ? 'remote' : 'local', 'recordings')
     let destination=path.join(base,new Date().toISOString().slice(0,10),id);fs.mkdirSync(destination,{recursive:true,mode:0o700})
     let record:Recording={id,options,startedAt:Date.now(),state:'starting',directory:destination,clips:[]};records.set(id,record)
     record.timer=setTimeout(()=>stop(id),35*60*1000);save()
