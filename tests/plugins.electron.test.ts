@@ -564,7 +564,7 @@ test('Social Media details launch one settings form and a muted window with the 
   expect(await subscription.evaluate(element => { let settings = document.querySelector('[aria-label="Browsing presets"]')!; return !!(element.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING) })).toBe(true)
   await expect(dialog.locator('[data-plugin-setting="ai_source"]')).toHaveAttribute('title', /included monthly allowance/)
   await expect(dialog.locator('[data-plugin-setting] small')).toHaveCount(0)
-  await expect(dialog.getByText('Opens a new muted window using Feed launch fixture.')).toBeVisible()
+  await expect(dialog.getByText('Profile: Feed launch fixture', { exact: true })).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Saved settings', exact: true })).toHaveCount(0)
   await expect(dialog.getByRole('group', { name: 'Persona', exact: true })).not.toHaveAttribute('open')
   await chrome.screenshot({ path: path.resolve('artifacts/plugin-settings-collapsed.png') })

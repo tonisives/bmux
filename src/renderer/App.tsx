@@ -1944,7 +1944,7 @@ let PluginParameterInput = ({ item, value, fallback, change, update }: { item: P
     </div>
 }
 let PluginBrowsingDestination = ({ busy }: { busy: boolean }) => <div role="group" aria-label="Where should browsing start?">
-  <p>Where should browsing start?</p><div className={css.settingsFooter}><button type="submit" data-destination="current" disabled={busy}>Current pane</button><button type="submit" data-destination="window" disabled={busy}>New window</button></div>
+  <p>Where should browsing start?</p><div className={css.settingsFooter}><button type="submit" data-destination="current" autoFocus disabled={busy}>Current pane</button><button type="submit" data-destination="window" disabled={busy}>New window</button></div>
 </div>
 let applySharedSocialSettings = async (request: PluginPrompt, fields: PluginParameter[], values: Record<string, unknown>) => {
   let result = await bridge.command({ method: 'plugin.respond', args: { id: request.id, applyAll: true, value: Object.fromEntries(fields.map(field => [field.name, values[field.name] ?? field.default]).filter(([, value]) => value !== undefined)) } }) as { applied: number }
