@@ -27,7 +27,7 @@ jobs:
       - run: pnpm lint
       - name: Build Windows installer
         run: |
-          node scripts/install-electron.mjs
+          node scripts/install-electron.mjs --windows-installer
           pnpm build
           pnpm exec electron-builder --win nsis --x64 --publish never --config.electronDist=node_modules/electron/dist
       - name: Install to a disposable directory
