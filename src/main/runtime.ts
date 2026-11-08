@@ -4501,13 +4501,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     } })
     socialHooks = createSocialHooks({ directory: dataDirectory, ...credentialEncryption, changed: publish, enabled: id => plugins?.list().some(plugin => plugin.id === id && plugin.enabled) ?? false, targets: () => [...tabs].filter(([,live]) => !live.disposed && !live.contents.isDestroyed()).map(([id,live]) => { let target = tabById(model,id); return { contents:live.contents, profile:paneConnectionId(target.pane), private:target.session.private === true } }) })
     await socialHooks.ready
-    let migratingSocial = false
+    let migratingSocial = false, socialMigrationRetry = new Map<string,number>()
     socialHookTimer = setInterval(() => {
       if (migratingSocial) return
       migratingSocial = true
       void (async () => {
         let profiles = [...new Set([...tabs.keys()].map(id => paneConnectionId(tabById(model,id).pane)))].sort((a,b) => (a === 'profile_default' ? -1 : b === 'profile_default' ? 1 : a.localeCompare(b)))
-        for (let profile of profiles) await extensions.migrateTweetTrace(profile, async settings => { await socialHooks!.migrate(profile,settings); if (!configuration!.plugins['bmux.x']?.enabled) configuration!.update(['plugins','bmux.x','enabled'],true) }).catch(() => undefined)
+        for (let profile of profiles) {
+          if ((socialMigrationRetry.get(profile) ?? 0) > Date.now()) continue
+          await extensions.migrateTweetTrace(profile, async settings => { await socialHooks!.migrate(profile,settings); if (!configuration!.plugins['bmux.x']?.enabled) configuration!.update(['plugins','bmux.x','enabled'],true) }).catch(() => { socialMigrationRetry.set(profile,Date.now()+60000) })
+        }
         await socialHooks?.tick()
       })().catch(reportError).finally(() => { migratingSocial = false })
     }, 2000)
