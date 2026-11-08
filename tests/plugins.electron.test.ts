@@ -341,7 +341,7 @@ test('navigation rejects stale fills and hidden fields; plugin waits do not bloc
   await rpc('select-window', { client: current.clientId, window: next.id }); await completed(pick, 'cancelled')
 })
 
-test('plugin overlay sits above the page, resizes, collapses and receives controls', async () => {
+test('plugin overlay sits above the page, zooms, collapses and receives controls', async () => {
   let current = await state(), pane = current.model.sessions[0].windows[0].panes[0]
   let capture = async () => { let id = await run('capture', { pane: pane.id }); await completed(id); return (await rpc('plugin.runs')).find((run: any) => run.id === id).result.data }
   let id = await run('overlay', { pane: pane.id })
@@ -356,12 +356,12 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   expect(JSON.parse(copied)).toEqual({ image: 'x'.repeat(18000), caption: 'fixture' })
   await observer.getByRole('button', { name: 'Copy AI payload', exact: true }).click()
   expect(JSON.parse(await application.evaluate(({ clipboard }) => clipboard.readText()))).toEqual({ answers: [{ name: 'watch', choice: 'watch' }], usage: { input_tokens: 41 } })
-  await observer.getByRole('button', { name: 'Close overlay', exact: true }).click()
-  let visible = async () => (await pluginViews()).length > 0
-  await expect.poll(visible).toBe(false)
+  await expect(observer.getByRole('button', { name: /^Close .+ tab$/ })).toHaveCount(1)
+  await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
+  await expect.poll(async () => (await state()).pluginOverlay.bounds.collapsed).toBe(true)
   expect((await rpc('plugin.runs')).find((run: any) => run.id === id).status).toBe('running')
   await chrome.evaluate(id => (window as any).bmux.command({ method: 'plugin.overlay.show', args: { id } }), id)
-  await expect.poll(visible).toBe(true)
+  await expect(observer.getByRole('button', { name: 'Minimize page overlay' })).toBeVisible()
   await observer.getByRole('button', { name: 'AI limit settings', exact: true }).click()
   await expect(observer.getByRole('checkbox', { name: 'Skip ads' })).toBeFocused()
   await observer.getByLabel('Page overlay detail').selectOption({ label: 'Profile' })
@@ -372,13 +372,13 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   let checkboxBounds = await skipAds.boundingBox(), labelBounds = await observer.getByText('Skip ads', { exact: true }).boundingBox()
   expect(Math.abs(checkboxBounds!.y + checkboxBounds!.height / 2 - labelBounds!.y - labelBounds!.height / 2)).toBeLessThan(2)
   let before = (await state()).pluginOverlay.bounds
-  await observer.getByRole('slider', { name: 'Resize page overlay', exact: true }).focus()
+  await observer.getByRole('slider', { name: 'Panel zoom', exact: true }).focus()
   await observer.keyboard.press('ArrowLeft')
-  await expect.poll(async () => (await state()).pluginOverlay.bounds.width).toBe(before.width - 24)
-  let resized = (await state()).pluginOverlay.bounds
-  let corner = observer.getByRole('slider', { name: 'Resize page overlay', exact: true })
+  await expect.poll(async () => (await state()).pluginOverlay.zoom).toBe(.95)
+  let corner = observer.getByRole('slider', { name: 'Panel zoom', exact: true })
   await corner.focus(); await observer.keyboard.press('ArrowRight')
-  await expect.poll(async () => (await state()).pluginOverlay.bounds.width).toBe(resized.width + 24)
+  await expect.poll(async () => (await state()).pluginOverlay.zoom).toBe(1)
+  expect((await state()).pluginOverlay.bounds.width).toBe(before.width)
   await observer.getByRole('button', { name: 'Minimize page overlay' }).click()
   await expect(observer.getByRole('tab').first()).toBeVisible()
   await expect.poll(() => observer.evaluate(() => innerHeight)).toBe(32)
@@ -815,8 +815,7 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   expect(nextBounds.y).toBe(pauseBounds.y); expect(pauseBounds.y).toBeGreaterThanOrEqual(statusBounds.y + statusBounds.height)
   let likesBounds = (await observer.getByText('1 like · 2 comment reads · 1 profile view', { exact: true }).boundingBox())!, footerBounds = (await observer.getByRole('button', { name: 'Settings', exact: true }).boundingBox())!
   expect(likesBounds.y).toBeGreaterThan(pauseBounds.y + pauseBounds.height); expect(footerBounds.y - likesBounds.y).toBeLessThan(64)
-  let minimize = (await observer.getByRole('button', { name: 'Minimize page overlay' }).boundingBox())!, close = (await observer.getByRole('button', { name: 'Close overlay', exact: true }).boundingBox())!
-  expect(minimize.y + minimize.height / 2).toBe(close.y + close.height / 2)
+  await expect(observer.getByRole('button', { name: /^Close .+ tab$/ })).toHaveCount(1)
   await observer.screenshot({ path: path.resolve('artifacts/plugin-decision-playback.png') })
   await next.click()
   await expect(observer.getByRole('status')).toHaveText('Showing next post')
@@ -841,7 +840,7 @@ test('plugin decision tree highlights answers and moves settings and usage into 
 })
 
 
-test('four visible panes each retain a scaled plugin overlay with independent controls', async () => {
+test('four visible panes each retain a static plugin overlay zoom with independent controls', async () => {
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let previousWindow = client.windowId
   let window = await rpc('new-window', { client: client.id, session: client.sessionId, url: url + '/four-overlays' })
@@ -888,10 +887,10 @@ test('four visible panes each retain a scaled plugin overlay with independent co
       await expect(page.getByRole('status')).toHaveText('Browsing')
     }
     for (let view of await views()) {
-      expect(view.zoom).toBeCloseTo(.5, 5)
-      expect(view.bounds.width).toBe(192)
-      expect(view.bounds.height).toBeGreaterThanOrEqual(120)
-      expect(view.bounds.height).toBeLessThanOrEqual(300)
+      expect(view.zoom).toBe(1)
+      expect(view.bounds.width).toBe(384)
+      expect(view.bounds.height).toBeGreaterThanOrEqual(240)
+      expect(view.bounds.height).toBeLessThanOrEqual(600)
     }
     await rpc('select-pane', { client: client.id, pane: original })
     let originalView = observers.get(ids[0])!
@@ -914,8 +913,8 @@ test('four visible panes each retain a scaled plugin overlay with independent co
     await originalView.getByRole('button', { name: 'Pause session', exact: true }).click()
     await expect(originalView.getByRole('status')).toHaveText('Paused')
     for (let id of ids.slice(1)) await expect(observers.get(id)!.getByRole('status')).toHaveText('Browsing')
-    await observers.get(ids[1])!.getByRole('button', { name: 'Close overlay', exact: true }).click()
-    await expect.poll(async () => (await views()).length).toBe(3)
+    await observers.get(ids[1])!.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
+    await expect.poll(async () => (await views()).filter(view => view.bounds.height > 32).length).toBe(3)
     expect((await rpc('plugin.runs')).find((run: any) => run.id === ids[1]).status).toBe('running')
     await fs.mkdir(path.resolve('artifacts'), { recursive: true })
     await originalView.screenshot({ path: path.resolve('artifacts/plugin-overlay-scaled-pane.png') })
@@ -971,7 +970,7 @@ test('browsing can use the current pane without creating a window', async () => 
 })
 
 
-test('plugins and viewport controls share one resizable tabbed pane view', async () => {
+test('plugins and viewport controls share one independently zoomed tabbed pane view', async () => {
   await chrome.keyboard.press('Escape'); await activate()
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let created = await rpc('new-window', { client: client.id, session: client.sessionId, url })
@@ -993,27 +992,46 @@ test('plugins and viewport controls share one resizable tabbed pane view', async
     await expect(observer.getByRole('status')).toHaveText('Browsing')
     await observer.getByRole('tab', { name: 'Feed training', exact: true }).click()
     await expect(observer.getByRole('status')).toHaveText('Waiting for Start')
-    let before = (await observer.evaluate(() => (window as any).bmux.overlayState())).bounds
+    let overlayState = () => observer.evaluate(() => (window as any).bmux.overlayState())
+    let before = await overlayState()
     await viewport.click()
     await expect(observer.getByRole('form', { name: 'Viewport settings' })).toBeVisible()
-    await observer.getByRole('slider', { name: 'Resize page overlay', exact: true }).focus()
-    await observer.keyboard.press('ArrowLeft')
-    await expect.poll(async () => (await observer.evaluate(() => (window as any).bmux.overlayState())).bounds.width).toBe(before.width - 24)
-    let grip = (await observer.getByRole('slider', { name: 'Resize page overlay', exact: true }).boundingBox())!
+    let corner = observer.getByRole('slider', { name: 'Panel zoom', exact: true })
+    await corner.focus(); await observer.keyboard.press('ArrowLeft')
+    await expect.poll(async () => (await overlayState()).zoom).toBe(.95)
+    let grip = (await corner.boundingBox())!
     await observer.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
     await observer.mouse.down()
     await observer.mouse.move(grip.x + grip.width / 2 - 16, grip.y + grip.height / 2 + 24)
     await observer.mouse.up()
-    await expect.poll(async () => (await observer.evaluate(() => (window as any).bmux.overlayState())).bounds.width).toBe(before.width - 40)
-    await expect.poll(async () => (await observer.evaluate(() => (window as any).bmux.overlayState())).bounds.height).toBe(Math.max(240, before.height - 24))
+    await expect.poll(async () => (await overlayState()).zoom).toBeLessThan(.95)
+    let scaled = await overlayState()
+    await rpc('zoom', { pane, factor: .5 })
+    expect((await overlayState()).zoom).toBe(scaled.zoom)
+    await rpc('zoom', { pane, factor: 1.5 })
+    expect((await overlayState()).zoom).toBe(scaled.zoom)
+    await observer.getByRole('tab', { name: 'Agent control', exact: true }).click()
+    await expect(observer.getByRole('button', { name: 'Close overlay', exact: true })).toHaveCount(0)
+    expect((await overlayState()).zoom).toBe(scaled.zoom)
     await observer.getByRole('tab', { name: 'Research notes', exact: true }).click()
-    expect((await observer.evaluate(() => (window as any).bmux.overlayState())).bounds.width).toBe(before.width - 40)
+    expect((await overlayState()).bounds.width).toBe(before.bounds.width)
+    expect((await overlayState()).zoom).toBe(scaled.zoom)
+    let selected = observer.getByRole('tab', { name: 'Research notes', exact: true })
+    await expect(selected.locator('..')).toHaveCSS('border-bottom-color', 'rgb(167, 182, 156)')
+    await expect(selected).toHaveCSS('border-radius', '0px')
     await expect(observer.getByRole('status')).toHaveText('Browsing')
     await observer.screenshot({ path: path.resolve('artifacts/shared-pane-overlay.png') })
     await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
     await expect.poll(() => observer.evaluate(() => innerHeight)).toBe(32)
     await expect(observer.getByRole('tab')).toHaveCount(4)
     await expect(observer.getByRole('tab', { name: 'Agent control', exact: true })).toBeVisible()
+    await observer.getByRole('tab', { name: 'Research notes', exact: true }).click()
+    let dismiss = observer.getByRole('button', { name: 'Close Research notes tab', exact: true })
+    await expect(dismiss.locator('..').getByRole('tab', { name: 'Research notes', exact: true })).toBeVisible()
+    await dismiss.click()
+    await expect(observer.getByRole('tab', { name: 'Research notes', exact: true })).toHaveCount(0)
+    await expect(observer.getByRole('tab', { name: 'Feed training', exact: true })).toBeVisible()
+    expect((await rpc('plugin.runs')).find((run: any) => run.id === second).status).toBe('running')
     expect((await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(pane)
   } finally {
     await rpc('plugin.cancel', { id: first })

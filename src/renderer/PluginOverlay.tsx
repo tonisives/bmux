@@ -10,7 +10,7 @@ import bmuxIcon from './bmux-icon.png'
 export let PluginOverlay = () => {
   let [overlay, setOverlay] = useState<PluginOverlayState>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [returnToSetup, setReturnToSetup] = useState(false)
   let [setting, openSetting] = useState<{ id: string; runId: string }>()
-  let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];edge:string} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
+  let drag = useRef<{x:number;y:number;bounds:PluginOverlayState['bounds'];zoom:number;edge:string} | undefined>(undefined), queued = useRef<Record<string, unknown> | undefined>(undefined), sending = useRef(false)
   useEffect(() => { let unsubscribe = bridge.subscribeOverlay(setOverlay); void bridge.overlayState().then(setOverlay); return unsubscribe }, [])
   let command = async (method: string, args: Record<string, unknown> = {}) => { try { setError(''); return await bridge.command({ method, args: { ...args, id: overlay?.runId, pane: overlay?.paneId } }) } catch (failure) { setError(failure instanceof Error ? failure.message : 'Control failed') } }
   let input = async (id: string, value?: string | boolean) => { setBusy(true); await command('plugin.overlay.input', { control: id, value }); setBusy(false) }
@@ -19,14 +19,13 @@ export let PluginOverlay = () => {
   useEffect(() => {
     if (overlay?.ended && returnToSetup) { setReturnToSetup(false); void command('plugin.overlay.configure') }
   }, [overlay?.ended, returnToSetup, command])
-  let move = async () => { if (sending.current) return; sending.current = true; try { while (queued.current) { let bounds = queued.current; queued.current = undefined; await command('pane.overlay.bounds', bounds) } } finally { sending.current = false } }
-  let begin = (event: PointerEvent, edge = 'move') => { if (!overlay || (event.target as HTMLElement).closest('button,input,select,textarea')) return; event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.screenX, y: event.screenY, bounds: overlay.bounds, edge }; event.preventDefault() }
+  let move = async () => { if (sending.current) return; sending.current = true; try { while (queued.current) { let bounds = queued.current; queued.current = undefined; await command(bounds.zoom === undefined ? 'pane.overlay.bounds' : 'pane.overlay.zoom', bounds) } } finally { sending.current = false } }
+  let begin = (event: PointerEvent, edge = 'move') => { if (!overlay || (event.target as HTMLElement).closest('button,input,select,textarea')) return; event.currentTarget.setPointerCapture(event.pointerId); drag.current = { x: event.screenX, y: event.screenY, bounds: overlay.bounds, zoom: overlay.zoom, edge }; event.preventDefault() }
   let update = (event: PointerEvent) => {
     let start = drag.current; if (!start) return
-    let dx = event.screenX - start.x, dy = event.screenY - start.y, zoom = overlay?.zoom ?? 1
-    let left = start.edge.includes('left'), resize = start.edge !== 'move'
-    let width = Math.max(280, start.bounds.width + (left ? -dx : dx) / zoom)
-    queued.current = resize ? { ...start.bounds, x: left ? start.bounds.x + (start.bounds.width - width) * zoom : start.bounds.x, width, y: start.edge.startsWith('top') ? start.bounds.y + Math.min(dy, (start.bounds.height - 240) * zoom) : start.bounds.y, height: start.edge.startsWith('top') ? Math.max(240, start.bounds.height - dy / zoom) : start.edge.startsWith('bottom') ? start.bounds.height + dy / zoom : start.bounds.height } : { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy }
+    let dx = event.screenX - start.x, dy = event.screenY - start.y
+    let { width, height } = start.bounds
+    queued.current = start.edge === 'move' ? { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy } : { zoom: Math.max(.5, Math.min(2, start.zoom + (width * dx - height * dy) / (width * width + height * height))) }
     void move()
   }
   let end = () => { drag.current = undefined }
@@ -34,10 +33,8 @@ export let PluginOverlay = () => {
   let resizeKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!overlay || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return
     event.preventDefault()
-    let dx = event.key === 'ArrowRight' ? 24 : event.key === 'ArrowLeft' ? -24 : 0
-    let left = event.currentTarget.dataset.edge?.includes('left')
-    let width = Math.max(280, overlay.bounds.width + (left ? -dx : dx))
-    void command('pane.overlay.bounds', { ...overlay.bounds, x: left ? overlay.bounds.x + (overlay.bounds.width - width) * overlay.zoom : overlay.bounds.x, width, height: Math.max(240, overlay.bounds.height + (event.key === 'ArrowDown' ? -24 : event.key === 'ArrowUp' ? 24 : 0)), y: overlay.bounds.y + (event.key === 'ArrowDown' ? Math.min(24 * overlay.zoom, (overlay.bounds.height - 240) * overlay.zoom) : event.key === 'ArrowUp' ? -24 * overlay.zoom : 0) })
+    let direction = event.key === 'ArrowRight' || event.key === 'ArrowUp' ? 1 : -1
+    void command('pane.overlay.zoom', { zoom: Math.max(.5, Math.min(2, Math.round((overlay.zoom + direction * .05) * 100) / 100)) })
   }
   let panelKeys = (event: KeyboardEvent) => { if (event.key === 'Escape' && overlay && !overlay.bounds.collapsed) { event.stopPropagation(); void command('pane.overlay.bounds', { ...overlay.bounds, collapsed: true, compact: false }) } }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
@@ -45,7 +42,7 @@ export let PluginOverlay = () => {
     <OverlayTabs begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && (overlay.selectedTab === 'agent' ? <AgentPanel /> : overlay.selectedTab === 'viewport' ? <ViewportPanel /> : error || overlay.error || overlay.content.error ? <OverlayFailure error={error || overlay.error} /> : overlay.bounds.compact ? <CompactOverlay /> : overlay.content.decision ? <DecisionBody key={overlay.runId} /> : <OverlayBody key={overlay.runId} />)}
     {!overlay.bounds.collapsed && !overlay.bounds.compact && !['agent','viewport'].includes(overlay.selectedTab ?? '') && (!overlay.content.decision || overlay.content.controls.some(control => ['continue','auto'].includes(control.id)) || Boolean(error || overlay.error || overlay.content.error)) && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
-    {!overlay.bounds.collapsed && !overlay.bounds.compact && ['top-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label={edge === 'top-right' ? 'Resize page overlay' : 'Resize page overlay from ' + edge.replace('-', ' ')} aria-valuenow={overlay.bounds.width} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
+    {!overlay.bounds.collapsed && !overlay.bounds.compact && ['top-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label="Panel zoom" aria-valuemin={50} aria-valuemax={200} aria-valuenow={Math.round(overlay.zoom * 100)} aria-valuetext={`${Math.round(overlay.zoom * 100)}%`} title={`Panel zoom: ${Math.round(overlay.zoom * 100)}%`} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
   </aside></OverlayContext.Provider>
 }
 
@@ -58,7 +55,6 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
   let tabs = overlay.tabs ?? [{ id: overlay.runId, title: overlay.content.title, icon: 'plugin' as const }]
   let select = (event: MouseEvent<HTMLButtonElement>) => void command('pane.overlay.select', { panel: event.currentTarget.dataset.tab })
   let minimize = () => void command('pane.overlay.bounds', { ...overlay.bounds, collapsed: true, compact: false })
-  let close = () => void command('plugin.overlay.close')
   let keys = (event: KeyboardEvent<HTMLElement>) => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return
     let buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')], index = buttons.indexOf(event.target as HTMLButtonElement)
@@ -69,9 +65,14 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
     void command('pane.overlay.select', { panel: buttons[next].dataset.tab })
   }
   return <header className={css.dockHeader} onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}>
-    {!overlay.bounds.collapsed && <strong className={css.dockTitle}>{tabs.find(tab => tab.id === overlay.selectedTab)?.title || overlay.content.title}</strong>}
-    <nav className={`${appCss.panelTabs} ${css.panelTabs}`} role="tablist" aria-label="Pane panels" onKeyDown={keys}>{tabs.map(tab => <button key={tab.id} role="tab" aria-label={tab.title} aria-selected={!overlay.bounds.collapsed && tab.id === overlay.selectedTab} aria-controls="pane-panel" title={tab.title} data-tab={tab.id} onClick={select}><PanelIcon icon={tab.icon} /></button>)}</nav>
-    {!overlay.bounds.collapsed && <nav aria-label="Overlay controls"><button aria-label="Minimize page overlay" title="Minimize page overlay" onClick={minimize}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg></button>{overlay.selectedTab !== 'agent' && overlay.selectedTab !== 'viewport' && <button aria-label="Close overlay" onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button>}</nav>}
+    <nav className={`${appCss.panelTabs} ${css.panelTabs}`} role="tablist" aria-label="Pane panels" onKeyDown={keys}>{tabs.map(tab => {
+      let selected = !overlay.bounds.collapsed && tab.id === overlay.selectedTab
+      return <div key={tab.id} className={appCss.panelTab} role="presentation" data-selected={selected || undefined}>
+        <button role="tab" aria-label={tab.title} aria-selected={selected} aria-controls="pane-panel" tabIndex={tab.id === overlay.selectedTab ? 0 : -1} title={tab.title} data-tab={tab.id} onClick={select}><PanelIcon icon={tab.icon} />{selected && <strong>{tab.title}</strong>}</button>
+        {selected && !['agent','viewport'].includes(tab.id) && <button className={css.tabClose} aria-label={`Close ${tab.title} tab`} title={`Close ${tab.title} tab`} onClick={() => void command('plugin.overlay.close', { id: tab.id })}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button>}
+      </div>
+    })}</nav>
+    {!overlay.bounds.collapsed && <nav aria-label="Overlay controls"><button aria-label="Minimize page overlay" title="Minimize page overlay" onClick={minimize}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg></button></nav>}
   </header>
 }
 let PanelIcon = ({ icon }: { icon: PaneOverlayTab['icon'] }) => icon === 'accounts' ? <img src={bmuxIcon} width="16" height="16" alt="" /> : <svg viewBox="0 0 20 20" aria-hidden="true">{icon === 'agent' ? <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6" /></> : icon === 'viewport' ? <><rect x="2" y="3" width="16" height="14" rx="1" /><path d="M7 3v14M2 8h16" /></> : icon === 'search' ? <><circle cx="8" cy="8" r="5" /><path d="m12 12 5 5" /></> : icon === 'chart' ? <path d="M3 3v14h14M6 13V9m4 4V5m4 8V7" /> : <path d="M3 4h5V2h4v2h5v5h-2v4h2v4H3v-4h2V9H3Z" />}</svg>

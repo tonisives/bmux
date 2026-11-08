@@ -210,9 +210,13 @@
 .panel header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; min-height: 42px; padding: 6px 8px 6px 20px; border-bottom: 1px solid #363c45; background: #191d23; }
 .panel header strong { font-weight: 500; color: #eceef2; }
 .panelTabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid #444b59; }
-.panel .panelTabs button { flex: 0 0 auto; padding: 7px 10px; border-radius: 0; color: #aab4bf; border-bottom: 2px solid transparent; }
-.panel .panelTabs button:hover { background: transparent; color: #eceef2; }
-.panel .panelTabs button[aria-selected="true"], .panel .panelTabs button[aria-pressed="true"] { color: #eceef2; border-bottom-color: #a7b69c; }
+.panelTabs.panelTabs button { flex: 0 0 auto; padding: 7px 10px; border-radius: 0; color: #aab4bf; border-bottom: 2px solid transparent; }
+.panelTabs.panelTabs button:hover { background: transparent; color: #eceef2; }
+.panelTabs.panelTabs button[aria-selected="true"], .panelTabs.panelTabs button[aria-pressed="true"] { color: #eceef2; border-bottom-color: #a7b69c; }
+.panelTab { display: flex; align-items: center; min-width: 0; border-bottom: 2px solid transparent; }
+.panelTab[data-selected="true"] { border-bottom-color: #a7b69c; }
+.panelTabs .panelTab button { border-bottom: 0; }
+
 .panelBody { padding: 12px 20px 20px; }
 .panel button { border: 0; background: transparent; }
 .panel p { color: #8e98a4; }

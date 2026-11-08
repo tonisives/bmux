@@ -519,7 +519,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let settingsReady = readSettings()
 
   let selectedOverlayTabs = new Map<string, string>(), newestOverlayRuns = new Map<string, string>()
-  let pluginOverlayBounds = new Map<string, PluginOverlayBounds>()
+  let pluginOverlayBounds = new Map<string, PluginOverlayBounds>(), pluginOverlayZoom = new Map<string, number>()
   let dismissedPluginOverlays = new Set<string>(), pluginOverlayRuns = new Map<string, { id: string; ended: boolean; failed: boolean }>()
   let overlayForClient = (clientId: string, paneId = model.clients.find(client => client.id === clientId)?.paneId) => {
     let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
@@ -544,7 +544,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let selectedTab = tabs.find(tab => tab.id === selectedOverlayTabs.get(key))?.id ?? tabs[0].id
     selectedOverlayTabs.set(key, selectedTab)
     let value = values.find(value => value.runId === selectedTab) ?? { runId: 'pane:' + paneId, paneId, ended: false, error: undefined, content: { title: tabs.find(tab => tab.id === selectedTab)!.title, subtitle: '', status: '', nodes: [], metrics: '', details: [], controls: [] } as PluginOverlayContent }
-    let zoom = pane.zoom || 1, preferred = pluginOverlayBounds.get(key)
+    let zoom = pluginOverlayZoom.get(key) ?? 1, preferred = pluginOverlayBounds.get(key)
     let bounds = fitPluginOverlay(preferred ?? (values.length ? undefined : { x: area.x + area.width - 384 * zoom - 12 * zoom, y: area.y + 12 * zoom, width: 384, height: 600, collapsed: true }), area, zoom)
     let previous = pluginOverlayRuns.get(key + ':' + value.runId)
     let failed = Boolean(value.error || value.content.error)
@@ -3265,6 +3265,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         selectedOverlayTabs.set(key, String(args.panel))
         let preferred = pluginOverlayBounds.get(key)!
         pluginOverlayBounds.set(key, { ...preferred, collapsed: args.panel === current.selectedTab && !current.bounds.collapsed, compact: false })
+      } else if (method === 'pane.overlay.zoom') {
+        if (typeof args.zoom !== 'number' || !Number.isFinite(args.zoom) || args.zoom < .5 || args.zoom > 2) throw new Error('Invalid panel zoom')
+        pluginOverlayZoom.set(key, args.zoom)
+        let preferred = pluginOverlayBounds.get(key)!
+        pluginOverlayBounds.set(key, { ...preferred, y: current.bounds.y + current.bounds.height * (current.zoom - args.zoom) })
       } else if (method === 'pane.overlay.bounds') {
         if (['x','y','width','height'].some(key => typeof args[key] !== 'number' || !Number.isFinite(args[key])) || typeof args.collapsed !== 'boolean') throw new Error('Invalid page overlay bounds')
         let preferred = pluginOverlayBounds.get(key)!
