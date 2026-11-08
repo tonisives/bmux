@@ -6,7 +6,7 @@ import { PluginRange } from './PluginRange'
 import { RemotePaneControls } from './RemotePaneControls'
 import { useViewportPan } from './useViewportPan'
 import { useViewportCanvas } from './useViewportCanvas'
-import { viewportPanScroll } from '../shared/viewport-pan'
+import { scaledViewportSize, viewportPanScroll } from '../shared/viewport-pan'
 import { PROFILE_COLORS, profileHash, profileColor } from '../shared/profile-color'
 import type { RemoteView } from '../shared/remote'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
@@ -28,9 +28,9 @@ import { BackButton, PanelBackContext, PanelHeader, usePanelBack } from './Panel
 import type { PanelBack } from './PanelHeader'
 import { useAddressVim } from './useAddressVim'
 import { activityAge, activityLabel, compactActivityLabel, windowActivityTime, windowVisitTime } from '../shared/pane-activity'
-import { lastPaneAgent, paneAgents } from '../shared/pane-agents'
+import { isBackgroundAgentWindow, lastPaneAgent, paneAgents } from '../shared/pane-agents'
 import { agentIdentifier, agentResumeCommand } from '../shared/agent-info'
-import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles } from '../shared/profile-connections'
+import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles, uniqueProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
 import { parseDevicePersona } from '../shared/device-persona'
@@ -42,7 +42,7 @@ import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
-import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
+import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Pane, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
 import type { PluginInfo, PluginPrompt, PluginParameter } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
 import type { RemoteComputer } from '../shared/remote-account'
@@ -142,17 +142,18 @@ export let App = () => {
   let acknowledgeDownload = useCallback((downloadId: string) => setAcknowledgedDownloads(current => new Set(current).add(downloadId)), [])
   useEffect(() => {
     let unsubscribe = bridge.subscribe(accept)
+    let unsubscribeOverlay = bridge.subscribeOverlay(pluginOverlay => setState(current => current ? { ...current, pluginOverlay } : current))
     void bridge.state().then(accept).catch(error => setMessage(String(error)))
     let controls = bridge.controls((control, paneId) => {
       if (control === 'dismiss') { dismiss(); return }
       void bridge.state().then(next => { accept(next); if (control === 'agent-info' && paneId) setAgentDetails({ paneId }); if (control !== 'plugin-dialog') show(control as Control) })
     })
-    return () => { unsubscribe(); controls() }
+    return () => { unsubscribe(); unsubscribeOverlay(); controls() }
   }, [accept, show, dismiss])
   let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window'
   let prompt = management || control === 'address' || control === 'command' || control === 'find'
   let panel = control && !prompt ? control : null
-  let keepPages = panel === 'profiles' && !sessionsBehind && !state?.pluginPrompt
+  let keepPages = ((control === 'address' && addressSuggestionsVisible) || (panel === 'profiles' && !sessionsBehind)) && !state?.pluginPrompt
   useOverlayFocus(state, control, panel, historyPopup, addressSuggestionsVisible, keepPages, run)
   useControlDismiss(control, state?.pluginPrompt ? dismiss : panelBack?.run ?? dismiss, !!state?.dialogPrompt)
   useAddressTabSwitch(control, state?.clientId, run)
@@ -711,8 +712,9 @@ let SessionStatus = () => {
     observer.observe(list); reveal()
     return () => observer.disconnect()
   }, [client?.windowId, session?.windows, now])
+  let backgroundAgents = state.model.sessions.filter(session => !session.remote).flatMap(session => session.windows).filter(window => isBackgroundAgentWindow(window, state)).length
   let reclaim = () => { void run('remote.reclaim') }
-  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>
+  return <><button onClick={sessions} aria-label="Sessions" title={session!.name} className={css.session}><span>{session!.name}</span>{session!.private && <PrivateIcon />}</button>{backgroundAgents > 0 && <button type="button" onClick={sessions} aria-label="Background agent windows" className={css.backgroundAgent} data-background-agent-count={backgroundAgents} title={`${backgroundAgents} background agent window${backgroundAgents === 1 ? '' : 's'}`}>bg:{backgroundAgents}</button>}
     <div ref={windows} className={css.windows} data-window-list onDragStart={startWindowDrag} onDragOver={overWindow} onDrop={dropWindow} onDragEnd={finishWindowDrag}>{session!.windows.map((window, index) => <StatusWindow key={window.id} window={window} index={window.number ?? index + 1} active={window.id === client!.windowId} now={now} />)}</div>
     <button type="button" onClick={newTab} className={css.newTab} disabled={!!session?.remote} aria-label="New tab" title="New tab"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v8M2 6h8" /></svg></button>
     <span className={css.drag} />
@@ -1397,7 +1399,7 @@ let BrowserPane = ({ paneId }: { paneId: string }) => {
   let ref = useRef<HTMLDivElement>(null)
   let [deviceSize, setDeviceSize] = useState({ width: 0, height: 0 })
   let remoteSize = selectedWindow?.lockedViewports?.[paneId] ?? state.remoteSizes?.[paneId]
-  useViewportCanvas(ref, remoteSize)
+  useViewportCanvas(ref, selectedWindow?.lockedViewports?.[paneId] ? scaledViewportSize(remoteSize!, pane.zoom || 1) : remoteSize)
   useViewportPan(ref, paneId, !!remoteSize, state.viewportPanModes?.includes(paneId), client?.id)
   let frame = pane.device ? frameGeometry(pane.device, deviceSize) : null
   useLayoutEffect(() => {
@@ -1801,7 +1803,12 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     {BUILTIN_TOOLS.map(tool => <BuiltinPluginSettings key={tool.id} feature={tool.id} matches={matches} />)}
     <PluginConfiguration compact={compact} matches={matches} />
   </>
-  let details = prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
+  let sharedSettings = stack.selected === 'social:settings'
+  let settingsPlugin = state.plugins?.find(plugin => plugin.enabled && plugin.category === 'Social Media' && plugin.settingsAction)
+  let openSharedSettings = () => { if (settingsPlugin) void run('plugin.run', { action: `${settingsPlugin.id}/${settingsPlugin.settingsAction}`, sharedSettings: true }) }
+  let selectSharedSettings = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event); if (!prompt) openSharedSettings() }
+  let sharedSettingsRow = <div data-panel-row><button className={css.listRow} data-details="social:settings" aria-current={sharedSettings || undefined} onClick={selectSharedSettings}><strong>Settings</strong></button></div>
+  let details = prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : sharedSettings ? <section aria-label="Shared social settings" className={css.extensionDetails}><h2>Settings</h2><p>Share browsing profiles and AI decisions across social platforms.</p><button type="button" disabled={!settingsPlugin} onClick={openSharedSettings}>Edit shared settings</button>{!settingsPlugin && <p>Enable a social browsing plugin to configure shared settings.</p>}</section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
     {builtin ? <><h2>{builtin.name}</h2><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <PluginDetails key={plugin!.id} plugin={plugin!} />}
   </section>
   let open = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }
@@ -1819,7 +1826,7 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     <h2>Built-in</h2>
     {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={open}><strong>{tool.name}</strong></button></div>)}
     {plugins.filter(plugin => plugin.bundled && plugin.category !== 'Social Media').map(row)}
-    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
+    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{sharedSettingsRow}{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
     <h2>Custom</h2>
     {plugins.filter(plugin => !plugin.bundled && plugin.category !== 'Social Media').map(row)}
     {!plugins.some(plugin => !plugin.bundled && plugin.category !== 'Social Media') && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
@@ -1937,10 +1944,31 @@ let PluginParameterInput = ({ item, value, fallback, change, update }: { item: P
       </select> : item.multiline ? <textarea name={item.name} value={String(value ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(value ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : displayPluginParameter(item, fallback)} required={item.required} autoComplete="off" />}</label>}
     </div>
 }
+let PluginBrowsingDestination = ({ value, change, busy }: { value: string; change: (value: string) => void; busy: boolean }) => {
+  let select = (event: ChangeEvent<HTMLSelectElement>) => change(event.target.value)
+  return <label className={css.settingsRow}><span>Browse in</span><select aria-label="Browse in" value={value} onChange={select} disabled={busy}><option value="current">Current pane</option><option value="window">New window</option></select></label>
+}
+let applySharedSocialSettings = async (request: PluginPrompt, fields: PluginParameter[], values: Record<string, unknown>) => {
+  let result = await bridge.command({ method: 'plugin.respond', args: { id: request.id, applyAll: true, value: Object.fromEntries(fields.map(field => [field.name, values[field.name] ?? field.default]).filter(([, value]) => value !== undefined)) } }) as { applied: number }
+  return `Applied to ${result.applied} platform configurations`
+}
+let BrowseRecordSettings = () => {
+  let { state, run } = useUI()
+  let recording = state.browseRecording ?? { enabled: true, manual: true }
+  let change = (event: ChangeEvent<HTMLInputElement>) => { void run('settings.set', { key: event.target.name, value: event.target.checked }) }
+  return <details className={css.settingsGroup} open><summary>Record</summary>
+    <label className={css.settingsRow}><span>Record browsing</span><input type="checkbox" name="browseRecording.enabled" checked={recording.enabled} onChange={change} /></label>
+    <label className={css.settingsRow}><span>Include manual browsing</span><input type="checkbox" name="browseRecording.manual" disabled={!recording.enabled} checked={recording.manual} onChange={change} /></label>
+    <p>/Volumes/sam/app-support/bmux/browse-history/local</p>
+    {recording.error && <p role="alert">{recording.error}</p>}
+  </details>
+}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
   let [subscription, setSubscription] = useState(false)
+  let [destination, setDestination] = useState('window')
+  let sharedSettings = request.sharedSettings === true
   let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
   let access = usePluginAI(!!hasSubscription)
@@ -1993,7 +2021,10 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     if (busy) return
     if (editingProfile) { await flush().catch(() => undefined); return }
     setBusy(true)
-    try { await flush(); if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await run('plugin.respond', { id: request.id, value: values }) } catch { /* Save error remains beside the settings. */ } finally { setBusy(false) }
+    try {
+      await flush()
+      if (sharedSettings) { setSaveStatus(await applySharedSocialSettings(request, fields, values)); return }
+      if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await run('plugin.respond', { id: request.id, value: values, destination }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not save settings') } finally { setBusy(false) }
   }
   let cancel = async () => {
     if (busy) return
@@ -2016,18 +2047,20 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   let presets = !!request.presets?.length && <PluginParameterPresets presets={request.presets} preset={preset} choosePreset={choosePreset} />
   if (subscription) return <div className={css.pluginParameters}><h2>BMUX subscription</h2><p>Your remote subscription includes AI browsing.</p><DesktopRemoteAccount view="relay" /></div>
   return <form className={css.pluginParameters} onSubmit={submit}>
-    <h2>{editingProfile ? 'Browsing profile' : `${request.pluginName} · ${request.title}`}</h2>
-    <p>{request.launch ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
+    <h2>{editingProfile ? 'Browsing profile' : sharedSettings ? 'Social Media settings' : `${request.pluginName} · ${request.title}`}</h2>
+    <p>{request.launch && !editingProfile && !sharedSettings && destination === 'window' ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
     <div className={css.pluginParameterBody}>
+      {request.launch && !editingProfile && !sharedSettings && <PluginBrowsingDestination value={destination} change={setDestination} busy={busy} />}
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
-      {editingProfile ? <>{presets}<div role="group" aria-label="Profile settings">{profileFields.map(field)}</div><div className={css.pluginSettingsRows}>{sections}</div></> : <>
+      {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access} idle={values.ai_source === 'included' && !usesIncludedAI(values)}>{sourceFields.map(field)}</PluginSubscription>}
       {!request.profiles && <section aria-label="Browsing profile"><h3>Browsing profile</h3>{presets}</section>}
-      <div className={css.pluginSettingsHeading}><h3>Session settings</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sections}</div>
+      <div className={css.pluginSettingsHeading}><h3>{sharedSettings ? 'Shared settings' : 'Session settings'}</h3>{saveStatus && <span role="status">{saveStatus}</span>}</div><div className={css.pluginSettingsRows}>{sharedSettings && <BrowseRecordSettings />}{sections}</div>
       </>}
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
-    {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy || usesIncludedAI(values) && !!access.problem}>{busy ? 'Starting…' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
+    {editingProfile && <div className={css.settingsFooter}><button type="button" onClick={backToBrowsing} disabled={busy}>Save</button></div>}
+    {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy || !sharedSettings && usesIncludedAI(values) && !!access.problem}>{busy ? sharedSettings ? 'Applying…' : 'Starting…' : sharedSettings ? 'Apply all' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
   </form>
 }
 let PluginDialog = () => {
@@ -2652,6 +2685,7 @@ let SessionRow = ({ id, name, privateSession }: { id: string; name: string; priv
 let SessionWindowRow = ({ window, now, remote }: { window: InternalWindow; now: number; remote?: { host: string; session: string; active: boolean; select: (host: string, session: string, pane: string) => void } }) => {
   let { state, run, dismiss } = useUI()
   let visitedAt = windowVisitTime(window)
+  let backgroundAgent = !remote && isBackgroundAgentWindow(window, state)
   let pane = window.panes.find(pane => pane.id === (remote ? localStorage.getItem('remote-session-last-pane') : selection(state).client?.paneId)) ?? window.panes[0]
   let active = remote ? remote.active && window.panes.some(pane => pane.id === localStorage.getItem('remote-session-last-pane')) : selection(state).client?.windowId === window.id
   let name = window.automaticName === true ? pane?.title || pane?.url || window.name : window.name.trim() || pane?.title || pane?.url || 'Blank page'
@@ -2668,7 +2702,7 @@ let SessionWindowRow = ({ window, now, remote }: { window: InternalWindow; now: 
   let confirmation = <div className={css.sessionConfirm} onKeyDown={confirmKeys} role="alertdialog" aria-label={`Close window ${name}?`}><span>Close window "{name}"?</span><button ref={confirmButton} data-picker-action onClick={close} disabled={busy}>yes</button><button data-picker-action onClick={cancel} disabled={busy}>no</button></div>
   return <div className={css.sessionRow} data-session-target data-preview-window={window.id} data-remote-session={remote && `${remote.host}:${remote.session}`} data-remote-pane={remote && pane?.id}>{confirming ? confirmation : <>
     <button ref={row} className={css.listRow} data-window-row={window.id} data-session-row={remote || undefined} data-active={active} aria-current={active || undefined} onClick={select}>
-      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={remote ? undefined : pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>
+      <SessionNumber /><span className={css.sessionBranch} data-session-branch aria-hidden="true" /><PageIcon paneId={remote ? undefined : pane?.id} /><span className={css.sessionWindowName} data-window-label title={name}>{name}</span>{backgroundAgent && <span className={css.backgroundAgent} data-background-agent title="Agent window not shown in any client">Background</span>}
       {visitedAt && <time className={css.sessionWindowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last visited ${new Date(visitedAt).toLocaleString()}`}>{activityLabel(visitedAt, now)}</time>}
     </button>{!remote && <><SessionAudio window={window} /><SessionAgent window={window} /><button className={css.sessionClose} data-picker-action onClick={ask} disabled={window.locked} aria-label={`Close window ${name}`} title={window.locked ? 'Unlock window to close' : undefined}>x</button></>}
   </>}</div>
@@ -2856,8 +2890,24 @@ let useProxyDefault = (args: Record<string, unknown>, onSaved: (profile: Profile
   return { saving, changeNewPanes }
 }
 
+let usePaneProxy = (args: Record<string, unknown>, onSaved: (pane: Pane) => void) => {
+  let { state, run, onMessage } = useUI()
+  let { pane } = selection(state)
+  let [changingPane, setChangingPane] = useState(false)
+  let changeCurrentPane = async (event: MouseEvent<HTMLButtonElement>) => {
+    if (!pane || changingPane || !event.currentTarget.form?.reportValidity()) return
+    onMessage(''); setChangingPane(true)
+    try {
+      let result = await run('pane.proxy.set', { ...args, pane: pane.id })
+      if (result) onSaved(result as Pane)
+    } finally { setChangingPane(false) }
+  }
+  return { pane, changingPane, changeCurrentPane }
+}
+
 let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Profile; paneCount: number; showRegion?: boolean }) => {
   let { state, run, onMessage } = useUI()
+  let preserveUsername = useRef(false)
   let providers = proxyProviderEntries(state)
   let configuredProvider = providers.find(entry => entry.provider.regions.some(region => matchesProxyRegion(region, profile)))
   let configuredRegion = configuredProvider?.provider.regions.find(region => matchesProxyRegion(region, profile))?.host ?? ''
@@ -2868,16 +2918,16 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let [port, setPort] = useSettingsState(`proxy:${profile.id}:port`, String(profile?.proxy?.port ?? 443))
   let [authenticated, setAuthenticated] = useSettingsState(`proxy:${profile.id}:authenticated`, profile?.proxy?.authenticated ?? true)
   let [username, setUsername] = useSettingsState(`proxy:${profile.id}:username`, ''), [password, setPassword] = useSettingsState(`proxy:${profile.id}:password`, '')
-  let [testing, setTesting] = useState(false)
-  let form = useRef<HTMLFormElement>(null)
+  let [testing, setTesting] = useState(false), form = useRef<HTMLFormElement>(null)
   let [credentialProfile, setCredentialProfile] = useSettingsState(`proxy:${profile.id}:credentialProfile`, defaultConnectionId(profile)), [savedUsername, setSavedUsername] = useSettingsState(`proxy:${profile.id}:savedUsername`, '')
   let [pickerOpen, setPickerOpen] = useSettingsState(`proxy:${profile.id}:pickerOpen`, false)
   let savedProfiles = savedProxyProfiles(state.model)
   useEffect(() => {
     if (!credentialProfile) return
-    let cancelled = false
+    let cancelled = false, preserve = preserveUsername.current
+    preserveUsername.current = false
     void run('profile.proxy.username', { profile: credentialProfile }).then(result => {
-      if (!cancelled && result) { let value = (result as { username: string }).username; setUsername(current => current === savedUsername ? value : current); setSavedUsername(value) }
+      if (!cancelled && result) { let value = (result as { username: string }).username; if (!preserve) setUsername(current => current === savedUsername ? value : current); setSavedUsername(value) }
     })
     return () => { cancelled = true }
   }, [credentialProfile, run])
@@ -2899,7 +2949,7 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   }
   let [tested, setTested] = useState<{ ip: string; region?: string }>(), testRevision = useRef(0)
   useEffect(() => { testRevision.current++; setTested(undefined) }, [protocol, host, port, authenticated, username, password, credentialProfile])
-  let savedEndpoint = protocol === profile.proxy?.protocol && host === profile.proxy?.host && Number(port) === profile.proxy?.port && authenticated === profile.proxy?.authenticated && !password && username === savedUsername && credentialProfile === defaultConnectionId(profile)
+  let savedEndpoint = protocol === profile.proxy?.protocol && host === profile.proxy?.host && Number(port) === profile.proxy?.port && authenticated === profile.proxy?.authenticated && !password && (!username || username === savedUsername) && credentialProfile === defaultConnectionId(profile)
   let proxyTest = tested ?? (savedEndpoint ? state.profileProxyTests[defaultConnectionId(profile)] : undefined)
   let providerEntry = providers.find(entry => entry.key === providerKey)
   let provider = providerEntry?.provider
@@ -2927,8 +2977,9 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
   let changeUsername = (event: ChangeEvent<HTMLInputElement>) => setUsername(event.target.value)
   let changePassword = (event: ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)
   let proxyArgs = { profile: profile.id, protocol, host, port: Number(port), authenticated, username, password, credentialProfile }
-  let proxySaved = (saved: Profile) => { setCredentialProfile(defaultConnectionId(saved)); setSavedUsername(username); setPassword('') }
-  let { saving, changeNewPanes } = useProxyDefault(proxyArgs, proxySaved)
+  let credentialsSaved = (connectionId: string) => { preserveUsername.current = connectionId !== credentialProfile; setCredentialProfile(connectionId); setSavedUsername(username || savedUsername); setPassword('') }
+  let { saving, changeNewPanes } = useProxyDefault(proxyArgs, saved => credentialsSaved(defaultConnectionId(saved)))
+  let { pane, changingPane, changeCurrentPane } = usePaneProxy(proxyArgs, saved => credentialsSaved(paneConnectionId(saved)))
   let preventSubmit = (event: FormEvent) => event.preventDefault()
   let testProxy = async () => {
     if (testing || !form.current?.reportValidity()) return
@@ -2943,7 +2994,7 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
       <h2>Proxy for new panes</h2>
       <div className={css.proxyFields}>
       <p>{profile.proxy ? `${profile.proxy.protocol}://${profile.proxy.host}:${profile.proxy.port}` : 'Use the system connection'}. Used for new panes. {paneCount} existing pane{paneCount === 1 ? ' keeps' : 's keep'} their current connection.</p>
-      {savedProfiles.length > 0 && <label className={css.savedProxy}>Saved proxies (all profiles)<select aria-label="Saved proxies" value="" onChange={changeSavedProxy}><option value="" disabled>Choose a saved proxy</option>{savedProfiles.map(item => <option key={item.id} value={item.id}>{item.name} · {item.proxy!.protocol}://{item.proxy!.host}:{item.proxy!.port}</option>)}</select></label>}
+      {savedProfiles.length > 0 && <label className={css.savedProxy}>Saved proxies (all profiles)<select aria-label="Saved proxies" value="" onChange={changeSavedProxy}><option value="" disabled>Choose a saved proxy</option>{uniqueProxyProfiles(savedProfiles).map(item => <option key={item.id} value={item.id}>{item.proxy!.protocol}://{item.proxy!.host}:{item.proxy!.port}</option>)}</select></label>}
       <div className={css.profileProxyProvider}><label>Provider<ProxyProviderSelect value={providerEntry ? providerKey : 'custom'} entries={providers} onChange={changeProvider} /></label>{provider && <label>Region<ProxyRegionSelect regions={provider.regions} value={providerRegion} onChange={changeProviderRegion} /></label>}</div>
       {!provider && <div className={css.profileProxyEndpoint}><label>Protocol<ProxyProtocolSelect value={protocol} onChange={changeProtocol} /></label><label>Host<input className={css.pluginInput} value={host} onChange={changeHost} onClick={openProviders} autoComplete="off" spellCheck={false} required /></label><label>Port<input className={css.pluginInput} type="number" min="1" max="65535" value={port} onChange={changePort} required /></label></div>}
       {pickerOpen && <ProxyHostPicker protocol={protocol} entries={providers} onChoose={chooseRegion} onClose={closeProviders} />}
@@ -2951,7 +3002,7 @@ let ProxySettings = ({ profile, paneCount, showRegion = false }: { profile: Prof
       {authenticated && <div className={css.profileProxyCredentials}><label>Username<input className={css.pluginInput} value={username} onChange={changeUsername} autoComplete="off" spellCheck={false} placeholder={savedProfiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label><label>Password<input className={css.pluginInput} type="password" value={password} onChange={changePassword} autoComplete="new-password" placeholder={savedProfiles.find(item => item.id === credentialProfile)?.proxy?.authenticated ? 'Leave blank to keep saved credentials' : ''} /></label></div>}
       {proxyTest && <ProxyTestSuccess ip={proxyTest.ip} region={showRegion ? proxyTest.region : undefined} />}
       </div>
-      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><label className={css.proxyDefault}><input className={css.proxyToggle} type="checkbox" role="switch" checked={savedEndpoint} onChange={changeNewPanes} disabled={saving} />Use for new panes</label><button type="button" aria-label="Test connection" onClick={testProxy} disabled={testing}>{testing ? 'Testing…' : 'Test connection'}</button></div>
+      <div className={`${css.profileProxyActions} ${css.proxyFooter}`}><label className={css.proxyDefault}><input className={css.proxyToggle} type="checkbox" role="switch" checked={savedEndpoint} onChange={changeNewPanes} disabled={saving || changingPane} />Use for new panes</label>{pane && <button type="button" onClick={changeCurrentPane} disabled={changingPane || saving}>{changingPane ? 'Changing…' : 'Change current pane connection'}</button>}<button type="button" aria-label="Test connection" onClick={testProxy} disabled={testing}>{testing ? 'Testing…' : 'Test connection'}</button></div>
     </form>
 }
 
@@ -3298,9 +3349,10 @@ let ProfileSelectActions = () => {
       if (created && await run('session.profile.set', { session: session.id, profile: created.id })) cancel()
     } finally { setBusy(false) }
   }
+  let selectors = <div className={css.profileSelectors}><div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for this session<select aria-label="Default profile for this session" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className={css.profileManageButton} onClick={manage} aria-label="Manage profiles" title="Manage profiles" aria-expanded={managing} disabled={busy}><SettingsIcon /></button></div>
+    {pane && <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Profile for this pane<select aria-label="Profile for this pane" value={pane.profileId} onChange={changePane} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>}</div>
   return <>
-    <div className={css.profileSelectRow}><label className={css.sessionProfileChange}>Default profile for new windows and panes<select aria-label="Default profile for new windows and panes" value={session?.defaultProfileId ?? profile?.id} onChange={change} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button type="button" className={css.profileManageButton} onClick={manage} aria-label="Manage profiles" title="Manage profiles" aria-expanded={managing} disabled={busy}><SettingsIcon /></button></div>
-    {pane && <label className={css.sessionProfileChange}>Profile for this pane<select aria-label="Profile for this pane" value={pane.profileId} onChange={changePane} disabled={busy}>{state.model.profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+    {selectors}
     {managing && <div className={css.profileManager} role="group" aria-label="Manage profiles"><div className={css.profileManageHeading}><span>Profiles</span><button type="button" onClick={add} aria-label="New profile" title="New profile" disabled={busy || creating}>+</button></div>
     {creating && <form className={css.sessionCreate} onSubmit={create} aria-label="Create profile"><label>Profile name<input value={name} onChange={changeName} autoFocus disabled={busy} required /></label><div className={css.sessionCreateActions}><button type="submit" disabled={busy || !name.trim()}>Create profile</button><button type="button" onClick={cancel} disabled={busy}>Cancel</button></div></form>}
     {state.model.profiles.map(item => <ProfileManagementRow key={item.id} profile={item} />)}</div>}

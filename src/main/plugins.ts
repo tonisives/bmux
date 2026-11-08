@@ -1,4 +1,6 @@
 import fs from 'node:fs'
+import { sharedSocialField } from '../shared/plugins'
+import { AgentScrollError } from './agent-scroll'
 import { pluginRangeValue } from '../shared/plugin-range'
 import { parsePluginOverlay, validatePluginOverlayInput } from '../shared/plugin-overlay'
 import type { PluginOverlayContent, PluginOverlayInput } from '../shared/plugin-overlay'
@@ -13,8 +15,9 @@ import { createPluginSocket, listenSocket } from '../../bin/ipc.mjs'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginParameter, PluginPrompt, PluginRun, PluginSettings, PluginSettingsProfiles } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
-type Run = { profiles?: PluginSettingsProfiles; saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
+type Run = { sharedSettings?: boolean; destination?: 'current' | 'window'; profiles?: PluginSettingsProfiles; saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
+  browseHistory?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<unknown>;
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
   decisions?: (method: 'usage' | 'create' | 'memory', args: Record<string, unknown>) => Promise<unknown>
@@ -24,10 +27,11 @@ type Options = {
   context: (target: PluginContext) => PluginContext
   interactive: (context: PluginContext) => boolean
   selected?: (context: PluginContext) => boolean
-  prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>
+  prepare?: (context: PluginContext, title: string, signal: AbortSignal, destination?: 'current' | 'window') => Promise<PluginContext>
   show: (clientId: string) => void
   browser: (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => Promise<unknown>
-  automation?: { acquire: (args: { profileId: string; tabId: string; url: string; pluginId?: string }) => { token: string; group: string }; release: (token: string) => unknown; like: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; authorize: (args: { profileId: string; tabId: string; url: string; token?: string; kind?: 'activity' | 'navigation'; record?: boolean }) => unknown; status: () => unknown }
+  finished?: (runId: string) => void
+  automation?: { acquire: (args: { profileId: string; tabId: string; url: string; pluginId?: string }) => { token: string; group: string }; release: (token: string) => unknown; follow: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; like: (args: { profileId: string; tabId: string; url: string; token: string }) => unknown; authorize: (args: { profileId: string; tabId: string; url: string; token?: string; kind?: 'activity' | 'navigation'; record?: boolean }) => unknown; status: () => unknown }
 }
 let live = (run: Run) => ['queued', 'running'].includes(run.public.status)
 let record = (value: unknown): Record<string, unknown> => {
@@ -50,7 +54,7 @@ export let createPlugins = (options: Options) => {
   let discoveryErrors: PluginInfo[] = [], active = 0, closed = false, scanning = false
   let { socketPath, directory: socketDirectory } = createPluginSocket()
   let connections = new Set<net.Socket>()
-  let list = (): PluginInfo[] => [...definitions.values()].map(({ manifest, error, bundled }): PluginInfo => ({ bundled: !!bundled, id: manifest.id, name: manifest.name, category: manifest.category, description: manifest.description, version: manifest.version, enabled: settings[manifest.id]?.enabled === true, hooks: settings[manifest.id]?.hooks === true, hasHooks: manifest.hooks.length > 0, error, actions: manifest.actions.map(({ id, title, description, group }) => ({ id, title, description, ...(group ? { group } : {}) })), proxyProviders: manifest.proxyProviders, bookmark: manifest.bookmark })).concat(discoveryErrors)
+  let list = (): PluginInfo[] => [...definitions.values()].map(({ manifest, error, bundled }): PluginInfo => ({ settingsAction: manifest.actions.find(action => action.configuration_profile_command && action.configuration_save_command)?.id ?? manifest.actions.find(action => action.configuration_save_command)?.id, bundled: !!bundled, id: manifest.id, name: manifest.name, category: manifest.category, description: manifest.description, version: manifest.version, enabled: settings[manifest.id]?.enabled === true, hooks: settings[manifest.id]?.hooks === true, hasHooks: manifest.hooks.length > 0, error, actions: manifest.actions.map(({ id, title, description, group }) => ({ id, title, description, ...(group ? { group } : {}) })), proxyProviders: manifest.proxyProviders, bookmark: manifest.bookmark })).concat(discoveryErrors)
   let publicRuns = () => [...runs.values()].reverse().map(run => ({ ...run.public, ...(run.overlay && run.context.paneId ? { overlayPaneId: run.context.paneId } : {}) }))
   let prompt = (clientId: string) => [...runs.values()].find(run => run.context.clientId === clientId && run.pending)?.pending?.prompt
   let kill = (run: Run) => {
@@ -70,6 +74,7 @@ export let createPlugins = (options: Options) => {
     run.public.status = status; run.public.error = status === 'failed' ? run.policyError ?? error : error
     if (run.automationToken) { try { options.automation?.release(run.automationToken) } catch { /* Lease already expired. */ }; run.automationToken = undefined }
     run.token = ''; run.parameters = {}; run.controller.abort()
+    options.finished?.(run.public.id)
     clearTimeout(run.timer)
     let pending = run.pending; run.pending = undefined
     pending?.reject(new Error('Plugin interaction cancelled'))
@@ -88,7 +93,7 @@ export let createPlugins = (options: Options) => {
       return { id: shortText(item.id, 256), label: shortText(item.label), description: item.description === undefined ? undefined : shortText(item.description) }
     }) : undefined) : undefined
     if (kind === 'pick' && (!items?.length || new Set(items.map(item => item.id)).size !== items.length)) throw new Error('Picker requires unique items')
-    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { fields: run.action.parameters.filter(field => !field.hidden), autosave: !!run.action.configuration_save_command, savedValues: run.savedValues, profiles: run.profiles, presets: run.action.presets, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launch: !!run.action.launch_url } : {}) }
+    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { sharedSettings: run.sharedSettings, fields: run.action.parameters.filter(field => !field.hidden && (!run.sharedSettings || sharedSocialField(field))), autosave: !!run.action.configuration_save_command, savedValues: run.savedValues, profiles: run.profiles, presets: run.action.presets, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launch: !!run.action.launch_url } : {}) }
     return new Promise((resolve, reject) => {
       run.pending = { prompt: request, resolve, reject }
       options.changed(); options.show(run.context.clientId!)
@@ -165,14 +170,55 @@ export let createPlugins = (options: Options) => {
     run.saving = saving
     return saving
   }
+  let applyAllSettings = async (run: Run, raw: unknown) => {
+    if (!run.sharedSettings) throw new Error('Shared settings are unavailable')
+    let values = record(raw)
+    for (let [name, value] of Object.entries(values)) {
+      let field = run.action.parameters.find(field => field.name === name && sharedSocialField(field))
+      if (!field) throw new Error('Unknown shared setting')
+      validateParameter(field, value)
+    }
+    await run.saving
+    let profile = run.profiles?.items.find(item => item.id === run.profiles?.active)
+    let applied = new Set<string>()
+    for (let definition of definitions.values()) {
+      if (definition.manifest.category !== 'Social Media') continue
+      for (let action of definition.manifest.actions) {
+        if (!action.configuration_command || !action.configuration_save_command) continue
+        let key = JSON.stringify([definition.directory, action.configuration_save_command])
+        if (applied.has(key)) continue
+        let target: Run = { ...run, definition, action, savedValues: undefined, profiles: undefined }
+        let patch = Object.fromEntries(Object.entries(values).filter(([name, value]) => {
+          let field = action.parameters.find(field => field.name === name && sharedSocialField(field))
+          if (!field) return false
+          validateParameter(field, value); return true
+        }))
+        if (!Object.keys(patch).length) continue
+        if (profile && action.configuration_profile_command) {
+          readConfiguration(target, await configuration(target, action.configuration_command))
+          let match = target.profiles?.items.find(item => item.name === profile.name)
+          await configuration(target, action.configuration_profile_command, match ? { action: 'select', id: match.id } : { action: 'create', name: profile.name })
+        }
+        await configuration(target, action.configuration_save_command, patch)
+        applied.add(key)
+      }
+    }
+    return { applied: applied.size }
+  }
   let respond = (clientId: string, args: Record<string, unknown>) => {
     let run = [...runs.values()].find(run => run.pending?.prompt.id === args.id)
     if (!run?.pending || run.context.clientId !== clientId || !options.interactive(run.context)) throw new Error('Plugin prompt is unavailable')
+    if (args.applyAll === true) return applyAllSettings(run, args.value)
     if (args.profile !== undefined) return changeProfile(run, args.profile)
     if (args.save === true) return saveSettings(run, args.value)
     if (args.cancel === true) { finish(run, 'cancelled'); return null }
     let { prompt: request, resolve } = run.pending, value = args.value
     if (request.kind === 'form') {
+      if (run.sharedSettings) throw new Error('Use Apply all to save shared settings')
+      if (request.launch) {
+        if (args.destination !== undefined && args.destination !== 'current' && args.destination !== 'window') throw new Error('Choose Current pane or New window')
+        run.destination = args.destination === 'current' ? 'current' : 'window'
+      }
       let values = record(value)
       if (Object.keys(values).some(key => !request.fields?.some(field => field.name === key))) throw new Error('Unknown form field')
       for (let field of request.fields ?? []) validateParameter(field, values[field.name])
@@ -195,10 +241,14 @@ export let createPlugins = (options: Options) => {
     let run = runs.get(String(request.runId))
     if (!run || !live(run) || !run.token || request.token !== run.token) throw new Error('Invalid plugin invocation')
     let method = String(request.method), args = record(request.args ?? {})
+    if (method === 'history.status' || method === 'history.record') {
+      if (!run.action.capabilities.includes('browser.read') || run.definition.manifest.category !== 'Social Media') throw new Error('Social browsing capability required')
+      return options.browseHistory?.({ ...run.context, runId: run.public.id }, method, args)
+    }
     let policyCall = <T>(operation: () => T): T => { try { return operation() } catch (error) { run.policyError = error instanceof Error ? error.message : 'Automation policy failed'; throw error } }
       if (method === 'context') {
       if (args.refresh === true) run.context = { ...options.context(run.context), ...(run.context.launchApproved ? { launchApproved: true, launchUrl: run.context.launchUrl } : {}) }
-      return { ...run.context, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
+      return { ...run.context, browseRecording: await options.browseHistory?.(run.context, 'history.status', {}), scrolling: options.context(run.context).scrolling, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
     }
     if (method === 'overlay.update' || method === 'overlay.events') {
       if (!run.action.capabilities.includes('ui') || run.public.hook || !run.context.paneId) throw new Error('Manual ui capability required for overlay')
@@ -228,9 +278,9 @@ export let createPlugins = (options: Options) => {
       return { group: lease.group }
     }
     if (method === 'automation.status') return options.automation?.status() ?? []
-    if (method === 'automation.like') {
+    if (method === 'automation.like' || method === 'automation.follow') {
       if (!run.context.profileId || !run.context.paneId || !run.automationToken) throw new Error('Automation lease unavailable')
-      return policyCall(() => options.automation?.like({ profileId: run.context.profileId!, tabId: run.context.paneId!, url: shortText(args.url), token: run.automationToken! }))
+      return policyCall(() => options.automation?.[method === 'automation.follow' ? 'follow' : 'like']({ profileId: run.context.profileId!, tabId: run.context.paneId!, url: shortText(args.url), token: run.automationToken! }))
     }
     if (method === 'ui') { if (!run.action.capabilities.includes('ui')) throw new Error('Capability ui required'); return requestUI(run, args) }
     let capability = methods[method]
@@ -240,9 +290,10 @@ export let createPlugins = (options: Options) => {
     if (run.public.hook && ['select-pane', 'select-window', 'activate-client'].includes(method)) throw new Error('Hooks cannot change selection')
     let url = method === 'navigate' ? String(args.url) : run.context.url
     if (url && run.context.profileId && run.context.paneId) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.paneId!, url, token: run.automationToken, kind: method === 'navigate' ? 'navigation' : ['click', 'type', 'key'].includes(method) || method === 'cdp' && String(args.method).startsWith('Input.') ? 'activity' : undefined, record: method !== 'navigate' }))
-    try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context }, run.controller.signal) }
+    try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context, runId: run.public.id, pacing: run.action.pacing }, run.controller.signal) }
     catch (error) {
       if (isAutomationSafetyError(error)) { run.policyError = error.message; finish(run, 'failed'); throw error }
+      if (error instanceof AgentScrollError) throw error
       throw new Error('Browser operation failed or target document changed')
     }
   }
@@ -270,7 +321,7 @@ export let createPlugins = (options: Options) => {
       finishActivity = options.activity?.(run.context, `plugin:${run.public.pluginId}/${run.public.actionId}`)
       await ready
       let fields = run.action.parameters.filter(field => !field.hidden)
-      let form = run.interactive && (fields.length > 1 || !!run.action.launch_url)
+      let form = run.interactive && (run.sharedSettings || fields.length > 1 || !!run.action.launch_url)
       if (form && run.action.configuration_command) {
         let output = await configuration(run, run.action.configuration_command)
         readConfiguration(run, output)
@@ -293,7 +344,7 @@ export let createPlugins = (options: Options) => {
       if (!live(run)) return
       if (form && run.action.launch_url) {
         if (!options.prepare) throw new Error('Window launch unavailable')
-        run.context = { ...await options.prepare(run.context, run.definition.manifest.name, run.controller.signal), launchUrl: run.action.launch_url, launchApproved: true }
+        run.context = { ...await options.prepare(run.context, run.definition.manifest.name, run.controller.signal, run.destination), launchUrl: run.action.launch_url, launchApproved: true }
       }
       if (!live(run)) return
       let env: NodeJS.ProcessEnv = { ...process.env, BMUX_DATA_DIR: options.dataDirectory, BMUX_PLUGIN_SOCKET: socketPath, BMUX_PLUGIN_RUN_ID: run.public.id, BMUX_PLUGIN_TOKEN: run.token, BMUX_CLI: options.cli }
@@ -321,26 +372,33 @@ export let createPlugins = (options: Options) => {
       void launch(run); options.changed()
     }
   }
-  let enqueue = (definition: Definition, action: PluginAction, context: PluginContext, parameters: Record<string, unknown>, hook: boolean, interactive: boolean) => {
+  let enqueue = (definition: Definition, action: PluginAction, context: PluginContext, parameters: Record<string, unknown>, hook: boolean, interactive: boolean, sharedSettings = false) => {
     if (closed) throw new Error('Plugin host is closed')
     if (hook) for (let prior of runs.values()) if (prior.public.hook && prior.public.status === 'queued' && prior.public.pluginId === definition.manifest.id && prior.public.actionId === action.id && prior.context.paneId === context.paneId) finish(prior, 'cancelled')
     if ([...runs.values()].filter(run => live(run)).length >= 256) throw new Error('Plugin queue is full')
     for (let [id, run] of runs) if (!live(run) && runs.size >= 200) runs.delete(id)
     let id = randomUUID()
-    let run: Run = { public: { id, pluginId: definition.manifest.id, actionId: action.id, title: action.title, hook, status: 'queued' }, definition, action, context: { ...context, agentId: `plugin:${definition.manifest.id}`, agentName: definition.manifest.name, agentPurpose: action.description ?? action.title, agentContext: definition.manifest.id, agentData: { runId: id, action: action.id } }, parameters: { ...parameters }, restartParameters: Object.fromEntries(Object.entries(parameters).filter(([key]) => action.parameters.find(parameter => parameter.name === key)?.kind !== 'password')), interactive, token: randomBytes(32).toString('hex'), controller: new AbortController() }
+    let run: Run = { sharedSettings, public: { id, pluginId: definition.manifest.id, actionId: action.id, title: action.title, hook, status: 'queued' }, definition, action, context: { ...context, agentId: `plugin:${definition.manifest.id}`, agentName: definition.manifest.name, agentPurpose: action.description ?? action.title, agentContext: definition.manifest.id, agentData: { runId: id, action: action.id } }, parameters: { ...parameters }, restartParameters: Object.fromEntries(Object.entries(parameters).filter(([key]) => action.parameters.find(parameter => parameter.name === key)?.kind !== 'password')), interactive, token: randomBytes(32).toString('hex'), controller: new AbortController() }
     runs.set(id, run); options.changed(); pump(); return { id }
   }
-  let runAction = (target: string, context: PluginContext, parameters: Record<string, unknown> = {}, interactive = false) => {
+  let runAction = (target: string, context: PluginContext, parameters: Record<string, unknown> = {}, interactive = false, sharedSettings = false) => {
     let [pluginId, actionId, extra] = target.split('/'), definition = definitions.get(pluginId)
     let action = definition?.manifest.actions.find(action => action.id === actionId)
     if (extra || !definition || !action || !settings[pluginId]?.enabled) throw new Error('Plugin action unavailable; check plugin configuration')
     if (Object.keys(parameters).some(key => !action.parameters.some(parameter => parameter.name === key))) throw new Error('Unknown plugin parameter')
-    return enqueue(definition, action, options.context(context), parameters, false, interactive)
+    if (sharedSettings && (!interactive || definition.manifest.category !== 'Social Media' || !action.configuration_save_command)) throw new Error('Shared social settings unavailable')
+    return enqueue(definition, action, options.context(context), parameters, false, interactive, sharedSettings)
   }
-  let overlay = (paneId: string) => {
-    let run = [...runs.values()].reverse().find(run => run.context.paneId === paneId && run.overlay)
-    return run?.overlay ? { runId: run.public.id, paneId, content: { ...run.overlay, copies: run.overlay.copies?.map(({ id, label }) => ({ id, label })) }, ended: !live(run), error: run.public.error } : undefined
+  let overlays = (paneId: string) => {
+    let seen = new Set<string>()
+    return [...runs.values()].reverse().flatMap(run => {
+      let pluginId = run.public.pluginId
+      if (run.context.paneId !== paneId || !run.overlay || seen.has(pluginId)) return []
+      seen.add(pluginId)
+      return [{ runId: run.public.id, pluginId, paneId, content: { ...run.overlay, copies: run.overlay.copies?.map(({ id, label }) => ({ id, label })) }, ended: !live(run), error: run.public.error }]
+    })
   }
+  let overlay = (paneId: string) => overlays(paneId)[0]
   let copyOverlay = (id: string, copyId: string) => {
     let copy = runs.get(id)?.overlay?.copies?.find(copy => copy.id === copyId)
     if (!copy?.text) throw new Error('Payload is unavailable for this post')
@@ -438,5 +496,5 @@ export let createPlugins = (options: Options) => {
       return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
     } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
   })
-  return { ready, list, bookmarks, runs: publicRuns, overlay, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  return { browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }

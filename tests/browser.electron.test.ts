@@ -70,10 +70,7 @@ let rendererForClient = async (clientId: string, expected?: { sessionId: string;
 }
 // Native interaction fixtures must not renew an agent input lock while inspecting readiness.
 let ui = (chrome: Page, method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
-let launch = async () => {
-  let packaged = process.env.BMUX_TEST_PACKAGED === '1'
-  application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
-  application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
+let waitForServer = async () => {
   // The public CLI auto-starts a server. During a slow restore that can launch the
   // installed build against this same fixture before the test app starts listening.
   let socket = path.join('/tmp', `bmux-${process.getuid?.() ?? 'user'}`, `${createHash('sha256').update(directory).digest('hex').slice(0, 16)}.sock`)
@@ -87,6 +84,12 @@ let launch = async () => {
     connection.on('end', () => { try { resolve(JSON.parse(response).result.pid) } catch (error) { reject(error) } })
   })
   await expect.poll(() => serverPid().catch(() => null), { timeout: 20000 }).toBe(application.process().pid)
+}
+let launch = async () => {
+  let packaged = process.env.BMUX_TEST_PACKAGED === '1'
+  application = await electron.launch({ ...(packaged ? { executablePath: path.join(root, 'build/bmux.app/Contents/MacOS/bmux') } : {}), args: [...(packaged ? [] : [root]), '--background'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '1' } })
+  application.process().stderr?.on('data', chunk => console.log('ELECTRON', String(chunk).slice(0, 1500)))
+  await waitForServer()
   // Let startup finish before entering the main process through the inspector.
   await observeNativeFocus(application)
 }
@@ -705,7 +708,7 @@ for (let floating of [false, true]) test(`General Vim editing toggle controls UR
     }
     let settings = async () => {
       await chrome.evaluate(client => (window as any).bmux.command({ method: 'focus-ui', args: { client } }), client.id)
-      await sendNativeKeys(application, [{ keyCode: ',', modifiers: ['meta'] }])
+      await sendNativeKeys(application, [{ keyCode: ',', modifiers: ['meta', 'shift'] }])
       let panel = chrome.getByRole('dialog', { name: 'Settings', exact: true })
       await panel.getByRole('tab', { name: 'General', exact: true }).click()
       return panel
@@ -1324,6 +1327,7 @@ test('permissions, downloads, pane cleanup, crash recovery, and native-client re
   await closeTestApplication(application)
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
+  await waitForServer()
   await expect.poll(async () => (await cli('list-clients')).length).toBe(1)
   expect((await cli('list-clients'))[0].windowId).toBe(sourceWindow.id)
   await cli('detach-client', { client: client.id })
@@ -1347,6 +1351,7 @@ test('removes a pane after an interrupted navigation and reports the recovery on
   await fs.writeFile(path.join(directory, 'browser-run.json'), JSON.stringify({ version: 1, recovery: false }))
   application = await electron.launch({ args: [root], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
   await application.evaluate(async ({ app }) => { await app.whenReady() })
+  await waitForServer()
   await expect.poll(async () => (await cli('state')).startupNotice).toBe('Removed a pane after chromewebstore.google.com crashed bmux during navigation.')
   expect((await cli('list-panes', { window: session.windows[0].id })).map((pane: { id: string }) => pane.id)).toEqual([retained.id])
   expect((await cli('list-clients')).find((item: { id: string }) => item.id === client.id).paneId).toBe(retained.id)
@@ -1652,11 +1657,8 @@ test('pane address bars navigate independently and leave window switching availa
   await address.fill('edited-second-pane')
   let suggestions = chrome.getByRole('listbox', { name: 'Address suggestions' })
   await expect(suggestions).toBeVisible()
-  // Captures are best effort and bounded; suggestions must still fit when a
-  // capture is skipped or times out. Check the preview when one was captured.
-  let snapshot = (await cli('state')).snapshots[second.id]
-  if (snapshot) await expect(secondPane.getByRole('img', { name: 'Page preview' })).toHaveAttribute('src', snapshot.image)
-  await expect.poll(() => application.evaluate(({ BaseWindow }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === target)), `${url}/edited-second-pane`)).toBe(false)
+  await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, target) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === target && view.getVisible())), `${url}/edited-second-pane`)).toBe(true)
+  await expect(secondPane.locator('[data-pane-content]')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   let suggestionBounds = await suggestions.boundingBox()
   let contentWithSuggestions = await secondPane.locator('[data-browser-content]').boundingBox()
   expect(contentWithSuggestions!.y).toBe(contentBeforeSuggestions!.y)
@@ -1878,7 +1880,14 @@ test('stalled loads cannot block shortcuts, independent windows, or live keyboar
   await expect(chrome.getByRole('dialog', { name: 'Help' })).toBeVisible()
   await expect(chrome.getByText('Ctrl+X then ?', { exact: true })).toBeVisible()
   await chrome.keyboard.press('Escape')
+  await cli('select-window', { client: client.id, window: first.id })
+  await cli('select-window', { client: client.id, window: second.id })
+  let selectedWindow = async () => (await cli('state')).model.clients.find((item: { id: string }) => item.id === client.id).windowId
   await nativeKeys([{ keyCode: ',', modifiers: ['meta'] }])
+  await expect.poll(selectedWindow).toBe(first.id)
+  await nativeKeys([{ keyCode: '.', modifiers: ['meta'] }])
+  await expect.poll(selectedWindow).toBe(second.id)
+  await nativeKeys([{ keyCode: ',', modifiers: ['meta', 'shift'] }])
   await expect(chrome.getByRole('dialog', { name: 'Settings' })).toBeVisible()
   await chrome.getByRole('tab', { name: 'Memory' }).click()
   await expect(chrome.getByRole('checkbox', { name: 'Load inactive sessions on demand' })).toBeChecked()
@@ -2432,7 +2441,7 @@ test('pinned status windows use icons, stay on the left and toggle from menus an
     await ui(chrome, 'wait', { pane: second.panes[0].id, selector: '#text' })
     await expect(tab(second.id).locator('img')).toBeVisible()
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/cached-favicon/pinned`)
-    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta'] }])
+    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta', 'shift'] }])
     await expect(tab(second.id)).toHaveAttribute('data-pinned', 'true')
     await expect.poll(order).toEqual([second.id, first.id, third.id])
     await expect(button(second.id)).toHaveText('')
@@ -2460,10 +2469,10 @@ test('pinned status windows use icons, stay on the left and toggle from menus an
     await expect(button(first.id).locator('span').last()).toHaveText(`${first.number}:${first.name}`)
     await chrome.evaluate(() => (window as any).bmux.command({ method: 'focus-ui' }))
     await button(second.id).focus()
-    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta'] }])
+    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta', 'shift'] }])
     await expect(tab(second.id)).toHaveAttribute('data-pinned', 'false')
     await expect(button(second.id).locator('span').last()).toHaveText(`${second.number}:bmux fixture*`)
-    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta'] }])
+    await sendNativeKeys(application, [{ keyCode: '.', modifiers: ['meta', 'shift'] }])
     await expect(tab(second.id)).toHaveAttribute('data-pinned', 'true')
     await cli('kill-window', { window: second.id, confirm: true })
     await cli('reopen-closed', { client: client.id })

@@ -220,8 +220,10 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
     }
     // Native guest input hits the shield while agent CDP input still reaches the page.
     await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).lockedAgentPanes).toContain(pane)
-    let shield = application.context().pages().find(item => item.url().startsWith('data:text/html;') && item.url().includes('Agent%20input%20lock'))!
-    await expect(shield.getByRole('status')).toHaveText('Agent controlling · input locked')
+    let dock = application.context().pages().find(item => item.url().endsWith('#plugin-overlay'))!
+    await expect(dock.getByRole('tab', { name: 'Agent control', exact: true })).toBeVisible()
+    await dock.getByRole('tab', { name: 'Agent control', exact: true }).click()
+    await expect(dock.getByRole('status')).toHaveText('Agent controlling · input locked')
     let nativeClick = async (target = page.locator('input'), typeText = true) => {
       let point = await target.evaluate(element => { let r = element.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
       let location = await application!.evaluate(({ BaseWindow }, { url, point }) => {
@@ -240,7 +242,7 @@ test('unified extensions controls and virtual mouse clicks respect profile prote
       await exec('/usr/sbin/screencapture', ['-x', 'artifacts/agent-input-locked.png'])
       await cli('dom', { pane })
       let lastUsed = (await chrome.evaluate(() => (window as any).bmux.state())).activeAgents.find((actor: any) => actor.paneId === pane).lastUsed
-      await nativeClick(shield.getByRole('link', { name: 'Agent information', exact: true }), false)
+      await dock.getByRole('button', { name: 'Agent information', exact: true }).click()
       let agentDialog = chrome.getByRole('dialog', { name: 'Agent information', exact: true })
       await expect(agentDialog).toContainText('test-agent')
       await chrome.screenshot({ path: 'artifacts/agent-input-lock-information.png' })

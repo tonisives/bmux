@@ -27,6 +27,15 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     try { return (await exec('/usr/bin/osascript', ['-e', `tell application "System Events" to tell first application process whose unix id is ${application.process().pid} to get role of (value of attribute "AXFocusedUIElement")`])).stdout.trim() }
     catch (error) { if (String(error).includes('(-1728)')) return ''; throw error }
   }
+  let cmdZ = async () => {
+    let id = await application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().find(window => window.isVisible())!.id)
+    await application.evaluate(({ app, BaseWindow }, id) => {
+      let window = BaseWindow.fromId(id)!
+      if (!window.isFocused()) setImmediate(() => { app.focus({ steal: true }); window.focus() })
+    }, id)
+    await expect.poll(() => application.evaluate(({ BaseWindow }, id) => BaseWindow.getFocusedWindow()?.id === id, id)).toBe(true)
+    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
+  }
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -43,7 +52,7 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await expect(address).toHaveValue(url)
     await address.press('Backspace')
     await expect(address).toHaveValue(url.slice(0, -1))
-    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
+    await cmdZ()
     await expect(address).toHaveValue(url)
     await address.press('Enter')
     await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
@@ -58,7 +67,6 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
       let state = await (window as any).bmux.state()
       return !!state.model.clients.find((client: any) => client.id === state.clientId).zoomedPaneId
     })
-    let cmdZ = () => exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
     await page.locator('#surface').click()
     await cmdZ()
     await expect.poll(zoomed).toBe(true)
@@ -72,11 +80,11 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await expect.poll(() => address.evaluate(input => { let field = input as HTMLInputElement; return [field.selectionStart, field.selectionEnd] })).toEqual([0, url.length])
     await address.press('Backspace')
     await expect(address).toHaveValue('')
-    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
+    await cmdZ()
     await expect(address).toHaveValue(url)
     await address.press('Control+w')
     await expect(address).not.toHaveValue(url)
-    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
+    await cmdZ()
     await expect(address).toHaveValue(url)
     let prefix = `${new URL(url).origin}/ug`
     let completion = url
@@ -85,7 +93,7 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await expect(address).toHaveValue(completion)
     await address.press('Backspace')
     await expect(address).toHaveValue(prefix)
-    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
+    await cmdZ()
     await expect(address).toHaveValue(completion)
     await chrome.getByRole('button', { name: 'Close URL search', exact: true }).click()
     await chrome.getByRole('button', { name: 'Command prompt', exact: true }).click()
@@ -93,7 +101,7 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
     await command.pressSequentially('browser tools')
     await command.press('Backspace')
     await expect(command).toHaveValue('browser tool')
-    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
+    await cmdZ()
     await expect(command).toHaveValue('browser tools')
     await command.press('Escape')
     for (let name of ['Text', 'Notes', 'Editor']) {
@@ -106,7 +114,7 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
       if (name === 'Editor') await expect(input).toHaveText('ugug')
       else await expect(input).toHaveValue('ugug')
       await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 51'])
-      await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
+      await cmdZ()
       if (name === 'Editor') await expect(input).toHaveText('ugug')
       else await expect(input).toHaveValue('ugug')
       expect(await zoomed()).toBe(false)

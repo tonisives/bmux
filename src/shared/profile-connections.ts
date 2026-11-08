@@ -11,3 +11,15 @@ export let connectionProfile = (model: Model, connectionId: string): Profile => 
 export let savedProxyProfiles = (model: Model) => model.profiles.flatMap(profile => profile.connections
   ? profile.connections.filter(connection => connection.proxy).map(connection => ({ ...profile, id: connection.id, proxy: connection.proxy }))
   : profile.proxy ? [profile] : [])
+
+export let uniqueProxyProfiles = (profiles: Profile[]) => {
+  let seen = new Set<string>()
+  return profiles.filter(profile => {
+    let proxy = profile.proxy
+    if (!proxy) return false
+    let key = JSON.stringify([proxy.protocol, proxy.host.toLowerCase(), proxy.port])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}

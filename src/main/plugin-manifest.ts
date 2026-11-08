@@ -33,6 +33,7 @@ let parameter = (raw: unknown): PluginParameter => {
 let action = (raw: unknown): PluginAction => {
   let value = object(raw), command = strings(value.command), allowed = strings(value.capabilities ?? []) as PluginCapability[]
   if (!command.length || allowed.some(item => !capabilities.has(item))) throw new Error('Invalid command or capability')
+  if (value.pacing !== undefined && value.pacing !== 'plugin') throw new Error('pacing must be plugin')
   let timeout = value.timeout_seconds ?? 120
   if (!Number.isInteger(timeout) || Number(timeout) < 1 || Number(timeout) > 3600) throw new Error('timeout_seconds must be 1–3600')
   if (value.parameters !== undefined && !Array.isArray(value.parameters)) throw new Error('parameters must be a list')
@@ -57,7 +58,7 @@ let action = (raw: unknown): PluginAction => {
   if (presets && new Set(presets.map(preset => preset.id)).size !== presets.length) throw new Error('Duplicate preset')
   let launch = value.launch_url === undefined ? undefined : new URL(text(value.launch_url))
   if (launch && (!['http:', 'https:'].includes(launch.protocol) || launch.username || launch.password || !allowed.includes('browser.manage'))) throw new Error('Window launch requires an HTTP URL and browser.manage')
-  return { ...(configurationProfiles ? { configuration_profile_command: configurationProfiles } : {}), ...(configurationSave ? { configuration_save_command: configurationSave } : {}), ...(configuration ? { configuration_command: configuration } : {}), ...(presets ? { presets } : {}), ...(value.group === undefined ? {} : { group: text(value.group).trim() }), ...(launch ? { launch_url: launch.href } : {}), id: identifier(value.id), title: text(value.title), description: value.description === undefined ? undefined : text(value.description), command, capabilities: allowed, timeout_seconds: Number(timeout), parameters }
+  return { ...(value.pacing === 'plugin' ? { pacing: 'plugin' as const } : {}), ...(configurationProfiles ? { configuration_profile_command: configurationProfiles } : {}), ...(configurationSave ? { configuration_save_command: configurationSave } : {}), ...(configuration ? { configuration_command: configuration } : {}), ...(presets ? { presets } : {}), ...(value.group === undefined ? {} : { group: text(value.group).trim() }), ...(launch ? { launch_url: launch.href } : {}), id: identifier(value.id), title: text(value.title), description: value.description === undefined ? undefined : text(value.description), command, capabilities: allowed, timeout_seconds: Number(timeout), parameters }
 }
 let proxyRegion = (raw: unknown): PluginProxyRegion => {
   let value = object(raw), protocol = value.protocol as PluginProxyRegion['protocol'], host = text(value.host).trim()

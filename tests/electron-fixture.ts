@@ -1,3 +1,4 @@
+import { expect } from '@playwright/test'
 import type { ElectronApplication } from '@playwright/test'
 import type { ChildProcess } from 'node:child_process'
 
@@ -20,4 +21,10 @@ export let closeTestApplication = async (application?: ElectronApplication, proc
   if (['SIGSEGV', 'SIGABRT', 'SIGILL', 'SIGBUS'].includes(child.signalCode ?? '') || [132, 134, 135, 139].includes(child.exitCode ?? 0)) {
     throw new Error(`Electron main process crashed: ${child.signalCode ?? child.exitCode}`)
   }
+}
+
+export let waitForControlStatus = async (command: (...args: string[]) => Promise<any>) => {
+  let status: any
+  await expect(async () => { status = await command('status', '--no-start') }).toPass({ timeout: 15000 })
+  return status
 }

@@ -891,12 +891,16 @@ test('profile settings create and manage profiles beside the selector', async ()
   let profile = current.model.profiles.find((item: { id: string }) => item.id === pane.profileId)!
   let panel = await openProfilePanel(profile.name)
   await panel.getByRole('tab', { name: 'Overview', exact: true }).click()
-  let select = panel.getByRole('combobox', { name: 'Default profile for new windows and panes' })
+  let select = panel.getByRole('combobox', { name: 'Default profile for this session' })
   await expect(panel.getByRole('button', { name: 'New profile', exact: true })).toHaveCount(0)
   let manage = panel.getByRole('button', { name: 'Manage profiles', exact: true })
   await expect(manage.locator('svg')).toHaveAttribute('viewBox', '0 0 24 24')
   await expect(manage.locator('circle')).toHaveCount(1)
   let selectBounds = (await select.boundingBox())!, buttonBounds = (await manage.boundingBox())!, iconBounds = (await manage.locator('svg').boundingBox())!
+  let paneSelectBounds = (await panel.getByRole('combobox', { name: 'Profile for this pane', exact: true }).boundingBox())!
+  expect(Math.abs(paneSelectBounds.width - selectBounds.width)).toBeLessThan(0.5)
+  expect(Math.abs(paneSelectBounds.x - selectBounds.x)).toBeLessThan(0.5)
+  expect(paneSelectBounds.y - selectBounds.y - selectBounds.height).toBeGreaterThanOrEqual(24)
   expect(buttonBounds.x + buttonBounds.width - selectBounds.x).toBeLessThanOrEqual(440)
   expect(Math.abs(iconBounds.x + iconBounds.width / 2 - buttonBounds.x - buttonBounds.width / 2)).toBeLessThan(0.5)
   expect(Math.abs(iconBounds.y + iconBounds.height / 2 - buttonBounds.y - buttonBounds.height / 2)).toBeLessThan(0.5)
@@ -988,7 +992,7 @@ test('profile popup renames default and custom profiles without changing pane id
       else await input.press('Enter')
       await expect(input).toHaveCount(0)
       await expect(panel.getByRole('region', { name: `${name} profile details`, exact: true })).toBeVisible()
-      await expect(panel.getByRole('combobox', { name: 'Default profile for new windows and panes' }).getByRole('option', { name, exact: true })).toHaveAttribute('value', selected.id)
+      await expect(panel.getByRole('combobox', { name: 'Default profile for this session' }).getByRole('option', { name, exact: true })).toHaveAttribute('value', selected.id)
       await expect.poll(async () => JSON.parse(await fs.readFile(path.join(directory, 'state.json'), 'utf8')).profiles.find((item: { id: string }) => item.id === selected.id)?.name).toBe(name)
       await chrome.screenshot({ path: path.resolve(`artifacts/profile-renamed-${index}.png`) })
       await panel.getByRole('button', { name: 'Close', exact: true }).click()
@@ -1077,8 +1081,11 @@ test('saved proxy settings and credentials are shared across panes and profiles'
     await expect(panel.getByLabel('Host', { exact: true })).toHaveValue('127.0.0.1')
     await expect(panel.getByLabel('Username', { exact: true })).toHaveValue('fixture-user')
     await expect(panel.getByLabel('Password', { exact: true })).toHaveValue('')
+    await panel.getByLabel('Username', { exact: true }).fill('')
     await panel.getByRole('switch', { name: 'Use for new panes', exact: true }).click()
     await expect(panel.getByRole('switch', { name: 'Use for new panes', exact: true })).toBeChecked()
+    await expect(panel.getByLabel('Username', { exact: true })).toHaveValue('')
+    await expect(panel.getByLabel('Saved proxies', { exact: true }).locator('option').filter({ hasText: `http://127.0.0.1:${proxy.port}` })).toHaveCount(1)
     await panel.getByRole('button', { name: 'Test connection', exact: true }).click()
     await expect(panel.getByRole('status')).toHaveText('Exit IP203.0.113.9')
     await expect.poll(async () => (await state()).model.profiles.find((item: { id: string }) => item.id === other.id)?.proxy?.host).toBe('127.0.0.1')
@@ -1093,6 +1100,47 @@ test('saved proxy settings and credentials are shared across panes and profiles'
   } finally {
     await rpc('profile.proxy.clear', { profile: profile.id })
     await rpc('profile.proxy.clear', { profile: other.id })
+    await rpc('kill-pane', { pane: pane.id, confirm: true })
+  }
+})
+
+test('changing the current pane connection leaves the default and other panes unchanged', async ({}, info) => {
+  let current = await state(), client = current.model.clients.find((item: { id: string }) => item.id === current.clientId)!
+  let profile = await rpc('profile.create', { name: 'Current pane proxy fixture' }) as { id: string; name: string }
+  let pane = await rpc('split-window', { pane: client.paneId, profile: profile.id, client: client.id, url }) as { id: string }
+  let sibling = await rpc('split-window', { pane: pane.id, profile: profile.id, client: client.id, url }) as { id: string }
+  try {
+    await rpc('wait', { pane: pane.id, expression: "document.querySelector('h1')?.textContent === 'Command search fixture'" })
+    await rpc('wait', { pane: sibling.id, expression: "document.querySelector('h1')?.textContent === 'Command search fixture'" })
+    await rpc('eval', { pane: pane.id, expression: "document.cookie = 'pane_connection=retained; path=/'" })
+    await rpc('select-pane', { pane: pane.id, client: client.id, focus: true })
+    await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id)?.paneId).toBe(pane.id)
+    let panel = await openProfilePanel(profile.name)
+    await panel.getByRole('tab', { name: 'Connection' }).click()
+    await panel.getByLabel('Protocol', { exact: true }).selectOption('http')
+    await panel.getByLabel('Host', { exact: true }).fill('127.0.0.1')
+    await panel.getByLabel('Port', { exact: true }).fill(String(proxy.port))
+    await panel.getByLabel('Username', { exact: true }).fill('fixture-user')
+    await panel.getByLabel('Password', { exact: true }).fill('fixture-password')
+    expect((await state()).model.clients.find((item: any) => item.id === client.id)?.paneId).toBe(pane.id)
+    await panel.getByRole('button', { name: 'Change current pane connection', exact: true }).click()
+    await expect.poll(async () => (await state()).model.sessions.flatMap((item: any) => item.windows.flatMap((window: any) => window.panes)).find((item: any) => item.id === pane.id)?.connectionId).toBeTruthy()
+    await rpc('wait', { pane: pane.id, expression: "document.querySelector('h1')?.textContent === 'Command search fixture'" })
+    expect(await rpc('eval', { pane: pane.id, expression: "document.cookie.includes('pane_connection=retained')" })).toBe(true)
+    let updated = await state(), saved = updated.model.profiles.find((item: any) => item.id === profile.id)
+    expect(saved.proxy).toBeUndefined()
+    expect(saved.connectionId).toBeUndefined()
+    expect(updated.model.sessions.flatMap((item: any) => item.windows.flatMap((window: any) => window.panes)).find((item: any) => item.id === sibling.id).connectionId).toBeUndefined()
+    await expect(panel.getByRole('switch', { name: 'Use for new panes', exact: true })).not.toBeChecked()
+    await expect(panel).toContainText(`http://127.0.0.1:${proxy.port}`)
+    await chrome.screenshot({ path: path.resolve('artifacts/current-pane-proxy.png') })
+  } catch (error) {
+    let current = await state()
+    await info.attach('proxy-switch-state', { body: JSON.stringify({ client: current.model.clients.find((item: any) => item.id === client.id), panes: current.model.sessions.flatMap((item: any) => item.windows.flatMap((window: any) => window.panes)).filter((item: any) => [pane.id, sibling.id].includes(item.id)), status: await chrome.getByRole('status').allTextContents() }), contentType: 'application/json' })
+    await info.attach('proxy-switch-ui', { body: await chrome.screenshot(), contentType: 'image/png' })
+    throw error
+  } finally {
+    await rpc('kill-pane', { pane: sibling.id, confirm: true })
     await rpc('kill-pane', { pane: pane.id, confirm: true })
   }
 })

@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { closeTestApplication } from './electron-fixture'
+import { closeTestApplication, waitForControlStatus } from './electron-fixture'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -20,7 +20,7 @@ test('required home egress fails closed across outages and new profiles', async 
   let application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REQUIRED_PROXY:`http://127.0.0.1:${proxy.port}`,BMUX_BACKGROUND:'1'}})
   try {
     let run = async (...args:string[])=>JSON.parse((await promisify(execFile)(process.execPath,['bin/bmux.mjs',...args],{env:{...process.env,BMUX_AGENT_ID:'test-agent',BMUX_DATA_DIR:directory}})).stdout).result
-    let state = await run('status'), pane = state.model.sessions[0].windows[0].panes[0]
+    let state = await waitForControlStatus(run), pane = state.model.sessions[0].windows[0].panes[0]
     await run('navigate','-t',pane.id,url)
     expect(requests).toBeGreaterThan(0)
     let profile = await run('profile','create','required','--background')

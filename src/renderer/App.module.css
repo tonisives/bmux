@@ -629,8 +629,9 @@
 .cooldownTimer time { white-space: nowrap; }
 .cooldownTimer:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; }
 
-.profileSelectRow { display: flex; align-items: end; gap: 12px; }
-.profileSelectRow label { flex: 1; min-width: 0; }
+.profileSelectors { display: grid; gap: 24px; width: 100%; max-width: var(--settings-field-width); }
+.profileSelectRow { display: grid; grid-template-columns: minmax(0, 1fr) 34px; align-items: end; gap: 12px; }
+.profileSelectRow label { min-width: 0; }
 .profileSelectRow > button { height: 34px; padding: 0; border: 1px solid #505a66; }
 .profileManageRow { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
 .profileManageRow > span { flex: 1; }
@@ -741,3 +742,5 @@
 .pluginPlayback svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .pluginPlaybackMenu { position: absolute; bottom: 100%; left: 0; right: 0; display: flex; flex-direction: column; padding: 8px; border: 1px solid #363c45; background: #191d23; z-index: 2; }
 .pluginPlaybackMenu button { text-align: left; padding: 8px; }
+
+.backgroundAgent { flex-shrink: 0; color: #a9bdcb; font-size: 12px; line-height: 16px; }

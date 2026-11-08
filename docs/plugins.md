@@ -1,11 +1,59 @@
 # bmux script plugins
 
+An action can declare `pacing: plugin` to manage its own timing. BMUX then omits
+the generic action pause and social-site delay for that run. Website access stays
+exclusive to the run within its profile, across panes and agents, until completion,
+cancellation or failure. Navigation locks both its source and destination. Other
+profiles and websites can continue independently. Session limits, warnings,
+automation groups and daily like budgets still apply. Actions without this setting
+keep the configured BMUX pacing.
+
+Use `observation: true` on read-only `eval` calls, including target preparation
+that only returns coordinates. Send the actual click through browser input.
+
 Plugins are local folders containing `plugin.yaml` and scripts in any language.
 They can contribute actions, automatic hooks, browser operations, and transient
 prompts. Scripts run as your OS user. Enable only code you trust: host capabilities
 describe and restrict the host API, but do not sandbox filesystem, network, or
 other programs the script can access. Pages retain Chromium's sandbox and receive
 no Node integration or privileged preload.
+
+## Scrolling
+
+BMUX animates scroll commands and automated CDP wheel events by default. Each
+move uses a sine velocity curve with varied speed and cadence. Some moves
+overshoot slightly and correct to the requested distance when the container has
+room. Keyboard scroll commands use the same animation. Trackpad input keeps its
+native momentum. Reduced motion and modified wheels keep immediate input.
+
+These settings reload from `~/.config/bmux/config.yaml`:
+
+```yaml
+scrolling:
+  enabled: true
+  randomize: true
+  overshoot: true
+```
+
+`plugin host context` includes the current `scrolling` settings, even without
+`refresh: true`. When `context.scrolling.enabled` is true, send one wheel event
+for the intended distance and let BMUX animate it. Plugins should skip their own
+scroll curve. The command resolves after the last animation input.
+
+Both `scroll` and `cdp` accept a partial `scrolling` override alongside their
+ordinary arguments. For a plugin that already produces its own wheel sequence:
+
+```js
+host('cdp', {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseWheel', x: 400, y: 300, deltaX: 0, deltaY: 500 },
+  scrolling: { enabled: false },
+})
+```
+
+Use `scrolling: { randomize: false }` for a consistent sine curve, or
+`scrolling: { overshoot: false }` to vary the timing without reversing direction.
+Overrides apply only to that call and inherit the other configured settings.
 
 ## Install and enable
 
@@ -19,7 +67,7 @@ checkout. They are not included in bmux.app. Copy the desired plugin folder into
 active `plugins/` directory to install it; each folder is self-contained. Enable
 the copied plugin in config as described below.
 
-The Reddit action visits 1–10 HTTPS Reddit URLs, opens matching page links when
+The Reddit browse action visits 1–10 HTTPS Reddit URLs, opens matching page links when
 available, and scrolls each page. It does not post, vote, or join communities.
 Configure an automation group for the intended profile before running it:
 
@@ -36,6 +84,23 @@ automation:
       daily: { runs: 12, navigations: 100, activeMinutes: 60 }
       requiredPlugins: { reddit.com: bmux.reddit }
       likesPerDay: { reddit.com: 0 }
+```
+
+Each social plugin also has a `follow` action. Supply 1–10 explicit profile URLs:
+X `/username`, LinkedIn `/in/username`, or Reddit `/user/username`. The action
+skips profiles already followed and confirms the button changes to Following.
+Follow attempts are capped at 10 per profile and site over a rolling seven days,
+shared across runs and retained after restarts. An unconfirmed click still counts
+as an attempt. Repeated targets are skipped during that week.
+
+Lower the cap or disable following with `followsPerWeek` in the automation group:
+
+```yaml
+followsPerWeek: { reddit.com: 10 } # 0 disables following; maximum 10
+```
+
+```sh
+bmux plugin run bmux.reddit/follow -t PANE_ID --parameters '{"urls":"[\"https://www.reddit.com/user/username\"]"}'
 ```
 
 Replace `profile_bot` with your profile ID. If a desktop launch cannot find Node,
@@ -212,8 +277,11 @@ input=json.dumps(arguments), capture_output=True, text=True, check=True)` and de
 Site automation actions can call `automation.acquire` with a matching HTTPS
 `url` before browsing. The lease is bound to the invocation's profile and pane,
 and is released when the invocation ends. `automation.status` reports group
-usage. `automation.like` reserves one like for a verified site post URL after
-the user has set a positive `likesPerDay` cap. These calls work only when an
+usage, including weekly follow counts and limits. `automation.like` reserves one
+like for a verified site post URL after
+the user has set a positive `likesPerDay` cap. `automation.follow` reserves one
+follow attempt before clicking a profile button, subject to the `followsPerWeek`
+cap (10 by default, configurable from 0 to 10). These calls work only when an
 automation group covers the profile and site. If `requiredPlugins` names a
 plugin for the site, only that plugin ID may acquire its lease.
 

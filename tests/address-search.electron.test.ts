@@ -71,6 +71,11 @@ test('address search selects search for phrases and domains for exact known name
 
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await address.fill('maps.google.com')
+    await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toBeVisible()
+    let current = await state()
+    let paneId = current.model.clients.find((client: { id: string }) => client.id === current.clientId).paneId
+    await expect.poll(async () => (await state()).nativePagePanes).toContain(paneId)
+    await expect(chrome.locator('[data-pane-content][data-content-pane-id="' + paneId + '"]')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(options.first()).toHaveAttribute('data-value', 'https://maps.google.com/')
     await address.press('Enter')
     await expect.poll(async () => (await state()).model.profiles[0].history.map((entry: { url: string }) => entry.url)).toEqual(expect.arrayContaining(['https://maps.google.com/', 'https://www.google.com/maps']))

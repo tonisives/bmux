@@ -4,8 +4,9 @@ import { readsPage } from './agent-reading'
 import { agentAction } from './agent-actions'
 
 type Options = {
+  scope?: <T>(context: PluginContext, method: string, args: Record<string, unknown>, signal: AbortSignal, operation: () => Promise<T>) => Promise<T>
   context: (target: PluginContext) => PluginContext
-  cdp: (tab: string, method: string, args?: Record<string, unknown>) => Promise<any>
+  cdp: (tab: string, method: string, args?: Record<string, unknown>, scrolling?: unknown) => Promise<any>
   execute: (command: { method: string; args?: Record<string, unknown> }) => Promise<unknown>
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
   before?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<void>
@@ -101,7 +102,7 @@ export let createPluginBrowser = (options: Options) => {
       validate()
       // Raw CDP is a trusted advanced capability. Exclude browser/target routing.
       if (typeof args.method !== 'string' || !/^(DOM|Runtime|Page|Input|Network|CSS|Accessibility|Emulation)\./.test(args.method) || args.sessionId !== undefined) throw new Error('Only tab-scoped CDP is supported')
-      let command = () => options.cdp(context.paneId!, args.method as string, (args.params ?? {}) as Record<string, unknown>)
+      let command = () => options.cdp(context.paneId!, args.method as string, (args.params ?? {}) as Record<string, unknown>, args.scrolling)
       return readsPage(method, args) ? read(command) : command()
     }
     if (['navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot'].includes(method)) {
@@ -114,5 +115,5 @@ export let createPluginBrowser = (options: Options) => {
   let invoke = (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => options.action && context.paneId && agentAction(method, args)
     ? options.action(context.paneId, method, args, () => execute(method, args, context, signal), context.agentId)
     : execute(method, args, context, signal)
-  return async (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => { let finish = options.activity?.(context, method), outcome: 'success' | 'error' = 'error'; try { let result = await invoke(method, args, context, signal); outcome = 'success'; return result } finally { finish?.(outcome) } }
+  return async (method: string, args: Record<string, unknown>, context: PluginContext, signal: AbortSignal) => { let finish = options.activity?.(context, method), outcome: 'success' | 'error' = 'error'; try { let result = await (options.scope ? options.scope(context, method, args, signal, () => invoke(method, args, context, signal)) : invoke(method, args, context, signal)); outcome = 'success'; return result } finally { finish?.(outcome) } }
 }

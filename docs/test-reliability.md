@@ -1,3 +1,51 @@
+# Restart fixtures wait for their own control server
+
+The two direct browser restarts in the recovery fixtures waited only for
+`app.whenReady()`, which precedes runtime startup and socket binding. Both now
+reuse the shared launch helper's control-socket check and require the response
+PID to match their newly launched process. This prevents a CLI startup attempt
+against an isolated profile while restore is still running. Repeat both recovery
+cases in CI. The Bot settings fixture also waits for its isolated control server
+before its first CLI request and after relaunch.
+
+# Remote layout pan after native resizing
+
+Linux exposed a pan being set while the chrome renderer still had the previous
+native window size. Its pending ResizeObserver then recentered the viewport.
+The fixture now waits for renderer dimensions to match native content bounds
+and for pan origins to reflect the new viewport before setting the requested
+100 by 120 pixel pan. The native offset assertion remains exact. Repeat both
+status-bar positions in the Portable hosts workflow.
+
+# Headless capture socket readiness
+
+The November 7 full Check exposed capture fixtures issuing their first CLI
+status command before the isolated control socket was listening. With installed
+app discovery now restricted to installed bundles, the CLI correctly declined
+to launch a checkout. The capture and proxy fixtures poll status with `--no-start` before
+sending commands, so readiness never launches another browser. Repeat all four
+headless capture cases in CI; frame, reconnect and crash assertions retain their
+existing deadlines.
+
+The Stop-session fixture also picked a hidden overlay left by an earlier run
+because every overlay has the same URL. Single-run overlay fixtures now resolve
+the page by its run ID through the small overlay-state channel. Repeat the Stop
+case with the other plugin cases to exercise retained hidden views.
+
+# Social browsing scroll and overlay delivery
+
+Four active social panes exposed 60-second wheel acknowledgement stalls and
+multi-megabyte state broadcasts on every overlay refresh. Scroll commands now
+bound each CDP acknowledgement to two seconds and the whole gesture to five,
+propagate plugin cancellation, and merge missed animation frames. The returned
+`scroll` timings report duration, wheel count, total CDP time and slowest wheel.
+Unit fixtures cover delayed replies, missing replies and cancellation without
+replaying late input. Overlay refreshes have their own deduplicated IPC channel;
+only browser-state changes publish the full model. Repeat the four-pane overlay
+case and native wheel cases in CI. The native scroll fixture checks multiple
+visible steps, exact endpoints and lock ordering; frame count and per-event sine
+shape belong to the deterministic unit fixture because busy renderers merge steps.
+
 # Session age color boundaries
 
 The full Check on `49dff00` showed the visit-color fixture rendering "23h ago"
@@ -773,3 +821,34 @@ in that run, then all three passed together in focused CI. The shared command
 fixture is being repeated to check for setup history. The full suite now uses
 three shards, retaining one GUI worker per desktop, every test, zero retries,
 and the existing assertion, test and workflow deadlines.
+
+## Unsaved changes with address suggestions
+
+The November 7 full Check found two site-dialog fixtures still waiting for the
+native page to detach while address suggestions were open. The address overlay
+now keeps pages attached. Both fixtures wait for the suggestion list and visible
+native page before navigating. The Escape, Enter, prompt focus, page visibility,
+and unsaved content assertions remain in place.
+
+The pane-address geometry fixture also checks the visible native page rather
+than a captured snapshot. The pin-window fixture uses the current Cmd+Shift+.
+binding; Cmd+. is window history forward. Repeat both cases together when
+changing address overlays or the pin binding.
+
+
+## Scaled feed scrolling and pane overlays
+
+Locked desktop viewports retain CSS dimensions while Emulation scales their
+native input surface. Agent wheel calls now transform only their native target
+coordinates; DOM hit testing and scroll distance remain in CSS pixels. The
+nested-feed fixture locks a 1512 by 900 viewport at 37.5 percent, observes more
+than ten wheel and scroll updates, and requires an exact 300 pixel feed advance. The same fixture clicks a local
+comment button through native agent input at its CSS position; cursor animation
+and hit testing retain CSS coordinates while native mouse events are scaled.
+
+Every visible pane owns a separate plugin overlay. Each renderer receives its
+own run state and uses a separate transient session so one pane's zoom cannot
+change another overlay's zoom. The four-pane fixture exercises independent
+start, pause and close controls, page zoom, and drag clamping within each pane. Zoom changes retain the preferred popup size
+so zooming back restores its previous dimensions. Hidden
+windows still detach overlays, and page captures still exclude plugin controls.

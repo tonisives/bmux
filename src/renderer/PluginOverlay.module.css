@@ -86,3 +86,24 @@
 .watchLabel { padding: 8px; border: 1px solid #363c45; color: #8e98a4; }
 .watchLabel[data-active="true"] { color: #eceef2; border-color: #a7b69c; }
 .watchOptions { display: grid; grid-template-columns: 1fr; gap: 8px; margin-left: 12px; padding: 8px 0 0 12px; border-left: 1px solid #444b59; }
+
+.panel { background: #181818; }
+.panel .dockHeader { height: 32px; padding: 0 16px 0 8px; gap: 4px; }
+.panel[data-collapsed="true"] .dockHeader { padding: 0; border: 0; }
+.dockTitle { flex: 1; min-width: 0; }
+.panel .panelTabs { gap: 0; border: 0; overflow: auto; }
+.panel .panelTabs button { width: 32px; height: 32px; padding: 8px; color: #aab4bf; }
+.panel .panelTabs button:hover, .panel .panelTabs button[aria-selected="true"] { color: #eceef2; background: #313131; }
+.panel .panelTabs button:active { transform: translateY(1px); }
+.panel .panelTabs svg { width: 16px; height: 16px; }
+.panel[data-collapsed="true"] .panelTabs { width: 100%; justify-content: flex-end; }
+.resize[data-edge="top-right"] { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; border-top: 2px solid #8e98a4; border-right: 2px solid #8e98a4; }
+.viewportForm { display: grid; gap: 12px; margin-top: 16px; }
+.viewportForm label { display: grid; gap: 4px; }
+.viewportForm input { width: 100%; font: inherit; color: #eceef2; background: #272727; border: 1px solid #444b59; padding: 4px 8px; }
+.viewportForm input:focus-visible { outline: 1px solid #bdc9b4; outline-offset: 3px; }
+.body h2 { font-size: 14px; line-height: 20px; font-weight: 600; }
+
+.body > button[aria-label="Pan viewport"] { width: 32px; height: 32px; overflow: hidden; font-size: 0; border: 1px solid #666; }
+
+.body > button[aria-pressed="true"] { background: #c2ceb9; color: #111318; }

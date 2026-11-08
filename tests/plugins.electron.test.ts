@@ -15,6 +15,26 @@ let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let run = async (action: string, args: Record<string, unknown> = {}) => (await rpc('plugin.run', { action: `test/${action}`, ...args })).id as string
 let completed = async (id: string, status = 'completed', timeout = 5000) => { await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.id === id)?.status, { timeout }).toBe(status) }
+let overlayForRun = async (id: string) => {
+  let observer: Page | undefined
+  await expect.poll(async () => {
+    for (let page of application.context().pages().filter(page => page.url().endsWith('#plugin-overlay'))) {
+      let overlay = await page.evaluate(() => (window as any).bmux?.overlayState()).catch(() => undefined)
+      if (overlay?.runId === id) { observer = page; return true }
+    }
+    return false
+  }).toBe(true)
+  return observer!
+}
+let pluginViews = () => application.evaluate(async ({ BaseWindow }) => {
+  let result: { id: number; bounds: { x: number; y: number; width: number; height: number }; zoom: number }[] = []
+  for (let window of BaseWindow.getAllWindows()) for (let view of window.contentView.children as any[]) {
+    if (!view.webContents?.getURL().endsWith('#plugin-overlay') || !view.getVisible()) continue
+    let overlay = await view.webContents.executeJavaScript('window.bmux.overlayState()')
+    if (overlay?.tabs.some((tab: any) => !['agent','viewport'].includes(tab.id))) result.push({ id: view.webContents.id, bounds: view.getBounds(), zoom: view.webContents.getZoomFactor() })
+  }
+  return result
+})
 let script = `import { execFileSync } from 'node:child_process';
 let host = (method,args={}) => JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8',stdio:['pipe','pipe','pipe']})).result;
 let context = host('context'), action = process.argv[2];
@@ -42,15 +62,15 @@ if (action === 'pick') {
 } else if (action === 'hidden') {
  try { host('fill',{origin:new URL(context.url).origin,fields:[{selector:'#hidden',value:'must-not-appear'}]}); process.exit(1) } catch { host('result',{hiddenRejected:true}) }
 } else if (action === 'title') { host('result',{title:host('eval',{expression:'document.title'})});
-} else if (['overlay','graph'].includes(action)) {
- let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Exact duration confidence: 72% (duration assessment)','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'fail',label:'Trigger AI error',kind:'button'},{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI limit settings',kind:'button',setting:'ads'}],details:[{title:'Profile',text:'Interested in computers'}]};if(action==='graph'){content.nodes.push({title:'Interactions',lines:['1 like · 2 comment reads · 1 profile view'],tone:'neutral'});content.decision={loading:true,options:[{id:'skip',label:'Skip',active:false},{id:'watch',label:'Brief watch',active:false},{id:'finish',label:'Near the end',active:false}]};content.controls.push({id:'decide',label:'Resolve AI decision',kind:'button'})}host('overlay.update',content);
+} else if (['overlay','graph','startup'].includes(action)) {
+ let content={copies:[{id:'request-one',label:'Copy sent payload',text:JSON.stringify({image:'x'.repeat(18000),caption:'fixture'})},{id:'response-one',label:'Copy AI payload',text:JSON.stringify({answers:[{name:'watch',choice:'watch'}],usage:{input_tokens:41}})}],title:'Feed training',subtitle:'Fixture profile',status:'Waiting for Start',nodes:[{title:'Post',lines:['A software demo'],tone:'cyan'},{title:'AI answer',lines:['Useful demonstration','Exact duration confidence: 72% (duration assessment)','Profile match: 98%','Watching: 30s remaining'],tone:'neutral'}],controls:[{id:'fail',label:'Trigger AI error',kind:'button'},{id:'start',label:'Start browsing',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI limit settings',kind:'button',setting:'ads'}],details:[{title:'Profile',text:'Interested in computers'}]};if(['graph','startup'].includes(action)){content.nodes.push({title:'Interactions',lines:['1 like · 2 comment reads · 1 profile view'],tone:'neutral'});content.decision={loading:true,options:[{id:'skip',label:'Skip',active:false},{id:'watch',label:'Brief watch',active:false},{id:'finish',label:'Near the end',active:false}]};content.controls.push({id:'decide',label:'Resolve AI decision',kind:'button'})}if(action==='startup'){content.nodes[0].lines=['No post yet'];content.controls=[{id:'continue',label:'Start browsing',kind:'button'},{id:'auto',label:'Start with auto continue',kind:'button'}]}host('overlay.update',content);
  while(true){
   let inputs=host('overlay.events');
   if(inputs.some(input=>input.id==='decide')){content={...content,decision:{loading:false,options:[{id:'skip',label:'Skip',probability:.05,active:false},{id:'watch',label:'Brief watch',probability:.8,active:true},{id:'finish',label:'Near the end',probability:.15,active:false}]}};host('overlay.update',content)}
   if(inputs.some(input=>input.id==='next')){content={...content,status:'Showing next post'};host('overlay.update',content)}
   if(inputs.some(input=>input.id==='finish')){host('overlay.update',{...content,status:'Session complete'});host('result',{started:true});break}
   if(inputs.some(input=>input.id==='fail')){content={...content,error:{title:'BMUX rejected the AI query',message:'Use up to eight bounded questions. No OpenAI request was sent.',diagnostic:'Stage: request · HTTP 400 · req-fixture',controls:['resume','settings','finish']},controls:[{id:'resume',label:'Resume session',kind:'button'},{id:'finish',label:'Finish fixture',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI settings',kind:'button',setting:'ads'}]};host('overlay.update',content)}
-  for(let input of inputs)if(['start','pause','resume'].includes(input.id)){
+  for(let input of inputs)if(['start','continue','auto','pause','resume'].includes(input.id)){
    delete content.error;
    let paused=input.id==='pause';content={...content,status:paused?'Paused':'Browsing',controls:[{id:paused?'resume':'pause',label:paused?'Resume session':'Pause session',kind:'button'},{id:'finish',label:'Finish fixture',kind:'button'},{id:'next',label:'Show next post',kind:'button'}]};host('overlay.update',content)
   }
@@ -63,6 +83,9 @@ test.beforeAll(async () => {
   let folder = path.join(directory, 'plugins/test'); await fs.mkdir(folder, { recursive: true })
   await fs.cp(path.resolve('examples/plugins/local.page-tools'), path.join(directory, 'plugins/local.page-tools'), { recursive: true })
   await fs.writeFile(path.join(folder, 'run.mjs'), script)
+  let second = path.join(directory, 'plugins/second'); await fs.mkdir(second, { recursive: true })
+  await fs.writeFile(path.join(second, 'run.mjs'), script.replace("title:'Feed training'", "title:'Research notes',icon:'search'"))
+  await fs.writeFile(path.join(second, 'plugin.yaml'), stringify({ schema_version: 1, id: 'second', name: 'Second plugin', version: '1', actions: [{ id: 'overlay', title: 'Research notes', command: ['node', './run.mjs', 'overlay'], capabilities: ['ui'], timeout_seconds: 60 }] }))
   await fs.writeFile(path.join(folder, 'settings.mjs'), `import fs from 'node:fs';
 let file='settings-'+encodeURIComponent(process.env.BMUX_PLUGIN_PROFILE_ID)+'.json';
 let values={seconds:'300',ads:false,preset:'observed-fast',review:'auto',ai:true,ai_source:'personal',train:false,visual:true,interactive:false,allow_like:false,persona:'Interested in software'};
@@ -71,8 +94,8 @@ if(process.argv[2]==='save'){let input='';for await(const chunk of process.stdin
 console.log(JSON.stringify(values));`)
 
   let action = (id: string) => ({ id, title: id, command: ['node', './run.mjs', id], capabilities: ['browser.read', 'browser.write', 'ui'], timeout_seconds: 40 })
-  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', category: 'Social Media', description: 'Feed browsing and all platform tools.', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture', 'overlay', 'graph'].map(action).concat([{ ...action('launch'), group: 'Browsing', title: 'Simulate feed browsing', description: 'Browse in a new muted window using the active profile. Choose a preset, then adjust settings before starting. This longer description must wrap within its column at every window size.', configuration_command: ['node', './settings.mjs'], configuration_save_command: ['node', './settings.mjs', 'save'], presets: [{ id: 'quick', title: 'Quick browsing', description: 'Five minutes with no interactions.', values: { seconds: '300', ads: false } }, { id: 'training', title: 'Caption training', values: { seconds: '60', ads: true } }], capabilities: ['browser.manage', 'browser.read', 'browser.write', 'ui'], launch_url: 'https://example.test/feed', parameters: [{name:'watch_range',title:'Brief watch time',kind:'text',range:{min:1,max:120,step:1,unit:'s'},default:'8-12',section:'Playback'}, {name:'persona',title:'Persona',kind:'text',multiline:true,section:'Persona'}, { name: 'seconds', title: 'Duration in seconds', kind: 'text', section: 'Session' }, { name: 'ads', title: 'Skip ads', kind: 'boolean', section: 'Interactions', advanced: true }, { name: 'review', title: 'Action approval', kind: 'choice', choices: ['auto', 'confirm'], section: 'Session' }, { name: 'preset', title: 'Browsing pace', kind: 'choice', choices: ['observed-fast', 'observed-balanced', 'remote'], section: 'Playback', advanced: true }, { name: 'ai_source', title: 'AI source', kind: 'choice', choices: ['included', 'personal'], section: 'AI and observation', advanced: true, description: 'BMUX subscription uses your included monthly allowance. A personal OpenAI API key is billed separately by OpenAI.' }, ...[{ name: 'ai', title: 'Visual AI decisions' }, { name: 'train', title: 'Caption training' }, { name: 'visual', title: 'Page overlay' }].map(field => ({ ...field, kind: 'boolean', section: 'AI and observation', advanced: true })), ...[{ name: 'interactive', title: 'Browse comments and profiles' }, { name: 'allow_like', title: 'Allow one like this session' }].map(field => ({ ...field, kind: 'boolean', section: 'Interactions', advanced: true })), { name: 'session', title: 'Session ID', kind: 'text', hidden: true }] } as any, { ...action('password'), group: 'Publishing', parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
-  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ automation: { agents: { requireId: true, requireType: true, definitions: { tmux: { fields: { paneId: { label: 'Terminal pane', required: true } } } } } }, browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
+  await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify({ schema_version: 1, id: 'test', name: 'Fixture plugin', category: 'Social Media', description: 'Feed browsing and all platform tools.', version: '1', actions: ['pick', 'stale', 'slow', 'wait', 'hidden', 'title', 'capture', 'overlay', 'graph', 'startup'].map(action).concat([{ ...action('launch'), group: 'Browsing', title: 'Simulate feed browsing', description: 'Browse in a new muted window using the active profile. Choose a preset, then adjust settings before starting. This longer description must wrap within its column at every window size.', configuration_command: ['node', './settings.mjs'], configuration_save_command: ['node', './settings.mjs', 'save'], presets: [{ id: 'quick', title: 'Quick browsing', description: 'Five minutes with no interactions.', values: { seconds: '300', ads: false } }, { id: 'training', title: 'Caption training', values: { seconds: '60', ads: true } }], capabilities: ['browser.manage', 'browser.read', 'browser.write', 'ui'], launch_url: 'https://example.test/feed', parameters: [{name:'watch_range',title:'Brief watch time',kind:'text',range:{min:1,max:120,step:1,unit:'s'},default:'8-12',section:'Playback'}, {name:'persona',title:'Persona',kind:'text',multiline:true,section:'Persona'}, { name: 'seconds', title: 'Duration in seconds', kind: 'text', section: 'Session' }, { name: 'ads', title: 'Skip ads', kind: 'boolean', section: 'Interactions', advanced: true }, { name: 'review', title: 'Action approval', kind: 'choice', choices: ['auto', 'confirm'], section: 'Session' }, { name: 'preset', title: 'Browsing pace', kind: 'choice', choices: ['observed-fast', 'observed-balanced', 'remote'], section: 'Playback', advanced: true }, { name: 'ai_source', title: 'AI source', kind: 'choice', choices: ['included', 'personal'], section: 'AI and observation', advanced: true, description: 'BMUX subscription uses your included monthly allowance. A personal OpenAI API key is billed separately by OpenAI.' }, ...[{ name: 'ai', title: 'Visual AI decisions' }, { name: 'train', title: 'Caption training' }, { name: 'visual', title: 'Page overlay' }].map(field => ({ ...field, kind: 'boolean', section: 'AI and observation', advanced: true })), ...[{ name: 'interactive', title: 'Browse comments and profiles' }, { name: 'allow_like', title: 'Allow one like this session' }].map(field => ({ ...field, kind: 'boolean', section: 'Interactions', advanced: true })), { name: 'session', title: 'Session ID', kind: 'text', hidden: true }] } as any, { ...action('password'), group: 'Publishing', parameters: [{ name: 'password', title: 'Fixture password', kind: 'password', required: true }] } as any]), hooks: [{ ...action('ready'), event: 'page-ready', matches: ['http://127.0.0.1:*/*'] }, { ...action('changed'), event: 'url-change', matches: ['http://127.0.0.1:*/*'] }] }))
+  await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ automation: { agents: { requireId: true, requireType: true, definitions: { tmux: { fields: { paneId: { label: 'Terminal pane', required: true } } } } } }, browser: { autoUpdateFilters: false }, keyboard: { shortcuts: { 'Cmd+Shift+L': 'plugin:test/pick' } }, plugins: { second: { enabled: true }, test: { enabled: true, hooks: true }, 'local.page-tools': { enabled: true } } }))
   server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Plugin fixture</title><h1>Plugin fixture</h1><input id="username" autocomplete="username"><input id="password" type="password"><input id="hidden" type="hidden"><p id="note">Native page content</p>') })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}`
   let manifest = parse(await fs.readFile(path.join(folder, 'plugin.yaml'), 'utf8'))
@@ -319,8 +342,8 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   let capture = async () => { let id = await run('capture', { pane: pane.id }); await completed(id); return (await rpc('plugin.runs')).find((run: any) => run.id === id).result.data }
   let id = await run('overlay', { pane: pane.id })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
-  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
-  await expect(observer.getByRole('complementary', { name: 'Page overlay', exact: true })).toBeVisible()
+  let observer = await overlayForRun(id)
+  await expect(observer.getByRole('tabpanel', { name: 'Page overlay', exact: true })).toBeVisible()
   await expect(observer.getByRole('status')).toHaveText('Waiting for Start')
   await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
   expect((await state()).pluginOverlay.content.copies.every((copy: any) => copy.text === undefined)).toBe(true)
@@ -330,7 +353,7 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await observer.getByRole('button', { name: 'Copy AI payload', exact: true }).click()
   expect(JSON.parse(await application.evaluate(({ clipboard }) => clipboard.readText()))).toEqual({ answers: [{ name: 'watch', choice: 'watch' }], usage: { input_tokens: 41 } })
   await observer.getByRole('button', { name: 'Close overlay', exact: true }).click()
-  let visible = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).some((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()))
+  let visible = async () => (await pluginViews()).length > 0
   await expect.poll(visible).toBe(false)
   expect((await rpc('plugin.runs')).find((run: any) => run.id === id).status).toBe('running')
   await chrome.evaluate(id => (window as any).bmux.command({ method: 'plugin.overlay.show', args: { id } }), id)
@@ -349,21 +372,16 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await observer.keyboard.press('ArrowLeft')
   await expect.poll(async () => (await state()).pluginOverlay.bounds.width).toBe(before.width - 24)
   let resized = (await state()).pluginOverlay.bounds
-  let left = observer.getByRole('slider', { name:'Resize page overlay from left', exact:true })
-  await left.focus(); await observer.keyboard.press('ArrowRight')
-  await expect.poll(async () => (await state()).pluginOverlay.bounds.width).toBe(resized.width - 24)
-  expect((await state()).pluginOverlay.bounds.x).toBe(resized.x + 24)
-  await expect(observer.getByText('◢', {exact:true})).toHaveCount(0)
-
+  let corner = observer.getByRole('slider', { name: 'Resize page overlay', exact: true })
+  await corner.focus(); await observer.keyboard.press('ArrowRight')
+  await expect.poll(async () => (await state()).pluginOverlay.bounds.width).toBe(resized.width + 24)
   await observer.getByRole('button', { name: 'Minimize page overlay' }).click()
-  await expect(observer.getByLabel('AI decision percentages')).toBeVisible()
-  await observer.getByRole('button', { name: 'Minimize page overlay' }).click()
-  await expect(observer.getByRole('button', { name: 'Expand page overlay' })).toBeVisible()
-  await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(32)
-  await observer.getByRole('button', { name: 'Expand page overlay' }).click()
+  await expect(observer.getByRole('tab').first()).toBeVisible()
+  await expect.poll(() => observer.evaluate(() => innerHeight)).toBe(32)
+  await observer.getByRole('tab').first().click()
   await expect(observer.getByRole('button', { name: 'Minimize page overlay' })).toBeVisible()
   await expect(observer.getByRole('status')).toBeVisible()
-  await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(before.height)
+  await expect.poll(() => observer.evaluate(() => innerHeight)).toBe(before.height)
   let captured = await capture()
   let pixel = await application.evaluate(({ BaseWindow, nativeImage }, { data, url }) => {
     let views = BaseWindow.getAllWindows().flatMap(window => window.contentView.children) as any[]
@@ -383,41 +401,33 @@ test('plugin overlay sits above the page, resizes, collapses and receives contro
   await expect(observer.getByRole('button', { name: 'Pause session', exact: true })).toBeVisible()
   await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay-running.png') })
   await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
-  await expect(observer.getByLabel('AI decision percentages')).toHaveText('Conf: 72% · Match: 98%')
   await expect(observer.getByRole('heading', { name: 'Post', exact: true })).toHaveCount(0)
-  await expect(observer.getByRole('button', { name: 'Copy AI payload', exact: true })).toHaveCount(0)
-  await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(64)
-  await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay-compact.png') })
-  await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
-  await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay'))?.getBounds().height)).toBe(32)
-  await expect(observer.getByRole('status')).toHaveText('Watch 30s')
-  await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay-one-line.png') })
+  await expect.poll(() => observer.evaluate(() => innerHeight)).toBe(32)
+  await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay-tabs.png') })
+  await observer.getByRole('tab').first().click()
   await observer.getByRole('button', { name: 'Pause session', exact: true }).click()
   await expect(observer.getByRole('status')).toHaveText('Paused')
   await observer.getByRole('button', { name: 'Resume session', exact: true }).click()
-  await expect(observer.getByRole('status')).toHaveText('Watch 30s')
-  await observer.getByRole('button', { name: 'Expand page overlay', exact: true }).click()
   await expect(observer.getByRole('heading', { name: 'Post', exact: true })).toBeVisible()
   await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
   await completed(id)
-  await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
-  await expect(observer.getByRole('button', { name: 'New session', exact: true })).toBeVisible()
+  await expect(observer.getByRole('tab').first()).toBeVisible()
   await observer.screenshot({ path: path.resolve('artifacts/plugin-overlay-complete.png') })
-  await expect(observer.getByRole('button', { name: 'Expand page overlay', exact: true })).toBeVisible()
-  await observer.getByRole('button', { name: 'Expand page overlay', exact: true }).click()
+  await expect(observer.getByRole('tab').first()).toBeVisible()
+  await observer.getByRole('tab').first().click()
   await expect(observer.getByRole('button', { name: 'Choose session settings', exact: true })).toBeVisible()
   let page = application.context().pages().find(page => page.url().startsWith(url))!
   expect(await page.evaluate(() => typeof (window as any).bmux)).toBe('undefined')
 })
 
-test('plugin overlays detach when switching panes and windows during and after browsing', async () => {
+test('plugin overlays remain on visible panes and detach when switching windows', async () => {
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let original = client.paneId
   await rpc('select-pane', { client: client.id, pane: original })
   let id = await run('overlay', { tab: original })
-  let attached = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay')).length)
+  let attached = async () => (await pluginViews()).length
   await expect.poll(attached).toBe(1)
-  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  let observer = await overlayForRun(id)
   await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
   await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
   await expect(observer.getByRole('status')).toHaveText('Browsing')
@@ -427,7 +437,7 @@ test('plugin overlays detach when switching panes and windows during and after b
   await rpc('wait', { pane: otherWindow.panes[0].id, selector: '#username' })
   for (let ended of [false, true]) {
     await rpc('select-pane', { client: client.id, pane: other.id })
-    await expect.poll(attached).toBe(0)
+    await expect.poll(attached).toBe(1)
     await expect.poll(async () => (await state()).pluginOverlay).toBeUndefined()
     await rpc('select-window', { client: client.id, window: otherWindow.id })
     await expect.poll(attached).toBe(0)
@@ -435,7 +445,7 @@ test('plugin overlays detach when switching panes and windows during and after b
     await rpc('select-pane', { client: client.id, pane: original })
     await expect.poll(attached).toBe(1)
     await expect.poll(async () => (await state()).pluginOverlay?.runId).toBe(id)
-    if (ended) await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
+    if (ended) { await observer.getByRole('tab', { name: 'Feed training', exact: true }).click(); await expect(observer.getByRole('status')).toHaveText('Session complete') }
     else await expect(observer.getByRole('status')).toHaveText('Browsing')
     if (!ended) {
       await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
@@ -450,9 +460,9 @@ test('completed plugin overlays disappear when opening a different page in the s
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let pane = client.paneId
   let id = await run('overlay', { tab: pane })
-  let attached = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay')).length)
+  let attached = async () => (await pluginViews()).length
   await expect.poll(attached).toBe(1)
-  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  let observer = await overlayForRun(id)
   await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
   await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
   await rpc('navigate', { pane, url: url + '/active-overlay' })
@@ -461,7 +471,7 @@ test('completed plugin overlays disappear when opening a different page in the s
   await expect.poll(attached).toBe(1)
   await observer.getByRole('button', { name: 'Finish fixture', exact: true }).click()
   await completed(id)
-  await expect(observer.getByText('Session complete', { exact: true })).toBeVisible()
+  await expect(observer.getByRole('tab', { name: 'Feed training', exact: true })).toHaveAttribute('aria-selected', 'false')
   await rpc('navigate', { pane, url: url + '/after-overlay' })
   await rpc('wait', { pane, selector: '#username' })
   await expect.poll(async () => (await state()).pluginOverlay).toBeUndefined()
@@ -482,7 +492,10 @@ test('Social Media details launch one settings form and a muted window with the 
   let command = chrome.getByRole('combobox', { name: 'Command', exact: true }); await command.fill('extensions'); await command.press('Enter')
   let panel = chrome.getByRole('dialog', { name: 'Extensions', exact: true })
   await expect(panel.getByRole('heading', { name: 'Social Media', exact: true })).toBeVisible()
-  await panel.getByRole('button', { name: 'Fixture plugin', exact: true }).click()
+  let shared = panel.getByRole('button', { name: 'Settings', exact: true }), platform = panel.getByRole('button', { name: 'Fixture plugin', exact: true })
+  await expect(shared).toBeVisible()
+  expect(await shared.evaluate((element, other) => !!(element.compareDocumentPosition(other as Node) & Node.DOCUMENT_POSITION_FOLLOWING), await platform.elementHandle())).toBe(true)
+  await platform.click()
   let details = panel.getByRole('region', { name: 'Plugin details' })
   await expect(details.getByText('Feed browsing and all platform tools.')).toBeVisible()
   let tabs = details.getByRole('tablist', { name: 'Plugin features' })
@@ -631,7 +644,7 @@ test('Social Media Stop returns to configuration without Prepare or a new window
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
-  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  let observer = await overlayForRun(id)
   await expect(observer.getByRole('status')).toHaveText('Browsing')
   let windows = (await state()).model.sessions.flatMap((session: any) => session.windows).length
   await expect(observer.locator('details')).toHaveCount(1)
@@ -675,13 +688,12 @@ test('browsing profiles switch saved settings in place without starting a window
   await expect(dialog.getByRole('button', { name: 'New profile', exact: true })).toHaveCount(0)
   await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Edit browsing profile', exact: true }).click()
-  await expect(dialog.getByLabel('Browsing preset', { exact: true })).toBeVisible()
-  await dialog.getByLabel('Browsing preset', { exact: true }).selectOption('training')
-  await expect(dialog.getByLabel('Duration in seconds')).toHaveValue('60')
-  await dialog.locator(':scope > header').getByRole('button', { name: 'Back to browsing', exact: true }).click()
-  await expect(dialog.getByLabel('Duration in seconds')).toHaveValue('60')
+  await expect(dialog.getByRole('heading', { name: 'Browsing profile', exact: true })).toBeVisible()
   await expect(dialog.getByLabel('Browsing preset', { exact: true })).toHaveCount(0)
-  await dialog.getByRole('button', { name: 'Edit browsing profile', exact: true }).click()
+  await expect(dialog.getByLabel('Duration in seconds')).toHaveCount(0)
+  await expect(dialog.getByLabel('AI source')).toHaveCount(0)
+  await expect(dialog.getByRole('group', { name: 'Session', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveValue('Software')
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toHaveCount(0)
   await expect(dialog.locator('form').getByRole('button', { name: 'Back to browsing', exact: true })).toHaveCount(0)
   await dialog.getByRole('button', { name: 'New profile', exact: true }).click()
@@ -703,7 +715,8 @@ test('browsing profiles switch saved settings in place without starting a window
   await expect(selector.locator('option:checked')).toHaveText('Technical research')
   await chrome.screenshot({ path: path.resolve('artifacts/browsing-profiles.png') })
   expect((await state()).model.sessions.flatMap((session: any) => session.windows).length).toBe(windows)
-  await dialog.locator(':scope > header').getByRole('button', { name: 'Back to browsing', exact: true }).click()
+  await expect(dialog.locator(':scope > header').getByRole('button', { name: 'Back to browsing', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.getByRole('textbox', { name: 'Persona', exact: true })).toHaveCount(0)
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
   expect((await state()).pluginPrompt.runId).toBe(id)
@@ -724,11 +737,10 @@ test('browsing profiles switch saved settings in place without starting a window
 test('overlay errors replace post details with a clear recovery view', async () => {
   let id = await run('overlay')
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
-  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  let observer = await overlayForRun(id)
   await expect(observer.getByRole('button', { name: 'Trigger AI error', exact: true })).toBeVisible()
   await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
-  await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
-  await expect(observer.getByRole('button', { name: 'Expand page overlay', exact: true })).toBeVisible()
+  await expect(observer.getByRole('tab').first()).toBeVisible()
   await rpc('plugin.overlay.input', { id, control: 'fail' })
   await expect(observer.getByRole('alert')).toContainText('Use up to eight bounded questions')
   await expect(observer.getByRole('alert')).toContainText('HTTP 400')
@@ -770,7 +782,7 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   await chrome.keyboard.press('Escape'); await activate()
   let id = await run('graph')
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
-  let observer = application.context().pages().find(page => page.url().endsWith('#plugin-overlay'))!
+  let observer = await overlayForRun(id)
   await expect.poll(() => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).some((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()))).toBe(true)
   await expect(observer.getByText('BMUX Accounts', { exact: true })).toBeVisible()
   await expect(observer.getByRole('status', { name: 'AI is deciding' })).toBeVisible()
@@ -822,4 +834,201 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   await observer.getByRole('button', { name: 'Settings', exact: true }).click()
   await settings.getByRole('button', { name: 'Finish fixture', exact: true }).click()
   await completed(id)
+})
+
+
+test('four visible panes each retain a scaled plugin overlay with independent controls', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let previousWindow = client.windowId
+  let window = await rpc('new-window', { client: client.id, session: client.sessionId, url: url + '/four-overlays' })
+  await rpc('wait', { pane: window.panes[0].id, selector: '#username' })
+  let original = window.panes[0].id, panes = [original], ids: string[] = []
+  let views = pluginViews
+  try {
+    for (let index = 1; index < 4; index++) {
+      let pane = await rpc('split-window', { pane: original, url: url + '/overlay-' + index })
+      panes.push(pane.id)
+      await rpc('wait', { pane: pane.id, selector: '#username' })
+    }
+    await rpc('select-layout', { window: window.id, layout: 'tiled' })
+    for (let pane of panes) {
+      await rpc('zoom', { pane, factor: .5 })
+      ids.push(await run('overlay', { pane }))
+    }
+    await expect.poll(async () => (await views()).length).toBe(4)
+    let observers = new Map<string, Page>()
+    for (let page of application.context().pages().filter(page => page.url().endsWith('#plugin-overlay'))) {
+      let value = await page.evaluate(() => (window as any).bmux.state())
+      if (ids.includes(value.pluginOverlay?.runId)) observers.set(value.pluginOverlay.runId, page)
+    }
+    expect(observers.size).toBe(4)
+    for (let page of observers.values()) await page.evaluate(() => {
+      let bridge = (window as any).bmux
+      ;(window as any).overlayDelivery = { full: 0, overlays: [] }
+      bridge.subscribe(() => { (window as any).overlayDelivery.full++ })
+      bridge.subscribeOverlay((overlay: unknown) => { (window as any).overlayDelivery.overlays.push(overlay) })
+    })
+    await rpc('plugin.overlay.input', { id: ids[0], control: 'start' })
+    await expect(observers.get(ids[0])!.getByRole('status')).toHaveText('Browsing')
+    for (let [id, page] of observers) {
+      let delivery = await page.evaluate(() => (window as any).overlayDelivery)
+      expect(delivery.full).toBe(0)
+      expect(delivery.overlays.length).toBe(id === ids[0] ? 1 : 0)
+      expect(delivery.overlays.every((overlay: any) => overlay.runId === id && !('model' in overlay) && !('snapshots' in overlay))).toBe(true)
+    }
+    for (let [id, page] of observers) {
+      let overlay = (await page.evaluate(() => (window as any).bmux.state())).pluginOverlay
+      expect(overlay.runId).toBe(id)
+      expect(await page.evaluate(() => innerWidth)).toBe(overlay.bounds.width)
+      if (id !== ids[0]) await page.getByRole('button', { name: 'Start browsing', exact: true }).click()
+      await expect(page.getByRole('status')).toHaveText('Browsing')
+    }
+    for (let view of await views()) {
+      expect(view.zoom).toBeCloseTo(.5, 5)
+      expect(view.bounds.width).toBe(192)
+      expect(view.bounds.height).toBeGreaterThanOrEqual(120)
+      expect(view.bounds.height).toBeLessThanOrEqual(300)
+    }
+    await rpc('select-pane', { client: client.id, pane: original })
+    let originalView = observers.get(ids[0])!
+    let originalBounds = (await originalView.evaluate(() => (window as any).bmux.state())).pluginOverlay.bounds
+    await rpc('zoom', { pane: original, factor: 1 })
+    await expect.poll(async () => (await views()).find(view => view.zoom === 1)?.bounds.width).toBe(384)
+    await rpc('zoom', { pane: original, factor: .5 })
+    await expect.poll(async () => (await originalView.evaluate(() => (window as any).bmux.state())).pluginOverlay.bounds.height).toBe(originalBounds.height)
+    let lastView = observers.get(ids[3])!
+    let pageBounds = await application.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).find((view: any) => view.webContents?.getURL() === url)!.getBounds(), url + '/overlay-3')
+    let moving = (await lastView.evaluate(() => (window as any).bmux.state())).pluginOverlay
+    for (let position of [-10000, 10000]) {
+      await lastView.evaluate(({ id, bounds, position }) => (window as any).bmux.command({ method: 'plugin.overlay.bounds', args: { id, ...bounds, x: position, y: position } }), { id: ids[3], bounds: moving.bounds, position })
+      let placed = (await lastView.evaluate(() => (window as any).bmux.state())).pluginOverlay
+      expect(placed.bounds.x).toBeGreaterThanOrEqual(pageBounds.x)
+      expect(placed.bounds.y).toBeGreaterThanOrEqual(pageBounds.y)
+      expect(placed.bounds.x + Math.round(placed.bounds.width * placed.zoom)).toBeLessThanOrEqual(pageBounds.x + pageBounds.width)
+      expect(placed.bounds.y + Math.round(placed.bounds.height * placed.zoom)).toBeLessThanOrEqual(pageBounds.y + pageBounds.height)
+    }
+    await originalView.getByRole('button', { name: 'Pause session', exact: true }).click()
+    await expect(originalView.getByRole('status')).toHaveText('Paused')
+    for (let id of ids.slice(1)) await expect(observers.get(id)!.getByRole('status')).toHaveText('Browsing')
+    await observers.get(ids[1])!.getByRole('button', { name: 'Close overlay', exact: true }).click()
+    await expect.poll(async () => (await views()).length).toBe(3)
+    expect((await rpc('plugin.runs')).find((run: any) => run.id === ids[1]).status).toBe('running')
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+    await originalView.screenshot({ path: path.resolve('artifacts/plugin-overlay-scaled-pane.png') })
+  } finally {
+    for (let id of ids) await rpc('plugin.cancel', { id })
+    await rpc('select-window', { client: client.id, window: previousWindow })
+    await rpc('kill-window', { window: window.id, confirm: true })
+  }
+})
+
+test('shared social Settings apply profile and AI choices without starting browsing', async () => {
+  await activate()
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  await rpc('select-pane', { client: client.id, pane: client.paneId })
+  await rpc('plugin.run', { action: 'test/profiles', sharedSettings: true })
+  let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await expect(dialog.getByRole('heading', { name: 'Social Media settings', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toHaveCount(0)
+  await expect(dialog.getByLabel('Record browsing', { exact: true })).toBeChecked()
+  await expect(dialog.getByLabel('Include manual browsing', { exact: true })).toBeChecked()
+  await dialog.getByLabel('Record browsing', { exact: true }).uncheck()
+  await expect(dialog.getByLabel('Include manual browsing', { exact: true })).toBeDisabled()
+  await expect.poll(async () => (await state()).browseRecording.enabled).toBe(false)
+  await dialog.getByLabel('Record browsing', { exact: true }).check()
+  await dialog.getByLabel('Include manual browsing', { exact: true }).uncheck()
+  await expect.poll(async () => (await state()).browseRecording.manual).toBe(false)
+  await dialog.getByLabel('Include manual browsing', { exact: true }).check()
+  await dialog.getByLabel('AI source').selectOption('personal')
+  await dialog.getByRole('button', { name: 'Apply all', exact: true }).click()
+  await expect(dialog.getByRole('status').filter({ hasText: 'Applied to' })).toBeVisible()
+  let request = (await state()).pluginPrompt
+  let saved = JSON.parse(await fs.readFile(path.join(directory, 'plugins/test', 'settings-' + encodeURIComponent(request.profileId) + '.json'), 'utf8'))
+  expect(saved.ai_source).toBe('personal')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+})
+
+test('browsing can use the current pane without creating a window', async () => {
+  await activate()
+  let before = await state(), client = before.model.clients.find((item: any) => item.id === before.clientId), pane = client.paneId
+  await rpc('select-pane', { client: client.id, pane })
+  let windows = await rpc('list-windows', { session: client.sessionId })
+  let id = await run('launch')
+  let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await dialog.getByLabel('Browse in').selectOption('current')
+  await dialog.getByLabel('AI source').selectOption('personal')
+  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await completed(id)
+  expect((await rpc('plugin.runs')).find((item: any) => item.id === id).result.pane).toBe(pane)
+  expect(await rpc('list-windows', { session: client.sessionId })).toHaveLength(windows.length)
+})
+
+
+test('plugins and viewport controls share one resizable tabbed pane view', async () => {
+  await chrome.keyboard.press('Escape'); await activate()
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let created = await rpc('new-window', { client: client.id, session: client.sessionId, url })
+  let pane = created.panes[0].id
+  await rpc('wait', { pane, selector: '#username' })
+  let first = await run('overlay', { pane }), second: string | undefined
+  try {
+    let observer = await overlayForRun(first)
+    second = (await rpc('plugin.run', { action: 'second/overlay', pane })).id
+    await expect(observer.getByRole('tab', { name: 'Research notes', exact: true })).toBeVisible()
+    await rpc('lock-viewport', { window: created.id, width: 1280, height: 800 })
+    let viewport = observer.getByRole('tab', { name: 'Locked viewport', exact: true })
+    await expect(viewport).toBeVisible()
+    let attached = () => application.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().flatMap(window => window.contentView.children).filter((view: any) => view.webContents?.getURL().endsWith('#plugin-overlay') && view.getVisible()).length)
+    await expect.poll(attached).toBe(1)
+    await expect(observer.getByRole('tab', { name: 'Research notes', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(observer.locator('header strong')).toHaveText('Research notes')
+    await observer.getByRole('button', { name: 'Start browsing', exact: true }).click()
+    await expect(observer.getByRole('status')).toHaveText('Browsing')
+    await observer.getByRole('tab', { name: 'Feed training', exact: true }).click()
+    await expect(observer.getByRole('status')).toHaveText('Waiting for Start')
+    let before = (await observer.evaluate(() => (window as any).bmux.overlayState())).bounds
+    await viewport.click()
+    await expect(observer.getByRole('form', { name: 'Viewport settings' })).toBeVisible()
+    await observer.getByRole('slider', { name: 'Resize page overlay', exact: true }).focus()
+    await observer.keyboard.press('ArrowLeft')
+    await expect.poll(async () => (await observer.evaluate(() => (window as any).bmux.overlayState())).bounds.width).toBe(before.width - 24)
+    let grip = (await observer.getByRole('slider', { name: 'Resize page overlay', exact: true }).boundingBox())!
+    await observer.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+    await observer.mouse.down()
+    await observer.mouse.move(grip.x + grip.width / 2 - 16, grip.y + grip.height / 2 + 24)
+    await observer.mouse.up()
+    await expect.poll(async () => (await observer.evaluate(() => (window as any).bmux.overlayState())).bounds.width).toBe(before.width - 40)
+    await expect.poll(async () => (await observer.evaluate(() => (window as any).bmux.overlayState())).bounds.height).toBe(Math.max(240, before.height - 24))
+    await observer.getByRole('tab', { name: 'Research notes', exact: true }).click()
+    expect((await observer.evaluate(() => (window as any).bmux.overlayState())).bounds.width).toBe(before.width - 40)
+    await expect(observer.getByRole('status')).toHaveText('Browsing')
+    await observer.screenshot({ path: path.resolve('artifacts/shared-pane-overlay.png') })
+    await observer.getByRole('button', { name: 'Minimize page overlay', exact: true }).click()
+    await expect.poll(() => observer.evaluate(() => innerHeight)).toBe(32)
+    await expect(observer.getByRole('tab')).toHaveCount(4)
+    await expect(observer.getByRole('tab', { name: 'Agent control', exact: true })).toBeVisible()
+    expect((await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(pane)
+  } finally {
+    await rpc('plugin.cancel', { id: first })
+    if (second) await rpc('plugin.cancel', { id: second })
+    await rpc('select-window', { client: client.id, window: client.windowId })
+    await rpc('kill-window', { window: created.id, confirm: true })
+  }
+})
+
+
+test('social plugin startup shows its confirmation before any empty post or decision tree', async () => {
+  await chrome.keyboard.press('Escape'); await activate()
+  let id = await run('startup')
+  try {
+    let observer = await overlayForRun(id)
+    await expect(observer.getByRole('heading', { name: 'Ready to browse', exact: true })).toBeVisible()
+    await expect(observer.getByText('No post yet', { exact: true })).toHaveCount(0)
+    await expect(observer.getByRole('tree')).toHaveCount(0)
+    await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
+    await observer.getByRole('button', { name: 'Start with auto continue', exact: true }).click()
+    await expect(observer.getByRole('heading', { name: 'Ready to browse', exact: true })).toHaveCount(0)
+    await expect(observer.getByRole('tree')).toBeVisible()
+    await expect(observer.getByRole('button', { name: 'Pause session', exact: true })).toBeVisible()
+  } finally { await rpc('plugin.cancel', { id }) }
 })

@@ -11,7 +11,7 @@ import type { PluginSettings, PluginContext } from '../src/shared/plugins'
 
 let cleanup: (() => Promise<void>)[] = []
 afterEach(async () => { for (let dispose of cleanup.splice(0)) await dispose() })
-let fixture = (script: string, overrides: Record<string, unknown> = {}, decisions?: (method: 'usage' | 'create' | 'memory', args: Record<string, unknown>) => Promise<unknown>, prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>) => {
+let fixture = (script: string, overrides: Record<string, unknown> = {}, decisions?: (method: 'usage' | 'create' | 'memory', args: Record<string, unknown>) => Promise<unknown>, prepare?: (context: PluginContext, title: string, signal: AbortSignal) => Promise<PluginContext>, automation?: Parameters<typeof createPlugins>[0]['automation']) => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-plugin-test-'))
   let folder = path.join(directory, 'plugins', 'test')
   fs.mkdirSync(folder, { recursive: true }); fs.writeFileSync(path.join(folder, 'run.mjs'), script)
@@ -20,10 +20,11 @@ let fixture = (script: string, overrides: Record<string, unknown> = {}, decision
   fs.writeFileSync(path.join(folder, 'plugin.yaml'), stringify(manifest))
   let settings: PluginSettings = { test: { enabled: true, hooks: false } }
   let browser = vi.fn(async () => ({ content: 'fixture' })), changed = vi.fn(), context: PluginContext = { paneId: 'original', documentId: 'document-1', url: 'https://example.test/', clientId: 'client' }
-  let plugins = createPlugins({ bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, decisions, prepare, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
+  let finished = vi.fn()
+  let plugins = createPlugins({ finished, bundledDirectory: path.join(directory, 'bundled'), directory: path.join(directory, 'plugins'), cli: path.resolve('bin/bmux.mjs'), dataDirectory: directory, decisions, prepare, automation, settings: () => settings, context: target => ({ ...context, ...target }), changed, interactive: () => true, show: vi.fn(), browser })
   cleanup.push(async () => { plugins.close(); await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
   let writeManifest = (value: unknown) => fs.writeFileSync(path.join(folder, 'plugin.yaml'), typeof value === 'string' ? value : stringify(value))
-  return { directory, plugins, browser, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
+  return { directory, plugins, browser, finished, context, manifest, writeManifest, settings: (next: PluginSettings) => { settings = next; plugins.reload() } }
 }
 let hostScript = `import { execFileSync } from 'node:child_process';
 let host = (method, args = {}) => JSON.parse(execFileSync(process.execPath, [process.env.BMUX_CLI,'plugin','host',method,'--stdin'], { input: JSON.stringify(args), encoding:'utf8', stdio:['pipe','pipe','pipe'] })).result;
@@ -33,6 +34,26 @@ let done = async (plugins: ReturnType<typeof createPlugins>, id: string) => {
   return plugins.runs().find(run => run.id === id)!
 }
 describe('plugin definitions', () => {
+  test('plugin pacing is an explicit action setting and is passed with a unique run owner', async () => {
+    let { plugins, browser, finished, manifest } = fixture(hostScript + "host('dom'); host('result', {done:true});", { pacing: 'plugin' })
+    expect(parsePluginManifest(stringify(manifest)).actions[0].pacing).toBe('plugin')
+    for (let pacing of [true, 'fast', 0]) expect(() => parsePluginManifest(stringify({ ...manifest, actions: [{ ...manifest.actions[0], pacing }] }))).toThrow('pacing must be plugin')
+    let run = plugins.run('test/run', { paneId: 'original' })
+    expect((await done(plugins, run.id)).status).toBe('completed')
+    expect(finished).toHaveBeenCalledExactlyOnceWith(run.id)
+    expect(browser).toHaveBeenCalledWith('dom', expect.any(Object), expect.objectContaining({ pacing: 'plugin', runId: run.id }), expect.any(AbortSignal))
+  })
+  test('binds follow reservations to the invocation profile, pane and lease', async () => {
+    let automation = { acquire: vi.fn(() => ({ token: 'private-lease', group: 'social' })), release: vi.fn(), follow: vi.fn(() => ({ reserved: true, remaining: 9 })), like: vi.fn(), authorize: vi.fn(), status: vi.fn() }
+    let { plugins, context } = fixture(hostScript + "host('automation.acquire', {url:'https://x.com/person'}); host('result', host('automation.follow', {url:'https://x.com/person',profileId:'other',tabId:'other',token:'other'}));", {}, undefined, undefined, automation)
+    context.profileId = 'bot'
+    let run = plugins.run('test/run', { paneId: 'original' })
+    let result = await done(plugins, run.id)
+    expect(result.status).toBe('completed')
+    expect(result.result).toEqual({ reserved: true, remaining: 9 })
+    expect(automation.follow).toHaveBeenCalledExactlyOnceWith({ profileId: 'bot', tabId: 'original', url: 'https://x.com/person', token: 'private-lease' })
+    expect(automation.release).toHaveBeenCalledWith('private-lease')
+  })
   test('keeps social plugins optional and independently installable', () => {
     for (let [id, site] of [['bmux.x', 'x'], ['bmux.linkedin', 'linkedin'], ['bmux.reddit', undefined]] as const) {
       let folder = path.resolve('optional-plugins', id)
@@ -41,6 +62,8 @@ describe('plugin definitions', () => {
       expect(manifest.id).toBe(id)
       expect(manifest.actions[0].command).toEqual(site ? ['node', './browse.mjs', site] : ['node', './browse.mjs'])
       expect(fs.existsSync(path.join(folder, 'browse.mjs'))).toBe(true)
+      expect(manifest.actions.find(action => action.id === 'follow')?.command).toEqual(['node', './follow.mjs', site ?? 'reddit'])
+      expect(fs.existsSync(path.join(folder, 'follow.mjs'))).toBe(true)
     }
   })
   test('validates capability, parameter, timeout and hook contracts', () => {
@@ -119,7 +142,7 @@ test('executes real scripts with pinned context and only explicit output', async
   let { plugins, browser, context } = fixture(hostScript + `console.log('PRIVATE_STDOUT'); console.error('PRIVATE_STDERR'); let context = host('context'); host('dom'); host('result', { pane: context.paneId });`)
   let { id } = plugins.run('test/run', context)
   expect((await done(plugins, id)).result).toEqual({ pane: 'original' })
-  expect(browser).toHaveBeenCalledWith('dom', {}, { ...context, agentId: 'plugin:test', agentName: 'Test', agentPurpose: 'Test script', agentContext: 'test', agentData: { runId: id, action: 'run' } }, expect.any(AbortSignal))
+  expect(browser).toHaveBeenCalledWith('dom', {}, { ...context, runId: id, agentId: 'plugin:test', agentName: 'Test', agentPurpose: 'Test script', agentContext: 'test', agentData: { runId: id, action: 'run' } }, expect.any(AbortSignal))
   expect(JSON.stringify(plugins.runs())).not.toContain('PRIVATE')
 })
 test('page helper installation requires the explicit CDP capability', async () => {
@@ -431,4 +454,23 @@ test('named configuration switches preserve the form, profile scope and defaults
   expect(() => plugins.respond('client',{id:prompt.id,cancel:true})).toThrow('unavailable')
   plugins.respond('client',{id:selected.id,cancel:true})
   expect((await done(plugins,id)).status).toBe('cancelled')
+})
+
+
+test('different plugins retain separate overlay tabs and a new run replaces only its own plugin', async () => {
+  let { directory, plugins, context, manifest, settings } = fixture(hostScript + `host('overlay.update',{title:'First',controls:[]});`, { capabilities: ['ui'] })
+  let second = path.join(directory, 'plugins', 'second')
+  fs.mkdirSync(second)
+  fs.writeFileSync(path.join(second, 'run.mjs'), hostScript + `host('overlay.update',{title:'Second',icon:'search',controls:[]});`)
+  fs.writeFileSync(path.join(second, 'plugin.yaml'), stringify({ ...manifest, id: 'second' }))
+  settings({ test: { enabled: true, hooks: false }, second: { enabled: true, hooks: false } })
+  let first = plugins.run('test/run', context)
+  await done(plugins, first.id)
+  let other = plugins.run('second/run', context)
+  await done(plugins, other.id)
+  expect(plugins.overlays(context.paneId!).map(overlay => overlay.runId)).toEqual([other.id, first.id])
+  let newer = plugins.run('test/run', context)
+  await done(plugins, newer.id)
+  expect(plugins.overlays(context.paneId!).map(overlay => overlay.runId)).toEqual([newer.id, other.id])
+  expect(plugins.overlays('unrelated-pane')).toEqual([])
 })

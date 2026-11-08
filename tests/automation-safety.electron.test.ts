@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { closeTestApplication } from './electron-fixture'
+import { closeTestApplication, waitForControlStatus } from './electron-fixture'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -582,6 +582,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     } } } } }))
     let launch = async () => {
       application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1'], env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+      await waitForControlStatus(async (...args) => JSON.parse((await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 })).stdout).result)
       await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
       return application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     }

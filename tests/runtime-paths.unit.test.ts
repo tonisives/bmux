@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { runtimeDataDirectory, developmentExecutable } from '../bin/runtime-paths.mjs'
+import { runtimeDataDirectory, developmentExecutable, macAppCandidates } from '../bin/runtime-paths.mjs'
 
 describe('portable runtime paths', () => {
   it('preserves Mac data and honors explicit and legacy overrides', () => {
     expect(runtimeDataDirectory('darwin', '/home/test', {})).toBe('/home/test/Library/Application Support/bmux')
     expect(runtimeDataDirectory('linux', '/home/test', { BMUX_DATA_DIR: '/data', BROWMUX_DATA_DIR: '/old' })).toBe('/data')
     expect(runtimeDataDirectory('linux', '/home/test', { BROWMUX_DATA_DIR: '/old' })).toBe('/old')
+  })
+  it('only discovers the installed Mac app, never a checkout build', () => {
+    expect(macAppCandidates('/home/test')).toEqual(['/home/test/workspace/_tools/bmux.app'])
   })
   it('uses Linux data and executable paths', () => {
     expect(runtimeDataDirectory('linux', '/home/test', {})).toBe('/home/test/.local/share/bmux')

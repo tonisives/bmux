@@ -50,14 +50,17 @@ The GitHub Release workflow requires `APPLE_CERTIFICATE` (base64 PKCS#12), `APPL
 BMUX_OUTPUT_DIR="$HOME/workspace/_tools" pnpm package
 ```
 
-Use the same signing identity for each installed build so macOS recognizes updates as the same application and preserves Keychain access. Other files in that folder are preserved. Keep `BMUX_OUTPUT_DIR` set when using the CLI, or point `BMUX_APP` at the bundle:
+Use the same signing identity for each installed build so macOS recognizes updates as the same application and preserves Keychain access. Other files in that folder are preserved. The CLI automatically uses `~/workspace/_tools/bmux.app`. For a custom installation, point `BMUX_APP` at the bundle:
 
 ```sh
 export BMUX_APP="$HOME/workspace/_tools/bmux.app"
 bmux attach-session -t main
 ```
 
-Without an override, the CLI checks `build/bmux.app` and then `~/workspace/_tools/bmux.app`.
+Without an explicit `BMUX_APP` override, the macOS CLI only launches
+`~/workspace/_tools/bmux.app`. It never starts checkout builds or development
+Electron automatically. Packaging removes its temporary `release/` app bundle
+after installation succeeds.
 
 For zsh command hints, link the completion file from the installed app into a
 directory already in your `fpath` before `compinit`. For example:

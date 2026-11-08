@@ -73,3 +73,49 @@ test('reserves opted-in likes once per rolling day', () => {
   let next = policy.acquire({ profileId: 'bot', tabId: 'tab-1', url: 'https://x.com/home', pluginId: 'bmux.x' })
   expect(policy.like({ ...args, token: next.token }).remaining).toBe(0)
 })
+
+
+test('validates weekly follow overrides between zero and ten', () => {
+  for (let cap of [-1, 11, 1.5, '10']) expect(() => parseAutomationSettings({ groups: { social: { profiles: ['bot'], hosts: ['x.com'], followsPerWeek: { 'x.com': cap } } } })).toThrow('follow cap')
+  expect(() => parseAutomationSettings({ groups: { social: { profiles: ['bot'], hosts: ['x.com'], followsPerWeek: { 'reddit.com': 1 } } } })).toThrow('follow cap')
+})
+
+test('persists ten weekly follow reservations across restarts and day pruning', () => {
+  let { policy, restart, advance } = fixture()
+  let lease = policy.acquire({ profileId: 'bot', tabId: 'tab-1', url: 'https://x.com/home', pluginId: 'bmux.x' })
+  let args = { profileId: 'bot', tabId: 'tab-1', token: lease.token }
+  for (let index = 0; index < 10; index++) expect(policy.follow({ ...args, url: `https://x.com/person${index}` }).remaining).toBe(9 - index)
+  expect(() => policy.follow({ ...args, url: 'https://x.com/extra' })).toThrow('Weekly follow cap')
+  policy.release(lease.token)
+  advance(2 * 24 * 60 * 60_000)
+  let next = restart()
+  let second = next.acquire({ profileId: 'bot', tabId: 'tab-1', url: 'https://x.com/home', pluginId: 'bmux.x' })
+  expect(() => next.follow({ ...args, token: second.token, url: 'https://x.com/extra' })).toThrow('Weekly follow cap')
+  expect(next.status()[0].weekly.follows['x.com']).toBe(10)
+  next.release(second.token)
+  advance(5 * 24 * 60 * 60_000)
+  let third = next.acquire({ profileId: 'bot', tabId: 'tab-1', url: 'https://x.com/home', pluginId: 'bmux.x' })
+  expect(next.follow({ ...args, token: third.token, url: 'https://x.com/person0' }).remaining).toBe(9)
+})
+
+test('requires a plugin lease and shares reservations across URL aliases', () => {
+  let { policy, settings } = fixture()
+  let lease = policy.acquire({ profileId: 'bot', tabId: 'tab-1', url: 'https://x.com/home', pluginId: 'bmux.x' })
+  let args = { profileId: 'bot', tabId: 'tab-1', token: lease.token, url: 'https://x.com/person' }
+  expect(() => policy.follow({ ...args, token: 'missing' })).toThrow('lease required')
+  expect(() => policy.follow({ ...args, tabId: 'tab-2' })).toThrow('lease required')
+  expect(() => policy.follow({ ...args, url: 'https://reddit.com/user/person' })).toThrow('site plugin')
+  expect(() => policy.follow({ ...args, url: 'http://x.com/person' })).toThrow('HTTPS')
+  expect(policy.follow(args).remaining).toBe(9)
+  expect(() => policy.follow({ ...args, url: 'https://www.x.com/Person/?ref=test' })).toThrow('already reserved')
+  settings.groups.social.followsPerWeek['x.com'] = 1
+  expect(() => policy.follow({ ...args, url: 'https://x.com/another' })).toThrow('Weekly follow cap')
+  settings.groups.social.followsPerWeek['linkedin.com'] = 0
+  expect(() => policy.follow({ ...args, url: 'https://linkedin.com/in/person' })).toThrow('Weekly follow cap')
+  delete settings.groups.social.followsPerWeek['linkedin.com']
+  expect(policy.follow({ ...args, url: 'https://linkedin.com/in/person' }).remaining).toBe(9)
+  expect(policy.status()[0].weekly.follows).toEqual({ 'x.com': 1, 'linkedin.com': 1 })
+  policy.release(lease.token)
+  let noPlugin = policy.acquire({ profileId: 'bot', tabId: 'tab-1', url: 'https://linkedin.com/in/person' })
+  expect(() => policy.follow({ ...args, token: noPlugin.token, url: 'https://linkedin.com/in/person' })).toThrow('site plugin')
+})

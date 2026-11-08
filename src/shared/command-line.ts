@@ -224,6 +224,7 @@ export let parseCommandLine = (line: string, state: PublicState): Command => {
   if (name === 'select-layout' || name.startsWith('layout-')) return { method: 'select-layout', args: { ...current, window: windowTarget(), layout: name === 'select-layout' ? positional[0] : name.slice(7) } }
   if (name === 'maximize-pane' || name === 'maximize-pane-width' || name === 'maximize-pane-height') return { method: 'maximize-pane', args: { ...current, pane: resolvePaneTarget(state, target).pane.id, dimension: name === 'maximize-pane' ? positional[0] : name.slice(14) } }
   if (name === 'resize-pane') return { method: name, args: { ...current, ...(options.split ? { window: target ?? client.windowId } : { pane: target ?? pane?.id }), ...options } }
+  if (name === 'window-history-back' || name === 'window-history-forward') return { method: 'window-history', args: { ...current, direction: name === 'window-history-back' ? -1 : 1 } }
   if (name === 'next-window' || name === 'previous-window') return { method: 'cycle-window', args: { ...current, direction: name === 'next-window' ? 1 : -1 } }
   if (name === 'next-session' || name === 'previous-session') {
     let index = state.model.sessions.findIndex(item => item.id === session.id)

@@ -1,3 +1,5 @@
+export let scaledViewportSize = (size: { width: number; height: number }, scale = 1) => ({ width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)) })
+
 export let viewportPanDelta = (event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode'>, width: number, height: number, zoom = 1) => {
   let x = event.deltaX, y = event.deltaY
   return { x: x * (event.deltaMode === 1 ? 16 * zoom : event.deltaMode === 2 ? width : zoom), y: y * (event.deltaMode === 1 ? 16 * zoom : event.deltaMode === 2 ? height : zoom) }

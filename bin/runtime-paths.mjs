@@ -6,3 +6,5 @@ export let runtimeDataDirectory = (platform, home, env) => env.BMUX_DATA_DIR ?? 
   : path.posix.join(env.XDG_DATA_HOME || path.posix.join(home, '.local', 'share'), 'bmux'))
 
 export let developmentExecutable = (root, platform) => (platform === 'win32' ? path.win32 : path.posix).join(root, 'node_modules', 'electron', 'dist', ...(platform === 'darwin' ? ['Electron.app', 'Contents', 'MacOS', 'Electron'] : [platform === 'win32' ? 'electron.exe' : 'electron']))
+
+export let macAppCandidates = home => [path.posix.join(home, 'workspace', '_tools', 'bmux.app')]

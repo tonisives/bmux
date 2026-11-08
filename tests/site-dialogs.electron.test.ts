@@ -72,9 +72,9 @@ test('unsaved changes use a bmux prompt with Escape to stay and Enter to leave w
       let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
       await expect(address).toBeFocused()
       await address.fill(destination)
-      // Address suggestions park the native page behind its snapshot. Exercise
-      // navigation after that transition instead of racing view reattachment.
-      await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === url)), url)).toBe(false)
+      await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toBeVisible()
+      // Suggestions keep the native page visible while the address is edited.
+      await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === url && view.getVisible())), url)).toBe(true)
       await address.press('Enter')
       let prompt = chrome.getByRole('alertdialog', { name: 'Leave this site?' })
       await expect(prompt).toBeVisible()
@@ -104,7 +104,7 @@ test('unsaved changes use a bmux prompt with Escape to stay and Enter to leave w
   } finally { await close() }
 })
 
-test('navigation prompts for unsaved changes while address suggestions park the page', async () => {
+test('navigation prompts for unsaved changes while address suggestions keep the page visible', async () => {
   let { application, chrome, page, url, close } = await fixture()
   try {
     page.on('dialog', () => undefined)
@@ -112,7 +112,8 @@ test('navigation prompts for unsaved changes while address suggestions park the 
     await expect(page.locator('output')).toHaveText('Unsaved')
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     await chrome.getByRole('textbox', { name: 'URL or search', exact: true }).fill(`${url}?parked`)
-    await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === url)), url)).toBe(false)
+    await expect(chrome.getByRole('listbox', { name: 'Address suggestions' })).toBeVisible()
+    await expect.poll(() => application.evaluate(({ BaseWindow, WebContentsView }, url) => BaseWindow.getAllWindows().filter(window => window.isVisible()).some(window => window.contentView.children.some(view => view instanceof WebContentsView && view.webContents.getURL() === url && view.getVisible())), url)).toBe(true)
     // Keep the address overlay open while the same navigation command runs.
     // This covers the ordering in which beforeunload precedes overlay dismissal.
     await chrome.evaluate(async url => {

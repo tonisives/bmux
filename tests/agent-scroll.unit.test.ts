@@ -66,3 +66,122 @@ test('keeps full, half, top and bottom scroll targets within the document', () =
   expect(agentScrollParams('scroll-bottom', 800, 600, 0, 400).deltaY).toBe(0)
   expect(() => agentScrollParams('unknown', 800, 600, 100, 4000)).toThrow('Unknown scroll action')
 })
+
+test('occasionally overshoots and corrects both axes to the exact requested distance', async () => {
+  vi.useFakeTimers()
+  let random = vi.spyOn(Math, 'random').mockReturnValue(.1)
+  try {
+    let positions: { x: number; y: number }[] = [], x = 0, y = 0
+    let scroll = smoothAgentScroll(async (method, params) => {
+      if (method === 'Input.dispatchMouseEvent') {
+        x += Number(params.deltaX); y += Number(params.deltaY); positions.push({ x, y })
+      }
+      return { result: { value: { reducedMotion: false, roomX: 2000, roomY: 2000 } } }
+    }, { x: 40, y: 30, deltaX: -120, deltaY: 600 })
+    await vi.runAllTimersAsync(); await scroll
+    expect(Math.max(...positions.map(point => point.y))).toBeGreaterThan(600)
+    expect(Math.min(...positions.map(point => point.x))).toBeLessThan(-120)
+    expect(positions.at(-1)).toEqual({ x: -120, y: 600 })
+  } finally { random.mockRestore(); vi.useRealTimers() }
+})
+
+test('keeps corrections inside scroll boundaries and supports predictable or immediate overrides', async () => {
+  vi.useFakeTimers()
+  let random = vi.spyOn(Math, 'random').mockReturnValue(.1)
+  try {
+    for (let room of [600, 0]) {
+      let positions: number[] = [], y = 0
+      let scroll = smoothAgentScroll(async (method, params) => {
+        if (method === 'Input.dispatchMouseEvent') { y += Number(params.deltaY); positions.push(y) }
+        return { result: { value: { reducedMotion: false, roomY: room } } }
+      }, { x: 40, y: 30, deltaY: 600 })
+      await vi.runAllTimersAsync(); await scroll
+      expect(Math.max(...positions)).toBe(600)
+    }
+    let send = vi.fn(async () => ({}))
+    await smoothAgentScroll(send, { x: 0, y: 0, deltaY: 600 }, { enabled: false, randomize: true, overshoot: true })
+    expect(send).toHaveBeenCalledExactlyOnceWith('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 0, y: 0, deltaX: 0, deltaY: 600 })
+    random.mockClear()
+    let scroll = smoothAgentScroll(send, { x: 0, y: 0, deltaY: 600 }, { enabled: true, randomize: false, overshoot: true })
+    await vi.runAllTimersAsync(); await scroll
+    expect(random).not.toHaveBeenCalled()
+  } finally { random.mockRestore(); vi.useRealTimers() }
+})
+
+
+test('scaled viewports keep DOM hit testing in CSS pixels and transform only native wheel coordinates', async () => {
+  vi.useFakeTimers()
+  try {
+    let calls: {method:string;params:Record<string,unknown>}[] = []
+    let scrolling = smoothAgentScroll(async (method, params) => {
+      calls.push({ method, params })
+      return { result: { value: { reducedMotion: false, roomY: 1000 } } }
+    }, { x: 832, y: 604, deltaY: 300 }, { enabled: true, randomize: false, overshoot: false }, .375)
+    await vi.runAllTimersAsync(); await scrolling
+    expect(calls[0].params.expression).toContain('document.elementFromPoint(832, 604)')
+    let wheels = calls.filter(call => call.method === 'Input.dispatchMouseEvent')
+    expect(wheels.length).toBeGreaterThan(10)
+    expect(wheels.every(call => call.params.x === 312 && call.params.y === 226.5)).toBe(true)
+    expect(wheels.reduce((sum, call) => sum + Number(call.params.deltaY), 0)).toBe(300)
+  } finally { vi.useRealTimers() }
+})
+
+
+test('slow wheel replies merge frames without extending the animation or drifting', async () => {
+  vi.useFakeTimers()
+  try {
+    let wheels: number[] = [], pending = 0, maximum = 0
+    let scroll = smoothAgentScroll(async (method, params) => {
+      if (method === 'Input.dispatchMouseEvent') {
+        maximum = Math.max(maximum, ++pending)
+        wheels.push(Number(params.deltaY))
+        await new Promise(resolve => setTimeout(resolve, 120))
+        pending--
+      }
+      return { result: { value: false } }
+    }, { x: 20, y: 30, deltaY: 600 }, { enabled: true, randomize: false, overshoot: false })
+    await vi.runAllTimersAsync()
+    let result = await scroll
+    expect(wheels.reduce((sum, delta) => sum + delta, 0)).toBe(600)
+    expect(wheels.length).toBeLessThan(10)
+    expect(maximum).toBe(1)
+    expect(result.scroll.durationMs).toBeLessThan(1100)
+    expect(result.scroll.maxEventMs).toBe(120)
+    expect(result.scroll.events).toBe(wheels.length)
+  } finally { vi.useRealTimers() }
+})
+
+test('stalled observation and wheel acknowledgements release the caller within the deadline', async () => {
+  vi.useFakeTimers()
+  try {
+    for (let stalled of ['Runtime.evaluate', 'Input.dispatchMouseEvent']) {
+      let calls: string[] = []
+      let scroll = smoothAgentScroll(async method => {
+        calls.push(method)
+        if (method === stalled) return new Promise(() => undefined)
+        return { result: { value: false } }
+      }, { x: 20, y: 30, deltaY: 600 })
+      let rejected = expect(scroll).rejects.toThrow(`Scroll ${stalled} timed out after 2000ms`)
+      await vi.advanceTimersByTimeAsync(2100); await rejected
+      let count = calls.length
+      await vi.runAllTimersAsync()
+      expect(calls).toHaveLength(count)
+    }
+  } finally { vi.useRealTimers() }
+})
+
+test('cancellation interrupts a pending wheel and ignores its late reply', async () => {
+  vi.useFakeTimers()
+  try {
+    let controller = new AbortController(), calls = 0, finish!: () => void
+    let scroll = smoothAgentScroll(async method => {
+      if (method === 'Input.dispatchMouseEvent') { calls++; await new Promise<void>(resolve => { finish = resolve }) }
+      return { result: { value: false } }
+    }, { x: 20, y: 30, deltaY: 600 }, undefined, 1, { signal: controller.signal })
+    let rejected = expect(scroll).rejects.toThrow('Stopped by user')
+    await vi.advanceTimersByTimeAsync(10)
+    controller.abort(new Error('Stopped by user')); await rejected
+    finish(); await vi.runAllTimersAsync()
+    expect(calls).toBe(1)
+  } finally { vi.useRealTimers() }
+})
