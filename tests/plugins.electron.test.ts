@@ -11,6 +11,10 @@ import { observeNativeFocus, recordNativeFocus } from './native-focus'
 let directory: string, application: ElectronApplication, chrome: Page, url: string, server: http.Server
 let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
 let openSettings = async (dialog: ReturnType<Page['getByRole']>) => { for (let section of await dialog.locator('details').all()) if (await section.getAttribute('open') === null) await section.locator('summary').click() }
+let startBrowsing = async (dialog: ReturnType<Page['getByRole']>, destination = 'New window') => {
+  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await dialog.getByRole('button', { name: destination, exact: true }).click()
+}
 let state = () => chrome.evaluate(() => (window as any).bmux.state())
 let activate = async () => { let current = await state(); await expect.poll(async () => { await rpc('activate-client', { client: current.clientId }); return (await state()).focusedClientId }).toBe(current.clientId) }
 let run = async (action: string, args: Record<string, unknown> = {}) => (await rpc('plugin.run', { action: `test/${action}`, ...args })).id as string
@@ -624,7 +628,7 @@ test('Social Media details launch one settings form and a muted window with the 
   await expect(dialog.getByLabel('Skip ads')).toHaveValue('true')
   await dialog.getByLabel('Browsing preset', { exact: true }).selectOption('quick')
   await dialog.getByLabel('Duration in seconds').fill('5')
-  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await startBrowsing(dialog)
   await completed(id)
   let current = await state(), selected = current.model.clients.find((client: any) => client.id === current.clientId)
   let session = current.model.sessions.find((session: any) => session.id === selected.sessionId), window = session.windows.find((window: any) => window.id === selected.windowId)
@@ -642,7 +646,7 @@ test('Social Media Stop returns to configuration without Prepare or a new window
   let id = await run('launch', { parameters: { session: 'observe' } })
   let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
-  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await startBrowsing(dialog)
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('#plugin-overlay'))).toBe(true)
   let observer = await overlayForRun(id)
   await expect(observer.getByRole('status')).toHaveText('Browsing')
@@ -765,7 +769,7 @@ test('Social Media AI subscription status and launch eligibility use the AI enti
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeEnabled()
   await application.evaluate(() => { (globalThis as any).__pluginAIUsage.active = false })
   let windows = (await state()).model.sessions.flatMap((session: any) => session.windows).length
-  await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await startBrowsing(dialog)
   await expect(dialog.getByRole('alert')).toContainText('active BMUX subscription is required')
   await expect(dialog.getByRole('button', { name: 'Start browsing', exact: true })).toBeDisabled()
   expect((await state()).model.sessions.flatMap((session: any) => session.windows).length).toBe(windows)
@@ -955,9 +959,12 @@ test('browsing can use the current pane without creating a window', async () => 
   let windows = await rpc('list-windows', { session: client.sessionId })
   let id = await run('launch')
   let dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
-  await dialog.getByLabel('Browse in').selectOption('current')
   await dialog.getByLabel('AI source').selectOption('personal')
   await dialog.getByRole('button', { name: 'Start browsing', exact: true }).click()
+  await expect(dialog.getByRole('group', { name: 'Where should browsing start?', exact: true })).toBeVisible()
+  expect(await rpc('list-windows', { session: client.sessionId })).toHaveLength(windows.length)
+  expect((await rpc('plugin.runs')).find((item: any) => item.id === id).result).toBeUndefined()
+  await dialog.getByRole('button', { name: 'Current pane', exact: true }).click()
   await completed(id)
   expect((await rpc('plugin.runs')).find((item: any) => item.id === id).result.pane).toBe(pane)
   expect(await rpc('list-windows', { session: client.sessionId })).toHaveLength(windows.length)
