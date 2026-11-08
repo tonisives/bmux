@@ -25,8 +25,9 @@ export let keyboardScroll = (action: string, settings: ScrollingSettings) => {
     element.scrollTo({ top: target, behavior: 'instant' }); motions.delete(element); return
   }
   return new Promise<void>(resolve => {
-    let motion: Motion = { target, frame: 0, finish: resolve }, started = performance.now()
+    let motion: Motion = { target, frame: 0, finish: resolve }, started: number | undefined
     let tick = (now: number) => {
+      started ??= now
       let progress = Math.min(1, (now - started) / duration)
       // Start promptly, including when autorepeat extends the current target.
       element.scrollTo({ top: start + (target - start) * (1 - (1 - progress) ** 3), behavior: 'instant' })
