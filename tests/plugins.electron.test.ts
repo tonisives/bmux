@@ -238,11 +238,12 @@ test('viewport screenshots preserve visible and hidden device pages without CDP 
         let clipped = await rpc('screenshot', { pane: pane.id, fullPage: false, encoding: 'base64', format: 'png', clip: { x: 20, y: 30, width: 160, height: 100 }, viewport: [beforePage.width, beforePage.height] })
         let post = await application.evaluate(({ nativeImage }, data) => {
           let image = nativeImage.createFromBuffer(Buffer.from(data, 'base64')), pixels = image.toBitmap()
-          return { size: image.getSize(), corner: [...pixels.subarray(0, 3)].sort((a, b) => a - b) }
+          let size = image.getSize(), center = (Math.floor(size.height / 2) * size.width + Math.floor(size.width / 2)) * 4
+          return { size, center: [...pixels.subarray(center, center + 3)].sort((a, b) => a - b) }
         }, clipped.data)
         expect(post.size.width).toBe(Math.round(180 * size.width / beforePage.width) - Math.round(20 * size.width / beforePage.width))
         expect(post.size.height).toBe(Math.round(130 * size.height / beforePage.height) - Math.round(30 * size.height / beforePage.height))
-        expect(post.corner).toEqual([0, 36, 255])
+        expect(post.center, JSON.stringify({ mobile, hidden, size, beforePage })).toEqual([0, 36, 255])
         expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scrollY, visibility: document.visibilityState, dpr: devicePixelRatio, touch: navigator.maxTouchPoints }))).toEqual(beforePage)
         expect(await page.evaluate(() => (window as any).screenshotChanges)).toEqual([])
         expect(await windows()).toEqual(beforeWindows)
