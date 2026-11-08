@@ -265,7 +265,7 @@ test('daily memory host calls require the AI capability and forward bounded data
 test('one settings form validates atomically, hides CLI session IDs, and pins launch to the active profile', async () => {
   let prepare = vi.fn(async (context: PluginContext) => ({ ...context, paneId: 'new-pane', documentId: 'new-document', url: 'about:blank' }))
   let { plugins, context } = fixture(hostScript + `let c=host('context',{refresh:true});host('result',{pane:c.paneId,profile:c.profileId,approved:c.launchApproved,url:c.launchUrl,parameters:c.parameters});`, {
-    capabilities: ['browser.manage', 'ui'], launch_url: 'https://example.test/feed', parameters: [
+    capabilities: ['browser.manage', 'ui'], launch_url: 'https://example.test/feed', launch_label: 'Build feed', parameters: [
       { name: 'seconds', title: 'Duration', kind: 'text', default: '300' },
       { name: 'ads', title: 'Skip ads', kind: 'boolean', default: false },
       { name: 'session', title: 'Session ID', kind: 'text', hidden: true },
@@ -274,6 +274,7 @@ test('one settings form validates atomically, hides CLI session IDs, and pins la
   let { id } = plugins.run('test/run', { ...context, profileId: 'active-profile' }, {}, true)
   await vi.waitFor(() => expect(plugins.prompt('client')?.kind).toBe('form'))
   let prompt = plugins.prompt('client')!
+  expect(prompt.launchLabel).toBe('Build feed')
   expect(prompt.fields?.map(field => field.name)).toEqual(['seconds', 'ads'])
   expect(prompt.values).toEqual({ seconds: '300', ads: false })
   expect(prepare).not.toHaveBeenCalled()

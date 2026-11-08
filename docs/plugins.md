@@ -438,6 +438,9 @@ saved settings. Parameters may declare `default` and `hidden`; hidden parameters
 remain accepted by CLI calls without appearing in the form. Password defaults
 are rejected and parameter values stay out of public run records.
 
+An optional `launch_label` customizes the launch button (for example, `Build feed`).
+Existing actions default to Start browsing.
+
 `launch_url` on a manual action requires `browser.manage`. Pressing Start browsing
 approves startup, creates a muted blank window using the selected pane's profile,
 and binds the invocation to that new pane. The runner acquires its automation

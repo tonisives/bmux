@@ -2066,7 +2066,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
     {editingProfile && <div className={css.settingsFooter}><button type="button" onClick={backToBrowsing} disabled={busy}>Save</button></div>}
-    {!editingProfile && <><div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button>{!choosingDestination && <button type="submit" disabled={busy || !sharedSettings && usesIncludedAI(values) && !!access.problem}>{busy ? sharedSettings ? 'Applying…' : 'Starting…' : sharedSettings ? 'Apply all' : request.launch ? 'Start browsing' : 'Run action'}</button>}</div>{choosingDestination && <PluginBrowsingDestination busy={busy} />}</>}
+    {!editingProfile && <><div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button>{!choosingDestination && <button type="submit" disabled={busy || !sharedSettings && usesIncludedAI(values) && !!access.problem}>{busy ? sharedSettings ? 'Applying…' : 'Starting…' : sharedSettings ? 'Apply all' : request.launch ? request.launchLabel || 'Start browsing' : 'Run action'}</button>}</div>{choosingDestination && <PluginBrowsingDestination busy={busy} />}</>}
   </form>
 }
 let PluginDialog = () => {
