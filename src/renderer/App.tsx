@@ -1943,10 +1943,9 @@ let PluginParameterInput = ({ item, value, fallback, change, update }: { item: P
       </select> : item.multiline ? <textarea name={item.name} value={String(value ?? '')} onChange={change} maxLength={4000} required={item.required} autoComplete="off" /> : <input name={item.name} type={item.kind === 'password' ? 'password' : 'text'} value={String(value ?? '')} onChange={change} placeholder={item.required ? undefined : fallback === undefined ? 'Use plugin default' : displayPluginParameter(item, fallback)} required={item.required} autoComplete="off" />}</label>}
     </div>
 }
-let PluginBrowsingDestination = ({ value, change, busy }: { value: string; change: (value: string) => void; busy: boolean }) => {
-  let select = (event: ChangeEvent<HTMLSelectElement>) => change(event.target.value)
-  return <label className={css.settingsRow}><span>Browse in</span><select aria-label="Browse in" value={value} onChange={select} disabled={busy}><option value="current">Current pane</option><option value="window">New window</option></select></label>
-}
+let PluginBrowsingDestination = ({ busy }: { busy: boolean }) => <div role="group" aria-label="Where should browsing start?">
+  <p>Where should browsing start?</p><div className={css.settingsFooter}><button type="submit" data-destination="current" autoFocus disabled={busy}>Current pane</button><button type="submit" data-destination="window" disabled={busy}>New window</button></div>
+</div>
 let applySharedSocialSettings = async (request: PluginPrompt, fields: PluginParameter[], values: Record<string, unknown>) => {
   let result = await bridge.command({ method: 'plugin.respond', args: { id: request.id, applyAll: true, value: Object.fromEntries(fields.map(field => [field.name, values[field.name] ?? field.default]).filter(([, value]) => value !== undefined)) } }) as { applied: number }
   return `Applied to ${result.applied} platform configurations`
@@ -1965,8 +1964,7 @@ let BrowseRecordSettings = () => {
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
   let { state, run } = useUI()
   let request = state.pluginPrompt!
-  let [subscription, setSubscription] = useState(false)
-  let [destination, setDestination] = useState('window')
+  let [subscription, setSubscription] = useState(false), [choosingDestination, setChoosingDestination] = useState(false)
   let sharedSettings = request.sharedSettings === true
   let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
   let [values, setValues] = useState<Record<string, unknown>>({ ...request.savedValues, ...request.values, ...(hasSubscription ? { ai_source: request.savedValues?.ai_source ?? 'included' } : {}) }), [busy, setBusy] = useState(false)
@@ -2019,7 +2017,9 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     event.preventDefault()
     if (busy) return
     if (editingProfile) { await flush().catch(() => undefined); return }
-    setBusy(true)
+    let destination = ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.dataset.destination
+    if (request.launch && !sharedSettings && !destination) { setChoosingDestination(true); return }
+    setChoosingDestination(false); setBusy(true)
     try {
       await flush()
       if (sharedSettings) { setSaveStatus(await applySharedSocialSettings(request, fields, values)); return }
@@ -2047,9 +2047,8 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
   if (subscription) return <div className={css.pluginParameters}><h2>BMUX subscription</h2><p>Your remote subscription includes AI browsing.</p><DesktopRemoteAccount view="relay" /></div>
   return <form className={css.pluginParameters} onSubmit={submit}>
     <h2>{editingProfile ? 'Browsing profile' : sharedSettings ? 'Social Media settings' : `${request.pluginName} · ${request.title}`}</h2>
-    <p>{request.launch && !editingProfile && !sharedSettings && destination === 'window' ? `Opens a new muted window using ${profile?.name ?? 'the active profile'}.` : `Profile: ${profile?.name ?? 'active profile'}`}</p>
+    <p>Profile: {profile?.name ?? 'active profile'}</p>
     <div className={css.pluginParameterBody}>
-      {request.launch && !editingProfile && !sharedSettings && <PluginBrowsingDestination value={destination} change={setDestination} busy={busy} />}
       {request.profiles && <PluginConfigurationProfiles profiles={request.profiles} busy={busy} editingProfile={editingProfile} editProfile={editProfile} change={async operation => { setBusy(true); setSaveError(''); try { await flush(); await bridge.command({ method: 'plugin.respond', args: { id: request.id, profile: operation } }) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not update profile') } finally { setBusy(false) } }} />}
       {editingProfile ? <div role="group" aria-label="Profile settings">{profileFields.map(field)}</div> : <>
       {hasSubscription && <PluginSubscription busy={busy} manage={manageSubscription} access={access} idle={values.ai_source === 'included' && !usesIncludedAI(values)}>{sourceFields.map(field)}</PluginSubscription>}
@@ -2059,7 +2058,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
       {editingProfile && saveStatus && <span role="status">{saveStatus}</span>}{saveError && <p role="alert" className={css.error}>{saveError}</p>}
     </div>
     {editingProfile && <div className={css.settingsFooter}><button type="button" onClick={backToBrowsing} disabled={busy}>Save</button></div>}
-    {!editingProfile && <div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button><button type="submit" disabled={busy || !sharedSettings && usesIncludedAI(values) && !!access.problem}>{busy ? sharedSettings ? 'Applying…' : 'Starting…' : sharedSettings ? 'Apply all' : request.launch ? 'Start browsing' : 'Run action'}</button></div>}
+    {!editingProfile && <><div className={css.settingsFooter}><button type="button" onClick={cancel} disabled={busy}>Cancel</button>{!choosingDestination && <button type="submit" disabled={busy || !sharedSettings && usesIncludedAI(values) && !!access.problem}>{busy ? sharedSettings ? 'Applying…' : 'Starting…' : sharedSettings ? 'Apply all' : request.launch ? 'Start browsing' : 'Run action'}</button>}</div>{choosingDestination && <PluginBrowsingDestination busy={busy} />}</>}
   </form>
 }
 let PluginDialog = () => {
