@@ -4457,7 +4457,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let enabled = local && !tabById(model, context.paneId!).session.private && configuration!.browseRecording.enabled
       if (method === 'history.status') return { local, enabled }
       if (!enabled) return { status: 'disabled' }
-      return browseRecorder.store(args.state, args.image, { profileId: context.profileId, session: context.sessionId, runId: context.runId, mode: 'plugin', platform: args.platform })
+      return browseRecorder.store(args.state, args.image, { profileId: context.profileId, session: context.sessionId, runId: context.runId, mode: 'automation', platform: args.platform })
     }, finished: runId => websiteLocks.release(runId), overlayChanged: publishOverlay, decisions: account ? (method, args) => method === 'usage' ? account('/api/ai/usage') : account(method === 'memory' ? '/api/ai/memory' : '/api/ai/decisions', args) : undefined, activity: context => context.paneId ? trackActivity(context.paneId, context.agentId ?? 'plugin', 'plugin.run', context) : undefined, bundledDirectory: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bundled-plugins'), directory: path.join(path.dirname(configuration.path), 'plugins'), cli: path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'bin/bmux.mjs'), dataDirectory, settings: () => configuration!.plugins, changed: () => { publish(); void bookmarkPluginPages?.refreshAll() }, context: pluginContext, interactive: pluginInteractive, selected: pluginSelected, prepare: async (context, title, signal, destination) => {
       signal.throwIfAborted()
       if (!pluginSelected(context) || !context.profileId || !context.sessionId || !context.clientId) throw new Error('Selected profile unavailable')
@@ -4502,13 +4502,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let captureBusy = false, captureCursor = 0
     let captureManualBrowse = async () => {
       if (captureBusy || !configuration?.browseRecording.enabled || !configuration.browseRecording.manual) return
-      let candidates = [...tabs].filter(([id, live]) => !remotePages.has(id) && !live.disposed && live.view.getVisible() && live.parent.isVisible() && !tabById(model, id).session.private)
+      let candidates = [...tabs].filter(([id, live]) => !remotePages.has(id) && !plugins?.browsingPane(id) && !live.disposed && live.view.getVisible() && live.parent.isVisible() && !tabById(model, id).session.private)
       let entry = candidates[captureCursor++ % candidates.length]
       if (!entry) return
       captureBusy = true
       try {
         let [id, live] = entry, { pane, session } = tabById(model, id)
-        await browseRecorder.capture(live.contents, path.join(path.dirname(configuration.path), 'plugins'), { profileId: pane.profileId, session: session.id, mode: 'manual' }, () => configuration!.browseRecording.enabled && configuration!.browseRecording.manual && !live.disposed && live.view.getVisible())
+        await browseRecorder.capture(live.contents, path.join(path.dirname(configuration.path), 'plugins'), { profileId: pane.profileId, session: session.id, mode: 'manual' }, () => configuration!.browseRecording.enabled && configuration!.browseRecording.manual && !live.disposed && live.view.getVisible() && !plugins?.browsingPane(id))
       } finally { captureBusy = false }
     }
     previewTimer = setInterval(() => {

@@ -12,22 +12,22 @@ export let createBrowseRecorder = (options: { directory?: string; mount?: string
   let error: string | undefined, queue = Promise.resolve<unknown>(undefined), seen = new Map<string, string>()
   let store = (state: any, image: any, context: any) => {
     let operation = queue.catch(() => undefined).then(async () => {
-      let platform = context.platform
+      let platform = context.platform, mode = context.mode === 'manual' ? 'manual' : 'automation'
       if (!['x', 'tiktok', 'instagram', 'youtube', 'linkedin', 'threads', 'bluesky', 'mastodon'].includes(platform) || !state?.ok || typeof state.identity !== 'string' || image?.format !== 'jpeg') throw new Error('Invalid social capture')
       let bytes = Buffer.from(image.data, 'base64')
       if (bytes.length > 4 * 1024 * 1024 || bytes[0] !== 255 || bytes[1] !== 216) throw new Error('Invalid capture image')
       if (mount && (await fs.stat(mount)).dev === (await fs.stat(path.dirname(mount))).dev) throw new Error('Recording volume is unavailable')
       let identity = state.postURL || state.identity
       if (platform === 'x') { let id = identity.match(/\/(?:status|article)\/(\d+)/)?.[1]; if (id) identity = 'https://x.com/i/status/' + id }
-      let key = hash(platform + ':' + identity), signature = hash(JSON.stringify([state.historyText || state.text, context.profileId, context.session]))
+      let itemKey = hash(platform + ':' + identity), key = mode + ':' + itemKey, signature = hash(JSON.stringify([state.historyText || state.text, context.profileId, context.session]))
       if (seen.get(key) === signature) return { status: 'unchanged' }
       await fs.mkdir(path.join(root, '.state'), { recursive: true, mode: 0o700 })
       let indexFile = path.join(root, '.state', 'index.json'), index = await read(indexFile, {})
-      let observedAt = new Date().toISOString(), relative = index[key] || path.join('social-media', platform, observedAt.replace(/:/g, '-') + '--' + key)
+      let observedAt = new Date().toISOString(), relative = index[key] || path.join(mode, 'social-media', platform, observedAt.replace(/:/g, '-') + '--' + itemKey)
       let directory = path.join(root, relative), images = path.join(directory, 'images')
       await fs.mkdir(images, { recursive: true, mode: 0o700 })
-      let checksum = hash(bytes), data = await read(path.join(directory, 'post.json'), { version: 1, itemKey: key, observations: [] })
-      let observation = { eventId: randomUUID(), observedAt, origin: 'local', platform, ...context, identity: state.identity, url: state.postURL || null, author: state.author || state.creator || null, publishedAt: state.publishedAt || null, text: state.historyText || state.text || '', sponsored: !!state.sponsored, engagement: state.engagement || [], contentType: state.contentType, context: state.context || null, xPost: state.xPost || null, image: { path: `images/${checksum}.jpg`, sha256: checksum } }
+      let checksum = hash(bytes), data = await read(path.join(directory, 'post.json'), { version: 1, itemKey, observations: [] })
+      let observation = { eventId: randomUUID(), observedAt, origin: 'local', platform, ...context, mode, identity: state.identity, url: state.postURL || null, author: state.author || state.creator || null, publishedAt: state.publishedAt || null, text: state.historyText || state.text || '', sponsored: !!state.sponsored, engagement: state.engagement || [], contentType: state.contentType, context: state.context || null, xPost: state.xPost || null, image: { path: `images/${checksum}.jpg`, sha256: checksum } }
       let accounts = options.directory ? {} : await read(path.join(process.env.HOME || '', '.local/state/browser-simulations/browse-history.json'), {})
       let account = accounts.profiles?.[context.profileId]
       if (account) Object.assign(observation, { account: { id: account.id, name: account.name, profileId: context.profileId } })
@@ -39,7 +39,7 @@ export let createBrowseRecorder = (options: { directory?: string; mount?: string
       index[key] = relative; await write(indexFile, JSON.stringify(index, null, 2) + '\n')
       seen.set(key, signature); if (seen.size > 10000) seen.delete(seen.keys().next().value!)
       error = undefined
-      return { status: 'stored', itemKey: key }
+      return { status: 'stored', itemKey }
     })
     queue = operation
     return operation.catch(failure => { error = failure.message; throw failure })

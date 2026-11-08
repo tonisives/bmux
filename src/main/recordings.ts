@@ -104,7 +104,7 @@ export let createRecordings = (directory: string, runtime: ReturnType<typeof cre
     if(!options.pane)throw new Error('Select a pane to record')
     if([...records.values()].filter(record=>!record.finishedAt).length>=4)throw new Error('Four recordings are already active')
     let base=recordingDirectory(options.output)
-    if (!options.output && base.startsWith('/Volumes/sam/')) base=path.join(base, options.host ? 'remote' : 'local', 'recordings')
+    if (!options.output && base.startsWith('/Volumes/sam/')) base=path.join(base, options.host ? 'remote' : 'local', ...(!options.host ? [options.episode || options.agentId ? 'automation' : 'manual'] : []), 'recordings')
     let destination=path.join(base,new Date().toISOString().slice(0,10),id);fs.mkdirSync(destination,{recursive:true,mode:0o700})
     let record:Recording={id,options,startedAt:Date.now(),state:'starting',directory:destination,clips:[]};records.set(id,record)
     record.timer=setTimeout(()=>stop(id),35*60*1000);save()

@@ -94,6 +94,8 @@ upload or calendar recording schedule.
 
 ## Local social content
 
-Social Media settings includes Record browsing and Include manual browsing. Both default to enabled and apply across local profiles and platforms. Private sessions are excluded. Local post screenshots, readable Markdown and structured observations are saved under `/Volumes/sam/app-support/bmux/browse-history/local/social-media`. The shared browser-simulations installer provides the platform extraction scripts. Manual capture samples visible panes in the background without interacting with the page.
+Social Media settings includes Record browsing and Include manual browsing. Both default to enabled and apply across local profiles and platforms. Private sessions are excluded. Local post screenshots, readable Markdown and structured observations are saved under `/Volumes/sam/app-support/bmux/browse-history/local/{automation,manual}/social-media`. The shared browser-simulations installer provides the platform extraction scripts. Manual capture samples visible panes in the background without interacting with the page.
 
-On this Mac, session videos default to `/Volumes/sam/app-support/bmux/browse-history/{local,remote}/recordings`, based on the recorded host. Explicit output paths remain supported.
+On this Mac, session videos default to `/Volumes/sam/app-support/bmux/browse-history/remote/recordings` or `/Volumes/sam/app-support/bmux/browse-history/local/{automation,manual}/recordings`, based on the recorded host. Explicit output paths remain supported.
+
+Plugin browsing uses automation folders. Passive manual capture pauses while a social plugin is running in that pane. The shared local index covers both origins, with separate post folders even when the same post appears in both.
