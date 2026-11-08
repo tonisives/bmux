@@ -136,7 +136,8 @@ let NextPostButton = () => {
 let DecisionBody = () => {
   let { overlay, setting } = useOverlay(), [popup, setPopup] = useState<'settings' | 'usage'>()
   let post = overlay.content.nodes[0], decision = overlay.content.decision!
-  let awaitingStart = overlay.content.controls.some(control => control.id === 'continue' && /^Start/.test(control.label))
+  let startLabel = overlay.content.controls.find(control => control.id === 'continue')?.label
+  let awaitingStart = !!startLabel && /^(Start|Build feed)/.test(startLabel)
   let popupRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (setting) setPopup('settings') }, [setting])
   useEffect(() => {
@@ -151,7 +152,7 @@ let DecisionBody = () => {
   let usage = () => setPopup(current => current === 'usage' ? undefined : 'usage')
   let close = () => setPopup(undefined)
   let keys = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); close() } }
-  if (awaitingStart) return <div className={css.body}><h2>Ready to start</h2><p role="status">Choose the start action to begin, or enable auto continue.</p><p>{overlay.content.subtitle}</p></div>
+  if (awaitingStart) return <div className={css.body}><h2>{startLabel === 'Build feed' ? 'Ready to build feed' : 'Ready to browse'}</h2><p role="status">Choose {startLabel} to review each action, or Start with auto continue.</p><p>{overlay.content.subtitle}</p></div>
   return <>
     <div className={css.body}>
       <p className={css.status}>{overlay.content.status}</p><section className={css.postExcerpt}><h2>{post?.title || 'Post'}</h2><p title={post?.lines.join(' ')}>{post?.lines.join(' ').slice(0, 240) || 'Waiting for a post'}</p></section>
