@@ -3,7 +3,8 @@ RUN corepack enable
 WORKDIR /opt/bmux
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
-RUN pnpm install --frozen-lockfile && node node_modules/electron/install.js
+COPY scripts/install-electron.mjs ./scripts/install-electron.mjs
+RUN pnpm install --frozen-lockfile && node scripts/install-electron.mjs
 COPY . .
 RUN pnpm build && pnpm remote:build
 
@@ -26,7 +27,7 @@ USER node
 ENTRYPOINT ["tini", "--", "xvfb-run", "-a", "-s", "-screen 0 1280x900x24 -nolisten tcp", "sh", "scripts/linux-test-desktop.sh"]
 
 FROM build AS packaged
-RUN pnpm exec electron-builder --linux --dir --publish never && node scripts/stage-linux.mjs
+RUN pnpm exec electron-builder --linux --dir --publish never --config.electronDist=node_modules/electron/dist && node scripts/stage-linux.mjs
 
 FROM build AS service-build
 RUN pnpm exec esbuild remote/server.ts --bundle --packages=external --platform=node --format=esm --outfile=remote/server.mjs && pnpm prune --prod
