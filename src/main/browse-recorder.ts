@@ -28,7 +28,7 @@ export let createBrowseRecorder = (options: { directory?: string; mount?: string
       let directory = path.join(root, relative), images = path.join(directory, 'images')
       await fs.mkdir(images, { recursive: true, mode: 0o700 })
       let checksum = hash(bytes), data = await read(path.join(directory, 'post.json'), { version: 1, itemKey, observations: [] })
-      let observation = { eventId: randomUUID(), observedAt, origin: 'local', platform, ...context, mode, identity: state.identity, url: state.postURL || null, author: state.author || state.creator || null, publishedAt: state.publishedAt || null, text: state.historyText || state.text || '', sponsored: !!state.sponsored, engagement: state.engagement || [], contentType: state.contentType, context: state.context || null, xPost: state.xPost || null, image: { path: `images/${checksum}.jpg`, sha256: checksum } }
+      let observation = { eventId: randomUUID(), observedAt, origin: 'local', platform, ...context, mode, identity: state.identity, url: state.postURL || null, author: state.author || state.creator || null, publishedAt: state.publishedAt || null, text: state.historyText || state.text || '', sponsored: !!state.sponsored, engagement: state.engagement || [], contentType: state.contentType, context: state.context || null, xPost: state.xPost || null, image: { path: `images/${checksum}.jpg`, sha256: checksum, postOnly: image.postOnly === true, width: image.width, height: image.height, clip: image.clip, viewport: image.viewport } }
       let accounts = options.directory ? {} : await read(path.join(process.env.HOME || '', '.local/state/browser-simulations/browse-history.json'), {})
       let account = accounts.profiles?.[context.profileId]
       if (account) Object.assign(observation, { account: { id: account.id, name: account.name, profileId: context.profileId } })
@@ -57,7 +57,7 @@ export let createBrowseRecorder = (options: { directory?: string; mount?: string
         let image = await captureViewportScreenshot(contents, { clip: before.cardRect, viewport: before.viewport, format: 'jpeg', quality: 85, maxDimension: 1024 })
         let after = await contents.executeJavaScript(contribution.expression)
         if (!enabled() || before.identity !== after.identity || before.text !== after.text || JSON.stringify(before.cardRect) !== JSON.stringify(after.cardRect) || JSON.stringify(before.viewport) !== JSON.stringify(after.viewport)) return
-        await store(after, { format: 'jpeg', data: image.data.toString('base64') }, { ...context, platform })
+        await store(after, { ...image, data: image.data.toString('base64') }, { ...context, platform })
         return
       }
     } catch (failure) { error = (failure as Error).message }

@@ -22,5 +22,5 @@ export let captureViewportScreenshot = async (contents: Pick<WebContents, 'captu
   }
   let size = frame.getSize(), scale = typeof maximum === 'number' ? Math.min(1, maximum / Math.max(size.width, size.height)) : 1
   if (scale < 1) frame = frame.resize({ width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)), quality: 'best' })
-  return { data: format === 'jpeg' ? frame.toJPEG(quality) : frame.toPNG(), format }
+  return { data: format === 'jpeg' ? frame.toJPEG(quality) : frame.toPNG(), format, postOnly: options.clip !== undefined, clip: options.clip, viewport: options.viewport, ...frame.getSize() }
 }
