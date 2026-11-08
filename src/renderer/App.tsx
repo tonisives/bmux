@@ -135,9 +135,7 @@ export let App = () => {
     setPanelHistory(history => isPanel(parent.control) && isPanel(control) && parent.control !== control ? [...history, parent] : [])
     setBookmarkDestination(control === 'bookmark' ? destination ?? null : null); setMessage(''); setControl(control)
   }, [accept, run])
-  let revealPage = useCallback(() => {
-    setPanelHistory([]); setControl(null); setHistoryPopup(null); setMessage('')
-  }, [])
+  let revealPage = useCallback(() => { setPanelHistory([]); setControl(null); setHistoryPopup(null); setMessage('') }, [])
   let dismiss = useCallback(() => {
     if (state?.pluginPrompt) return dismissPluginPrompt(state.pluginPrompt)
     revealPage()
@@ -1964,9 +1962,16 @@ let BrowseRecordSettings = () => {
     {recording.error && <p role="alert">{recording.error}</p>}
   </details>
 }
+let usePluginFormResponse = (request: PluginPrompt) => {
+  let { run, revealPage } = useUI()
+  return async (value: Record<string, unknown>, destination?: string) => {
+    let response = await run('plugin.respond', { id: request.id, value, destination })
+    if (request.launch && response !== undefined) revealPage()
+  }
+}
 let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile: boolean; setEditingProfile: (editing: boolean) => void }) => {
-  let { state, run, revealPage } = useUI()
-  let request = state.pluginPrompt!
+  let { state, run } = useUI()
+  let request = state.pluginPrompt!, respond = usePluginFormResponse(request)
   let [subscription, setSubscription] = useState(false), [choosingDestination, setChoosingDestination] = useState(false)
   let sharedSettings = request.sharedSettings === true
   let hasSubscription = request.fields?.some(item => item.choices?.includes('included'))
@@ -2026,10 +2031,7 @@ let PluginParameters = ({ editingProfile, setEditingProfile }: { editingProfile:
     try {
       await flush()
       if (sharedSettings) { setSaveStatus(await applySharedSocialSettings(request, fields, values)); return }
-      if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } }
-      let response = await run('plugin.respond', { id: request.id, value: values, destination })
-      if (request.launch && response !== undefined) revealPage()
-    } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not save settings') } finally { setBusy(false) }
+      if (usesIncludedAI(values)) { let problem = await access.check(); if (problem) { setSaveError(problem); return } } await respond(values, destination) } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not save settings') } finally { setBusy(false) }
   }
   let cancel = async () => {
     if (busy) return
