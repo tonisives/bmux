@@ -52,7 +52,7 @@ export let smoothAgentScroll = async (send: Send, params: Record<string, unknown
   if (state === true || state?.reducedMotion) return finish(await command('Input.dispatchMouseEvent', wheel))
   let distance = Math.hypot(deltaX, deltaY)
   let vary = (minimum: number, maximum: number) => settings.randomize ? minimum + Math.random() * (maximum - minimum) : (minimum + maximum) / 2
-  let duration = Math.min(1200, (280 + Math.sqrt(distance) * 18) * vary(.72, 1.28))
+  let duration = Math.min(650, (40 + Math.sqrt(distance) * 10) * vary(.85, 1.15))
   let overshoot = settings.randomize && settings.overshoot && distance >= 80 && Math.random() < .3 ? Math.min(64, distance * vary(.04, .12)) / distance : 0
   // Leave enough room for the correction, including inside nested scroll containers.
   for (let [delta, room] of [[deltaX, state?.roomX], [deltaY, state?.roomY]]) {
@@ -60,7 +60,7 @@ export let smoothAgentScroll = async (send: Send, params: Record<string, unknown
   }
   let sentX = 0, sentY = 0, result
   let move = async (targetX: number, targetY: number, milliseconds: number) => {
-    let frames = Math.max(8, Math.min(32, Math.round(milliseconds / 32))), exponent = vary(.9, 1.5)
+    let frames = Math.max(3, Math.min(40, Math.round(milliseconds / 16))), exponent = vary(.9, 1.5)
     let weights = Array.from({ length: frames }, (_, index) => Math.pow(Math.sin(Math.PI * (index + .5) / frames), exponent) * vary(.94, 1.06))
     let total = weights.reduce((sum, weight) => sum + weight, 0), traversed = 0, startX = sentX, startY = sentY, start = Date.now(), previous = -1
     for (let index = 0; index < frames;) {
@@ -77,8 +77,8 @@ export let smoothAgentScroll = async (send: Send, params: Record<string, unknown
   }
   await move(deltaX + Math.round(deltaX * overshoot), deltaY + Math.round(deltaY * overshoot), duration)
   if (overshoot) {
-    await pause(vary(40, 100))
-    await move(deltaX, deltaY, vary(140, 240))
+    await pause(vary(20, 40))
+    await move(deltaX, deltaY, Math.min(160, 40 + Math.sqrt(distance * overshoot) * 10))
   }
   return finish(result)
 }

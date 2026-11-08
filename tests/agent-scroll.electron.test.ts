@@ -150,3 +150,58 @@ test('agent wheel scrolling reaches a nested feed in a scaled locked viewport', 
     await fs.rm(directory, { recursive: true, force: true })
   }
 })
+
+test('keyboard scrolls bypass page wheel handlers and accumulate repeated keys', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-keyboard-scroll-'))
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/html' })
+    response.end(`<!doctype html><title>Keyboard scrolling</title><style>body{margin:0;min-height:6000px;overflow:auto}main{height:400px;overflow:hidden}#nested{display:none;position:fixed;inset:0;overflow:auto}#nested div{height:6000px}</style><main>Page content</main><section id="nested"><div>Nested content</div></section><script>window.positions=[];window.wheels=0;addEventListener('scroll',()=>positions.push(scrollY));addEventListener('wheel',e=>{window.wheels++;e.preventDefault()},{passive:false});</script>`)
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  let url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`
+  try {
+    let shortcut = (action: string) => ({ action, when: 'pane-not-editing' })
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ vimEditing: false, browser: { adblock: false, autoUpdateFilters: false }, scrolling: { enabled: true, randomize: false, overshoot: false }, keyboard: { shortcuts: { j: shortcut('scroll-down'), k: shortcut('scroll-up'), 'Ctrl+D': shortcut('scroll-half-down'), 'Ctrl+U': shortcut('scroll-half-up') } }, automation: { safety: { enabled: false } } }))
+    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html')), { timeout: 15000 }).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    let rpc = (method: string, args: Record<string, unknown> = {}) => chrome.evaluate(({ method, args }) => (window as any).bmux.command({ method, args }), { method, args })
+    let state = await chrome.evaluate(() => (window as any).bmux.state()), client = state.model.clients.find((item: any) => item.id === state.clientId), pane = client.paneId
+    await rpc('navigate', { pane, url }); await rpc('wait', { pane, selector: 'main' })
+    let page = application.context().pages().find(page => page.url() === url)!
+    await rpc('activate-client', { client: client.id })
+    await rpc('focus-page', { client: client.id })
+    await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+    await expect.poll(() => page.evaluate(() => document.readyState)).toBe('complete')
+    let key = (keyCode: string, count = 1, control = false) => application!.evaluate(({ webContents }, { keyCode, count, control }) => {
+      let contents = webContents.getFocusedWebContents()!
+      for (let index = 0; index < count; index++) contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: [...(control ? ['control'] : []), ...(index ? ['isautorepeat'] : [])] as Electron.KeyboardInputEvent['modifiers'] })
+      contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: control ? ['control'] : [] })
+    }, { keyCode, count, control })
+    await key('j')
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(100)
+    expect(await page.evaluate(() => (window as any).positions.length)).toBeGreaterThan(1)
+    await key('j', 4)
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(500)
+    await key('k')
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(400)
+    let half = await page.evaluate(() => innerHeight / 2)
+    await key('d', 1, true)
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeCloseTo(400 + half, 0)
+    await key('u', 1, true)
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeCloseTo(400, 0)
+    expect(await page.evaluate(() => (window as any).wheels)).toBe(0)
+    await page.evaluate(() => { document.querySelector<HTMLElement>('#nested')!.style.display = 'block' })
+    await key('j')
+    await expect.poll(() => page.evaluate(() => document.querySelector('#nested')!.scrollTop)).toBe(100)
+    expect(await page.evaluate(() => scrollY)).toBe(400)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await key('j')
+    await expect.poll(() => page.evaluate(() => document.querySelector('#nested')!.scrollTop)).toBe(200)
+  } finally {
+    await closeTestApplication(application)
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+})
