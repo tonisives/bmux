@@ -248,7 +248,7 @@ export let createPlugins = (options: Options) => {
     let policyCall = <T>(operation: () => T): T => { try { return operation() } catch (error) { run.policyError = error instanceof Error ? error.message : 'Automation policy failed'; throw error } }
       if (method === 'context') {
       if (args.refresh === true) run.context = { ...options.context(run.context), ...(run.context.launchApproved ? { launchApproved: true, launchUrl: run.context.launchUrl } : {}) }
-      return { ...run.context, scrolling: options.context(run.context).scrolling, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
+      return { ...run.context, browseRecording: await options.browseHistory?.(run.context, 'history.status', {}), scrolling: options.context(run.context).scrolling, interactive: run.interactive && options.interactive(run.context), runId: run.public.id, pluginId: run.public.pluginId, actionId: run.public.actionId, parameters: run.parameters }
     }
     if (method === 'overlay.update' || method === 'overlay.events') {
       if (!run.action.capabilities.includes('ui') || run.public.hook || !run.context.paneId) throw new Error('Manual ui capability required for overlay')
