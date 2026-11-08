@@ -69,11 +69,16 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
       let selected = !overlay.bounds.collapsed && tab.id === overlay.selectedTab
       return <div key={tab.id} className={appCss.panelTab} role="presentation" data-selected={selected || undefined}>
         <button role="tab" aria-label={tab.title} aria-selected={selected} aria-controls="pane-panel" tabIndex={tab.id === overlay.selectedTab ? 0 : -1} title={tab.title} data-tab={tab.id} onClick={select}><PanelIcon icon={tab.icon} />{selected && <strong>{tab.title}</strong>}</button>
-        {selected && !['agent','viewport'].includes(tab.id) && <button className={css.tabClose} aria-label={`Close ${tab.title} tab`} title={`Close ${tab.title} tab`} onClick={() => void command('plugin.overlay.close', { id: tab.id })}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button>}
+        {selected && !['agent','viewport'].includes(tab.id) && <DismissTab tab={tab} />}
       </div>
     })}</nav>
     {!overlay.bounds.collapsed && <nav aria-label="Overlay controls"><button aria-label="Minimize page overlay" title="Minimize page overlay" onClick={minimize}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg></button></nav>}
   </header>
+}
+let DismissTab = ({ tab }: { tab: PaneOverlayTab }) => {
+  let { command } = useOverlay()
+  let close = () => void command('plugin.overlay.close', { id: tab.id })
+  return <button className={css.tabClose} aria-label={`Close ${tab.title} tab`} title={`Close ${tab.title} tab`} onClick={close}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2 2 8 8m0-8-8 8" /></svg></button>
 }
 let PanelIcon = ({ icon }: { icon: PaneOverlayTab['icon'] }) => icon === 'accounts' ? <img src={bmuxIcon} width="16" height="16" alt="" /> : <svg viewBox="0 0 20 20" aria-hidden="true">{icon === 'agent' ? <><rect x="3" y="6" width="14" height="11" rx="2" /><path d="M10 2v4M7 10v2m6-2v2M7 15h6" /></> : icon === 'viewport' ? <><rect x="2" y="3" width="16" height="14" rx="1" /><path d="M7 3v14M2 8h16" /></> : icon === 'search' ? <><circle cx="8" cy="8" r="5" /><path d="m12 12 5 5" /></> : icon === 'chart' ? <path d="M3 3v14h14M6 13V9m4 4V5m4 8V7" /> : <path d="M3 4h5V2h4v2h5v5h-2v4h2v4H3v-4h2V9H3Z" />}</svg>
 let AgentPanel = () => {
