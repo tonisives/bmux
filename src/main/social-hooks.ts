@@ -97,7 +97,7 @@ export let createSocialHooks = (options: Options) => {
       try {
         let headers: Record<string,string> = {'content-type':'application/json','idempotency-key':job.id}
         if (config.auth !== 'none') { if (!config.secret) throw new Error('Missing credentials'); let secret = options.decrypt(Buffer.from(config.secret,'base64')); headers[config.auth === 'bearer' ? 'authorization' : config.header] = config.auth === 'bearer' ? 'Bearer '+secret : secret }
-        let response = await (options.fetcher ?? fetch)(config.url,{method:'POST',headers,body:JSON.stringify(config.format === 'tweettrace' ? {tweets:job.posts} : {version:1,platform:job.plugin.slice(5),posts:job.posts}),redirect:'error',signal:AbortSignal.timeout(10000)})
+        let response = await (options.fetcher ?? fetch)(config.url,{method:'POST',headers,body:JSON.stringify(config.format === 'tweettrace' ? {tweets:job.posts} : {version:1,platform:job.plugin.slice(5),posts:job.posts.map(post => ({...post,id:post.id ?? post.tweet_id ?? post.url,author:post.author ?? (post.handle ? {handle:post.handle,name:post.author_name ?? null} : null),publishedAt:post.publishedAt ?? post.posted_at ?? null,engagement:post.engagement ?? (post.tweet_id ? {likes:post.likes,retweets:post.retweets,replies:post.replies,views:post.views} : null)}))}),redirect:'error',signal:AbortSignal.timeout(10000)})
         if (!response.ok) throw Object.assign(new Error('HTTP '+response.status),{permanent:response.status < 500 && response.status !== 429,retry:response.headers.get('retry-after')})
         let result = await response.json().catch(() => ({}))
         data.counts[key(job.plugin,job.profile)] = (data.counts[key(job.plugin,job.profile)] ?? 0)+job.posts.length
