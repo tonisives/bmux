@@ -203,3 +203,10 @@ test('small scrolls finish promptly and larger distances retain a longer animati
     expect(durations[1]).toBeLessThan(durations[2])
   } finally { vi.useRealTimers() }
 })
+
+for (let zoom of [.5, .8, 1.5]) test(`page zoom ${zoom} converts wheel distances while preserving CSS hit testing`, async () => {
+  let calls: {method:string;params:Record<string,unknown>}[] = []
+  await smoothAgentScroll(async (method, params) => { calls.push({ method, params }); return {} },
+    { x: 400, y: 300, deltaX: -40, deltaY: 500 }, { enabled: false, randomize: false, overshoot: false }, zoom, { wheelScale: zoom })
+  expect(calls[0]).toMatchObject({ method: 'Input.dispatchMouseEvent', params: { x: 400 * zoom, y: 300 * zoom, deltaX: -40 * zoom, deltaY: 500 * zoom } })
+})

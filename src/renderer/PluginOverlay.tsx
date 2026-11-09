@@ -77,7 +77,7 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
 let OverlayZoom = () => {
   let { overlay, command } = useOverlay()
   let zoom = (direction: number) => void command('pane.overlay.zoom', { zoom: Math.max(.5, Math.min(2, Math.round((overlay.zoom + direction * .05) * 100) / 100)) })
-  return <nav aria-label="Overlay zoom"><button aria-label="Zoom out overlay" title="Zoom out overlay" disabled={overlay.zoom <= .5} onClick={() => zoom(-1)}>−</button><button aria-label="Zoom in overlay" title="Zoom in overlay" disabled={overlay.zoom >= 2} onClick={() => zoom(1)}>+</button></nav>
+  return <nav className={css.overlayZoom} aria-label="Overlay zoom"><button aria-label="Zoom out overlay" title="Zoom out overlay" disabled={overlay.zoom <= .5} onClick={() => zoom(-1)}>−</button><button aria-label="Zoom in overlay" title="Zoom in overlay" disabled={overlay.zoom >= 2} onClick={() => zoom(1)}>+</button></nav>
 }
 let DismissTab = ({ tab }: { tab: PaneOverlayTab }) => {
   let { command } = useOverlay()
@@ -130,7 +130,12 @@ let CompactAction = ({ concise = false }: { concise?: boolean }) => {
   let { overlay, input, busy } = useOverlay(), summary = pluginOverlaySummary(overlay.content)
   let control = overlay.content.controls.find(control => control.kind === 'button' && ['pause', 'resume', 'start'].includes(control.id))
   let click = () => { if (control) void input(control.id) }
-  return <><span role="status" className={css.compactAction} title={summary.action}>{concise ? summary.action.replace(/^Watching: (\d+)s remaining$/, 'Watch $1s').replace('Moving to next post', 'Next post').replace('Checking creator profile', 'Creator profile') : summary.action}</span>{!overlay.ended && control && <button aria-label={control.label} title={control.label} disabled={busy || control.disabled} onClick={click}><svg viewBox="0 0 12 12" aria-hidden="true">{control.id === 'pause' ? <path d="M4 2v8M8 2v8" /> : <path d="m4 2 5 4-5 4Z" />}</svg></button>}{concise && <NextPostButton />}</>
+  return <><span role="status" className={css.compactAction} title={summary.action}>{concise ? summary.action.replace(/^Watching: (\d+)s remaining$/, 'Watch $1s').replace('Moving to next post', 'Next post').replace('Checking creator profile', 'Creator profile') : summary.action}</span>{!overlay.ended && control && <button aria-label={control.label} title={control.label} disabled={busy || control.disabled} onClick={click}><svg viewBox="0 0 12 12" aria-hidden="true">{control.id === 'pause' ? <path d="M4 2v8M8 2v8" /> : <path d="m4 2 5 4-5 4Z" />}</svg></button>}{!overlay.ended && control?.id === 'resume' && <StopSessionButton />}{concise && <NextPostButton />}</>
+}
+let StopSessionButton = () => {
+  let { overlay, command } = useOverlay()
+  let stop = () => void command('plugin.cancel', { id: overlay.runId })
+  return <button aria-label="Stop session" title="Stop session" onClick={stop}><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="3" y="3" width="6" height="6" /></svg></button>
 }
 let NextPostButton = () => {
   let { overlay, input, busy } = useOverlay(), control = overlay.content.controls.find(control => control.id === 'next' && control.kind === 'button')

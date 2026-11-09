@@ -124,3 +124,7 @@
 .body > button[aria-label="Pan viewport"] { width: 32px; height: 32px; overflow: hidden; font-size: 0; border: 1px solid #666; }
 
 .body > button[aria-pressed="true"] { background: #c2ceb9; color: #111318; }
+
+.panel header .overlayZoom { gap: 0; }
+.panel header .overlayZoom button { min-width: 20px; }
+.actionLine { grid-template-columns: repeat(3, 40px) 1fr; }

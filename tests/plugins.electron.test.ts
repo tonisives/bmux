@@ -76,7 +76,7 @@ if (action === 'pick') {
   if(inputs.some(input=>input.id==='fail')){content={...content,error:{title:'BMUX rejected the AI query',message:'Use up to eight bounded questions. No OpenAI request was sent.',diagnostic:'Stage: request · HTTP 400 · req-fixture',controls:['resume','settings','finish']},controls:[{id:'resume',label:'Resume session',kind:'button'},{id:'finish',label:'Finish fixture',kind:'button'},{id:'ads',label:'Skip ads',kind:'toggle',value:false},{id:'settings',label:'AI settings',kind:'button',setting:'ads'}]};host('overlay.update',content)}
   for(let input of inputs)if(['start','continue','auto','pause','resume'].includes(input.id)){
    delete content.error;
-   let paused=input.id==='pause';content={...content,status:paused?'Paused':'Browsing',controls:[{id:paused?'resume':'pause',label:paused?'Resume session':'Pause session',kind:'button'},{id:'finish',label:'Finish fixture',kind:'button'},{id:'next',label:'Show next post',kind:'button'}]};host('overlay.update',content)
+   let paused=input.id==='pause';content={...content,status:paused?'Paused':'Browsing',controls:[{id:paused?'resume':'pause',label:paused?'Resume session':'Pause session',kind:'button'},{id:'finish',label:'Finish fixture',kind:'button'},{id:'stop',label:'Stop session',kind:'button'},{id:'next',label:'Show next post',kind:'button'}]};host('overlay.update',content)
   }
   await new Promise(resolve=>setTimeout(resolve,100))
  }
@@ -845,6 +845,7 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   let actions = panel.getByRole('group', { name: 'Agent playback actions', exact: true })
   await actions.getByRole('button', { name: 'Pause session', exact: true }).click()
   await expect.poll(async () => (await state()).pluginOverlay.content.status).toBe('Paused')
+  await expect(observer.getByRole('button', { name: 'Stop session', exact: true })).toBeVisible()
   await playback.click()
   await actions.getByRole('button', { name: 'Resume session', exact: true }).click()
   await expect.poll(async () => (await state()).pluginOverlay.content.status).toBe('Browsing')
@@ -854,8 +855,10 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   await chrome.keyboard.press('Escape')
   await rpc('plugin.overlay.show', { id })
   await observer.getByRole('button', { name: 'Settings', exact: true }).click()
-  await settings.getByRole('button', { name: 'Finish fixture', exact: true }).click()
-  await completed(id)
+  await settings.getByRole('button', { name: 'Close popup', exact: true }).click()
+  await observer.getByRole('button', { name: 'Pause session', exact: true }).click()
+  await observer.getByRole('button', { name: 'Stop session', exact: true }).click()
+  await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.id === id).status).toBe('cancelled')
 })
 
 
@@ -1101,7 +1104,7 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
     await expect(observer.getByRole('tab', { name: 'Feed training', exact: true })).toBeVisible()
     await expect(observer.getByRole('tab', { name: 'Agent control', exact: true })).toBeVisible()
     expect((await overlayState()).bounds.collapsed).toBe(true)
-    expect((await rpc('plugin.runs')).find((run: any) => run.id === second).status).toBe('running')
+    expect((await rpc('plugin.runs')).find((run: any) => run.id === second).status).toBe('cancelled')
     expect((await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(pane)
   } finally {
     await rpc('plugin.cancel', { id: first })

@@ -976,7 +976,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-    let inputScale = live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : 1)
+    let inputScale = live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : live.contents.getZoomFactor())
     let sendInput = (method: string, values: Record<string, unknown>) => debuggerApi.sendCommand(method, method === 'Input.dispatchMouseEvent' ? { ...values, x: Number(values.x) * inputScale, y: Number(values.y) * inputScale } : values, sessionId)
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && (params.type === 'mousePressed' || params.type === 'mouseMoved' && !params.buttons && (!params.button || params.button === 'none'))) {
       let { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
@@ -999,7 +999,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
         checkControl('cdp', { tab: tabId })
         return debuggerApi.sendCommand(method, params, sessionId)
-      }, params, settings, inputScale, { signal: pluginCommand.getStore()?.signal })
+      }, params, settings, inputScale, { signal: pluginCommand.getStore()?.signal, wheelScale: live.contents.getZoomFactor() })
     }
     let navigationActor = automatedMouse && method === 'Page.navigate' && !sessionId ? trackAutomatedNavigation(tabId) : undefined
     let result
@@ -1074,7 +1074,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     try {
       let metrics = await send('Runtime.evaluate', { expression: '({width:innerWidth,height:innerHeight,y:scrollY,heightFull:document.scrollingElement?.scrollHeight ?? innerHeight})', returnByValue: true })
       let { width, height, y, heightFull } = metrics.result.value
-      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING, live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : 1), { signal: controller.signal })
+      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING, live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : live.contents.getZoomFactor()), { signal: controller.signal, wheelScale: live.contents.getZoomFactor() })
     } catch (error) { if (!controller.signal.aborted) throw error }
     finally { if (scrollControllers.get(tabId) === controller) scrollControllers.delete(tabId) }
   }
@@ -3313,6 +3313,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let current = paneId ? overlayForClient(sourceClientId, paneId) : undefined, owner = clients.get(sourceClientId)
       if (!current || !current.tabs.some(tab => tab.id === args.id) || !owner) throw new Error('Page overlay is no longer visible')
       if (method === 'plugin.overlay.close') {
+        plugins?.cancel(String(args.id))
         dismissedPluginOverlays.add(sourceClientId + ':' + args.id)
         let key = sourceClientId + ':' + current.paneId, preferred = pluginOverlayBounds.get(key)!
         pluginOverlayBounds.set(key, { ...preferred, collapsed: true, compact: false })

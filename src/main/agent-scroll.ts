@@ -5,7 +5,7 @@ type Send = (method: string, params: Record<string, unknown>) => Promise<any>
 
 export class AgentScrollError extends Error {}
 
-type ScrollOptions = { signal?: AbortSignal; timeoutMs?: number; commandTimeoutMs?: number }
+type ScrollOptions = { signal?: AbortSignal; timeoutMs?: number; commandTimeoutMs?: number; wheelScale?: number }
 export let smoothAgentScroll = async (send: Send, params: Record<string, unknown>, settings: ScrollingSettings = DEFAULT_SCROLLING, inputScale = 1, options: ScrollOptions = {}) => {
   let started = Date.now(), deadline = started + (options.timeoutMs ?? 5000), events = 0, cdpMs = 0, maxEventMs = 0
   let bounded = <T>(operation: () => Promise<T>, method: string, limit: number): Promise<T> => new Promise((resolve, reject) => {
@@ -21,7 +21,8 @@ export let smoothAgentScroll = async (send: Send, params: Record<string, unknown
   })
   let command: Send = async (method, params) => {
     let at = Date.now()
-    let result = await bounded(() => send(method, params), method, options.commandTimeoutMs ?? 2000)
+    let nativeParams = method === 'Input.dispatchMouseEvent' ? { ...params, deltaX: Number(params.deltaX ?? 0) * (options.wheelScale ?? 1), deltaY: Number(params.deltaY ?? 0) * (options.wheelScale ?? 1) } : params
+    let result = await bounded(() => send(method, nativeParams), method, options.commandTimeoutMs ?? 2000)
     let elapsed = Date.now() - at
     cdpMs += elapsed
     if (method === 'Input.dispatchMouseEvent') { events++; maxEventMs = Math.max(maxEventMs, elapsed) }

@@ -144,6 +144,15 @@ test('agent wheel scrolling reaches a nested feed in a scaled locked viewport', 
     let click = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'click', JSON.stringify({ pane, selector: '#comments' })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'scaled-scroll-agent' }, timeout: 20000 })
     expect(JSON.parse(click.stdout).ok).toBe(true)
     await expect.poll(() => page.evaluate(() => (window as any).clicks)).toBe(1)
+    await rpc('unlock-viewport', { window: client.windowId })
+    for (let factor of [.5, .8, 1.5]) {
+      await rpc('zoom', { pane, factor })
+      await page.evaluate(() => { document.querySelector('main')!.scrollTop = 0 })
+      let point = await page.evaluate(() => ({ x: innerWidth / 2, y: innerHeight / 2 }))
+      let scroll = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'cdp', JSON.stringify({ pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', ...point, deltaY: 300 }, scrolling: { enabled: false } })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'scaled-scroll-agent' }, timeout: 20000 })
+      expect(JSON.parse(scroll.stdout).ok).toBe(true)
+      await expect.poll(() => page.evaluate(() => document.querySelector('main')!.scrollTop)).toBeCloseTo(300, 0)
+    }
   } finally {
     await closeTestApplication(application)
     await new Promise<void>(resolve => server.close(() => resolve()))
