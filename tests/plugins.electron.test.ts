@@ -1043,7 +1043,7 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
     })
     expect(Math.abs(layout.closeRight)).toBeLessThanOrEqual(1)
     expect(Math.abs(layout.closeTop)).toBeLessThanOrEqual(1)
-    expect(layout.rightGap).toBeLessThanOrEqual(1)
+    expect(layout.rightGap).toBeCloseTo(1, 0)
     let scaled = await overlayState()
     await rpc('zoom', { pane, factor: .5 })
     expect((await overlayState()).zoom).toBe(scaled.zoom)
