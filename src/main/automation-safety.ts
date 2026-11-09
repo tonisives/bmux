@@ -30,7 +30,7 @@ let readWarning = (): AutomationWarning | undefined => {
 }
 export let automationWarningScript = `(${readWarning.toString()})()`
 
-export let createAutomationSafety = (options: { file: string; settings: () => AutomationSafety; now?: () => number; sleep?: (ms: number) => Promise<void>; changed?: () => void }) => {
+export let createAutomationSafety = (options: { file: string; settings: () => AutomationSafety; now?: () => number; sleep?: (ms: number) => Promise<void>; changed?: () => void; sessionManaged?: (profileId: string, paneId?: string) => boolean }) => {
   let now = options.now ?? Date.now, sleep = options.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)))
   let usage: Record<string, Usage> = {}, ledgerError = false
   try {
@@ -97,7 +97,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     let value = usage[usageKey(profileId, url, scopedJob(actor))]
     let warning = Object.values(usage).find(item => item.profileId === profileId && item.warning && automationWarningEnabled(options.settings(), profileId, item.warningHost!, now(), paneId))
     if (warning) throw safetyError(`Automation paused: ${warning.warning} on ${warning.warningHost}. Open the UI alert or Profile > Bot to resolve, resume, or exclude this website`)
-    if (value && overLimit(value) && !rested(value)) {
+    if (!options.sessionManaged?.(profileId, paneId) && value && overLimit(value) && !rested(value)) {
       if (!reachedLimit(value)) {
         let activeMs = activeTime(value)
         value.limitReachedAt = value.lastUsed + Math.max(0, sessionLimit(value) - (value.activeMs ?? 0))
@@ -147,6 +147,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
         }
         checkWarning()
         assertAvailable(profileId, actor?.paneId, targetUrl ?? page.url, actor)
+        if (options.sessionManaged?.(profileId, actor?.paneId)) return true
         let value = usage[sessionKey], current = now()
         if (!value || rested(value)) value = { profileId, siteHost: automationWebsiteHost(targetUrl ?? page.url)!, ...(jobId ? { jobId } : {}), startedAt: current, lastUsed: current, activeMs: 0, ...(value?.warning ? { warning: value.warning, warningHost: value.warningHost } : {}) }
         let latest = Object.values(usage).filter(item => item.profileId === profileId && item.siteHost === automationWebsiteHost(targetUrl ?? page.url) && !item.pendingSession).sort((a, b) => b.lastUsed - a.lastUsed)[0]
@@ -184,6 +185,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     }
   }
   let complete = (profileId: string, actor: AutomationActor, url: string) => {
+    if (options.sessionManaged?.(profileId, actor.paneId)) return
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), actor.paneId)) return
     ensureLedger()
     let jobId = scopedJob(actor), key = usageKey(profileId, url, jobId), value = usage[key]
@@ -194,6 +196,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     persist()
   }
   let after = (profileId: string, paneId: string, url: string, actor = actorFor(paneId)) => {
+    if (options.sessionManaged?.(profileId, paneId)) return
     if (!automationSiteEnabled(options.settings(), profileId, url, now(), paneId)) return
     let value = usage[usageKey(profileId, url, scopedJob(actor))]
     if (value && !value.pendingSession) { touch(value); persist() }
@@ -207,7 +210,7 @@ export let createAutomationSafety = (options: { file: string; settings: () => Au
     if (values.length) { for (let value of values) { delete value.warning; delete value.warningHost; delete value.warningAt }; persist() }
     return { resumed: true }
   }
-  let status = (): AutomationSafetyState => ({ enabled: options.settings().enabled, limits: options.settings(), ...(ledgerError ? { error: 'Automation safety ledger is unreadable; repair it before automating' } : {}), profiles: Object.values(usage).filter(value => !value.jobId || options.settings().jobSessionMinutes?.[value.jobId] !== undefined || value.warning).map(value => ({ ...value, retryAfter: reachedLimit(value) && now() < retryAt(value.profileId, value) ? new Date(retryAt(value.profileId, value)).toISOString() : null })) })
+  let status = (): AutomationSafetyState => ({ enabled: options.settings().enabled, limits: options.settings(), ...(ledgerError ? { error: 'Automation safety ledger is unreadable; repair it before automating' } : {}), profiles: Object.values(usage).filter(value => (value.warning || !options.sessionManaged?.(value.profileId)) && (!value.jobId || options.settings().jobSessionMinutes?.[value.jobId] !== undefined || value.warning)).map(value => ({ ...value, retryAfter: reachedLimit(value) && now() < retryAt(value.profileId, value) ? new Date(retryAt(value.profileId, value)).toISOString() : null })) })
   let resetSession = (profileId: string, siteHost?: string) => {
     ensureLedger()
     for (let value of Object.values(usage).filter(value => value.profileId === profileId && (!siteHost || value.siteHost === siteHost))) { value.startedAt = now(); value.lastUsed = value.startedAt; value.pendingSession = true; value.activeMs = 0; delete value.limitReachedAt; value.actors = []; persist() }

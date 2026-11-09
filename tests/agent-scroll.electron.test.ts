@@ -147,6 +147,14 @@ test('agent wheel scrolling reaches a nested feed in a scaled locked viewport', 
     await rpc('unlock-viewport', { window: client.windowId })
     for (let factor of [.5, .8, 1.5]) {
       await rpc('zoom', { pane, factor })
+      await page.evaluate(() => { let button = document.querySelector('button')!; button.style.left = '180px'; button.style.top = '160px'; button.style.width = '48px'; button.style.height = '32px' })
+      let target = await page.evaluate(() => { let r = document.querySelector('button')!.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
+      let before = await page.evaluate(() => (window as any).clicks)
+      for (let type of ['mousePressed', 'mouseReleased']) {
+        let clicked = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'cdp', JSON.stringify({ pane, method: 'Input.dispatchMouseEvent', params: { type, ...target, button: 'left', clickCount: 1 } })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'scaled-scroll-agent' }, timeout: 20000 })
+        expect(JSON.parse(clicked.stdout).ok).toBe(true)
+      }
+      await expect.poll(() => page.evaluate(() => (window as any).clicks)).toBe(before + 1)
       await page.evaluate(() => { document.querySelector('main')!.scrollTop = 0 })
       let point = await page.evaluate(() => ({ x: innerWidth / 2, y: innerHeight / 2 }))
       let scroll = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), 'rpc', 'cdp', JSON.stringify({ pane, method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', ...point, deltaY: 300 }, scrolling: { enabled: false } })], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'scaled-scroll-agent' }, timeout: 20000 })

@@ -39,7 +39,7 @@ export let PluginOverlay = () => {
   return <OverlayContext.Provider value={{ overlay, command, input, busy, stop, setting: setting?.runId === overlay.runId ? setting : undefined, openSetting: target => openSetting({ ...target, runId: overlay.runId }) }}><aside id="pane-panel" role="tabpanel" className={css.panel} data-compact={overlay.bounds.compact || undefined} data-collapsed={overlay.bounds.collapsed || undefined} aria-label="Page overlay" onKeyDown={panelKeys}>
     <OverlayTabs begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && (overlay.selectedTab === 'agent' ? <AgentPanel /> : overlay.selectedTab === 'viewport' ? <ViewportPanel /> : error || overlay.error || overlay.content.error ? <OverlayFailure error={error || overlay.error} /> : overlay.bounds.compact ? <CompactOverlay /> : overlay.content.decision ? <DecisionBody key={overlay.runId} /> : <OverlayBody key={overlay.runId} />)}
-    {!overlay.bounds.collapsed && !overlay.bounds.compact && !['agent','viewport'].includes(overlay.selectedTab ?? '') && (!overlay.content.decision || overlay.content.controls.some(control => ['continue','auto'].includes(control.id)) || Boolean(error || overlay.error || overlay.content.error)) && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
+    {!overlay.bounds.collapsed && !overlay.bounds.compact && !['agent','viewport'].includes(overlay.selectedTab ?? '') && (overlay.ended || !overlay.content.decision || overlay.content.controls.some(control => ['continue','auto'].includes(control.id)) || Boolean(error || overlay.error || overlay.content.error)) && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
     {!overlay.bounds.collapsed && !overlay.bounds.compact && ['top','right','bottom','left','top-left','top-right','bottom-left','bottom-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label={`Resize panel ${edge}`} aria-valuemin={edge === 'top' || edge === 'bottom' ? 240 : 280} aria-valuemax={16384} aria-valuenow={edge === 'top' || edge === 'bottom' ? overlay.bounds.height : overlay.bounds.width} aria-valuetext={`${overlay.bounds.width} × ${overlay.bounds.height}`} title="Resize panel" onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
   </aside></OverlayContext.Provider>
 }
@@ -130,7 +130,12 @@ let CompactAction = ({ concise = false }: { concise?: boolean }) => {
   let { overlay, input, busy } = useOverlay(), summary = pluginOverlaySummary(overlay.content)
   let control = overlay.content.controls.find(control => control.kind === 'button' && ['pause', 'resume', 'start'].includes(control.id))
   let click = () => { if (control) void input(control.id) }
-  return <><span role="status" className={css.compactAction} title={summary.action}>{concise ? summary.action.replace(/^Watching: (\d+)s remaining$/, 'Watch $1s').replace('Moving to next post', 'Next post').replace('Checking creator profile', 'Creator profile') : summary.action}</span>{!overlay.ended && control && <button aria-label={control.label} title={control.label} disabled={busy || control.disabled} onClick={click}><svg viewBox="0 0 12 12" aria-hidden="true">{control.id === 'pause' ? <path d="M4 2v8M8 2v8" /> : <path d="m4 2 5 4-5 4Z" />}</svg></button>}{!overlay.ended && control?.id === 'resume' && <StopSessionButton />}{concise && <NextPostButton />}</>
+  return <><span role="status" className={css.compactAction} title={summary.action}>{concise ? summary.action.replace(/^Watching: (\d+)s remaining$/, 'Watch $1s').replace('Moving to next post', 'Next post').replace('Checking creator profile', 'Creator profile') : summary.action}</span>{overlay.ended && overlay.bounds.compact && <RestartSessionButton />}{!overlay.ended && control && <button aria-label={control.label} title={control.label} disabled={busy || control.disabled} onClick={click}><svg viewBox="0 0 12 12" aria-hidden="true">{control.id === 'pause' ? <path d="M4 2v8M8 2v8" /> : <path d="m4 2 5 4-5 4Z" />}</svg></button>}{!overlay.ended && control?.id === 'resume' && <StopSessionButton />}{concise && <NextPostButton />}</>
+}
+let RestartSessionButton = () => {
+  let { command, busy } = useOverlay()
+  let restart = () => void command('plugin.overlay.restart')
+  return <button aria-label="Restart session" title="Restart with same settings" disabled={busy} onClick={restart}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4a4 4 0 1 1-1 4M1 1v4h4" /></svg></button>
 }
 let StopSessionButton = () => {
   let { overlay, command } = useOverlay()
@@ -217,7 +222,7 @@ let OverlayNode = ({ node, copyable }: { node:PluginOverlayState['content']['nod
 let OverlayButtons = ({ failed }: { failed: boolean }) => {
   let { overlay, command, busy, stop } = useOverlay()
   let configure = () => void command('plugin.overlay.configure')
-  return <div className={css.controls}>{overlay.ended ? <button disabled={busy} onClick={configure}>Choose session settings</button> : overlay.content.controls.filter(control => control.kind === 'button' && (!failed || (overlay.content.error?.controls ?? ['resume', 'stop']).includes(control.id))).map(control => control.id === 'stop' ? <button key={control.id} disabled={busy || control.disabled} onClick={stop}>Stop session</button> : <OverlayButton key={control.id} control={control} />)}</div>
+  return <div className={css.controls}>{overlay.ended ? <><RestartSessionButton /><button disabled={busy} onClick={configure}>Choose session settings</button></> : overlay.content.controls.filter(control => control.kind === 'button' && (!failed || (overlay.content.error?.controls ?? ['resume', 'stop']).includes(control.id))).map(control => control.id === 'stop' ? <button key={control.id} disabled={busy || control.disabled} onClick={stop}>Stop session</button> : <OverlayButton key={control.id} control={control} />)}</div>
 }
 let OverlayButton = ({ control }: { control:PluginOverlayControl }) => {
   let { input, busy, openSetting } = useOverlay(), click = () => control.setting ? openSetting({ id: control.setting }) : void input(control.id)

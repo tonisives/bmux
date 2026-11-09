@@ -380,7 +380,7 @@ export let createPlugins = (options: Options) => {
       let run = [...runs.values()].filter(run => run.public.status === 'queued').sort((a, b) => Number(a.public.hook) - Number(b.public.hook))[0]
       if (!run) break
       active++; run.public.status = 'running'
-      run.timer = setTimeout(() => finish(run, 'failed', 'Plugin timed out'), run.action.timeout_seconds * 1000)
+      if (run.public.hook || run.action.pacing !== 'plugin') run.timer = setTimeout(() => finish(run, 'failed', 'Plugin timed out'), run.action.timeout_seconds * 1000)
       void launch(run); options.changed()
     }
   }
@@ -508,5 +508,5 @@ export let createPlugins = (options: Options) => {
       return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
     } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
   })
-  return { stopBrowsing, browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  return { sessionManaged: (profileId: string, paneId?: string) => [...runs.values()].some(run => live(run) && !run.public.hook && !run.pending && run.action.pacing === 'plugin' && run.context.profileId === profileId && (!paneId || run.context.paneId === paneId)), stopBrowsing, browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }

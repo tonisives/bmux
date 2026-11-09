@@ -785,3 +785,21 @@ test('job-specific budgets preserve shared site pacing and account warning pause
   await expect(policy.before('bot', async () => ({ url: 'https://www.instagram.com/', warning: 'account-warning' as const }), undefined, false, first)).rejects.toThrow('account-warning')
   await expect(policy.before('bot', instagram, undefined, false, second)).rejects.toThrow('account-warning')
 })
+
+
+test('plugin managed sessions ignore elapsed limits while preserving account warnings', async () => {
+  let { file, settings, policy, active } = fixture()
+  await policy.before('bot', instagram)
+  active(settings.maxSessionMinutes * 60_000)
+  expect(() => policy.assertAvailable('bot', '%plugin', 'https://www.instagram.com/')).toThrow('session limit')
+  let managed = true
+  let plugin = createAutomationSafety({ file, settings: () => settings, now: () => Date.parse('2026-10-01T00:00:00Z') + settings.maxSessionMinutes * 60_000, sessionManaged: (profile, pane) => managed && profile === 'bot' && (!pane || pane === '%plugin') })
+  let actor = { paneId: '%plugin' }
+  await plugin.before('bot', instagram, undefined, false, actor)
+  expect(() => plugin.assertAvailable('bot', '%plugin', 'https://www.instagram.com/')).not.toThrow()
+  expect(plugin.status().profiles).toEqual([])
+  await expect(plugin.before('bot', async () => ({ url: 'https://www.instagram.com/', warning: 'challenge' }), undefined, false, actor)).rejects.toThrow('challenge')
+  expect(plugin.status().profiles[0].warning).toBe('challenge')
+  managed = false
+  expect(() => plugin.assertAvailable('bot', '%plugin', 'https://www.instagram.com/')).toThrow('challenge')
+})

@@ -976,7 +976,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!readOnly && (method === 'Runtime.evaluate' || method.startsWith('Input.') || method === 'Page.addScriptToEvaluateOnNewDocument')) scriptTouchedTabs.add(tabId)
     let debuggerApi = live.contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-    let inputScale = live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : live.contents.getZoomFactor())
+    let inputScale = live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : 1)
     let sendInput = (method: string, values: Record<string, unknown>) => debuggerApi.sendCommand(method, method === 'Input.dispatchMouseEvent' ? { ...values, x: Number(values.x) * inputScale, y: Number(values.y) * inputScale } : values, sessionId)
     if (automatedMouse && method === 'Input.dispatchMouseEvent' && (params.type === 'mousePressed' || params.type === 'mouseMoved' && !params.buttons && (!params.button || params.button === 'none'))) {
       let { pane } = paneById(model, tabId), safety = configuration?.automation.safety ?? DEFAULT_AUTOMATION.safety
@@ -1074,7 +1074,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     try {
       let metrics = await send('Runtime.evaluate', { expression: '({width:innerWidth,height:innerHeight,y:scrollY,heightFull:document.scrollingElement?.scrollHeight ?? innerHeight})', returnByValue: true })
       let { width, height, y, heightFull } = metrics.result.value
-      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING, live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : live.contents.getZoomFactor()), { signal: controller.signal, wheelScale: live.contents.getZoomFactor() })
+      await smoothAgentScroll(send, agentScrollParams(action, width, height, y, heightFull), configuration?.scrolling ?? DEFAULT_SCROLLING, live.deviceScale ?? (lockedViewport(tabId) ? paneById(model, tabId).pane.zoom || 1 : 1), { signal: controller.signal, wheelScale: live.contents.getZoomFactor() })
     } catch (error) { if (!controller.signal.aborted) throw error }
     finally { if (scrollControllers.get(tabId) === controller) scrollControllers.delete(tabId) }
   }
@@ -4498,7 +4498,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }, visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp: (tab, method, params) => cdp(tab, method, params), execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
-    automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish })
+    automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish, sessionManaged: (profileId, paneId) => plugins?.sessionManaged(profileId, paneId) ?? false })
     plugins = createPlugins({ browseHistory: async (context, method, args) => {
       let local = !!context.paneId && !remotePages.has(context.paneId)
       let enabled = local && !tabById(model, context.paneId!).session.private && configuration!.browseRecording.enabled
