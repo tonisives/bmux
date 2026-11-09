@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { stringify } from 'yaml'
 
-test('plugin pacing skips generic delays and owns its website between commands until cancellation', async () => {
+test('plugin pacing skips generic delays and owns its profile between commands until cancellation', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-plugin-pacing-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let server = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Pacing fixture</title><main>Visible fixture</main>') })
@@ -53,10 +53,10 @@ call('result',{done:true});`)
     }
     let denied = await cli()
     expect(denied.ok).toBe(false)
-    expect(denied.error).toContain('Website is busy')
+    expect(denied.error).toContain('Profile is busy')
     let started = Date.now(), deniedAction = await cli(false)
     expect(deniedAction.ok).toBe(false)
-    expect(deniedAction.error).toContain('Website is busy')
+    expect(deniedAction.error).toContain('Profile is busy')
     expect(Date.now() - started).toBeLessThan(8000)
     await command('plugin.cancel', { id: run.id })
     await expect.poll(async () => (await current()).status).toBe('cancelled')
