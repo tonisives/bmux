@@ -113,7 +113,7 @@ let item=()=>library.items.find(item=>item.id===library.active);
 if(['save','profile'].includes(process.argv[2])){let text='';for await(let chunk of process.stdin)text+=chunk;let input=JSON.parse(text);
 if(process.argv[2]==='save')Object.assign(item().values,input);else if(input.action==='create'){let created={id:'profile-'+library.items.length,name:input.name,values:{...item().values,...(input.template?{persona:'AI research'}:{})}};library.items.push(created);library.active=created.id}else if(input.action==='select')library.active=input.id;else if(input.action==='rename')item().name=input.name;else if(input.action==='delete'){library.items=library.items.filter(item=>item.id!==input.id);library.active=library.items[0].id}
 fs.writeFileSync(file,JSON.stringify(library))}
-console.log(JSON.stringify({values:item().values,profiles:{active:library.active,items:library.items.map(({id,name})=>({id,name})),templates:[{id:'research',name:'AI Researcher'}]}}));`)
+console.log(JSON.stringify({summary:['Daily likes: 8/20 used · 12 remaining','Weekly follows: 3/10 used · 7 remaining'],values:item().values,profiles:{active:library.active,items:library.items.map(({id,name})=>({id,name})),templates:[{id:'research',name:'AI Researcher'}]}}));`)
   await fs.writeFile(path.join(folder, 'plugin.yaml'), stringify(manifest))
   application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0', BMUX_DEBUG: '1' } })
   await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
@@ -687,6 +687,8 @@ test('browsing profiles switch saved settings in place without starting a window
   await command.fill('plugins'); await command.press('Enter')
   await expect(chrome.getByRole('dialog', { name: 'Plugins', exact: true })).toBeVisible()
   let id = await run('profiles'), dialog = chrome.getByRole('dialog', { name: 'Plugin', exact: true })
+  await expect(dialog.getByRole('region', { name: 'Interaction usage' })).toContainText('Daily likes: 8/20 used')
+  await expect(dialog.getByRole('region', { name: 'Interaction usage' })).toContainText('Weekly follows: 3/10 used')
   let selector = dialog.getByRole('combobox', { name: 'Browsing profile', exact: true })
   await expect(selector).toHaveValue('default')
   await dialog.getByRole('button', { name: 'Manage subscription', exact: true }).click()

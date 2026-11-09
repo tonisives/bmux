@@ -161,7 +161,7 @@ let DecisionBody = () => {
       <DecisionTree />
       <div className={css.actionLine}><CompactAction /><NextPostButton /></div>
     </div>
-    {overlay.content.nodes.filter(node => node.title === 'Interactions').map(node => <div key={node.title} className={css.interactionSummary}>{node.lines.map((line,index) => <p key={index}>{line}</p>)}</div>)}
+    {overlay.content.nodes.filter(node => ['Interactions', 'Interaction limits'].includes(node.title)).map(node => <div key={node.title} className={css.interactionSummary}>{node.lines.map((line,index) => <p key={index}>{line}</p>)}</div>)}
     <div className={css.controls}><button aria-expanded={popup === 'settings'} onClick={settings}>Settings</button><button aria-expanded={popup === 'usage'} onClick={usage}>Usage</button></div>
     {popup && <div className={css.popup} role="dialog" aria-label={popup === 'settings' ? 'Overlay settings' : 'Session usage'} ref={popupRef} onKeyDown={keys}>
       <div className={css.popupHeading}><h2>{popup === 'settings' ? 'Settings' : 'Usage'}</h2><button onClick={close} aria-label="Close popup">Close</button></div>
