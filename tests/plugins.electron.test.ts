@@ -1096,7 +1096,7 @@ test('social plugin startup shows its confirmation before any empty post or deci
     await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
     await expect(observer.getByText('Default · bluesky', { exact: true })).toBeVisible()
     await expect(observer.getByText('Default · bluesky · Confirm actions', { exact: true })).toHaveCount(0)
-    await expect(observer.getByLabel('Duration in seconds')).toHaveValue('120')
+    await expect(observer.getByRole('spinbutton', { name: 'Duration in seconds' })).toHaveValue('120')
     await expect(observer.getByLabel('Action approval')).toHaveValue('Confirm actions')
     await observer.getByLabel('Action approval').selectOption('Auto continue')
     await expect(observer.getByRole('button', { name: 'Start with auto continue', exact: true })).toHaveCount(0)

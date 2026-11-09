@@ -235,9 +235,9 @@ let OverlayField = ({ control }: { control: PluginOverlayControl }) => {
   useEffect(() => { setValue(String(control.value ?? '')) }, [control.value])
   let toggle = (event:ChangeEvent<HTMLInputElement>) => void input(control.id,event.target.checked)
   let choose = (event:ChangeEvent<HTMLSelectElement>) => void input(control.id,event.target.value)
-  let change = (event:ChangeEvent<HTMLTextAreaElement>) => setValue(event.target.value)
+  let change = (event:ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => setValue(event.target.value)
   let apply = () => void input(control.id,value)
-  return <label className={css.field} data-kind={control.kind} data-overlay-setting={control.id}><span>{control.label}</span>{control.kind === 'toggle' ? <input type="checkbox" checked={control.value === true} disabled={control.disabled} onChange={toggle} /> : control.kind === 'choice' ? <select value={String(control.value)} disabled={control.disabled} onChange={choose}>{control.choices?.map(choice => <option key={choice}>{choice}</option>)}</select> : <><textarea value={value} maxLength={2000} disabled={control.disabled} onChange={change} /><button disabled={control.disabled || value === control.value} onClick={apply}>Apply</button></>}</label>
+  return <label className={css.field} data-kind={control.kind} data-overlay-setting={control.id}><span>{control.label}</span>{control.kind === 'toggle' ? <input type="checkbox" checked={control.value === true} disabled={control.disabled} onChange={toggle} /> : control.kind === 'choice' ? <select value={String(control.value)} disabled={control.disabled} onChange={choose}>{control.choices?.map(choice => <option key={choice}>{choice}</option>)}</select> : <>{control.id === 'seconds' ? <input type="number" min={5} max={900} step={1} value={value} disabled={control.disabled} onChange={change} /> : <textarea value={value} maxLength={2000} disabled={control.disabled} onChange={change} />}<button disabled={control.disabled || value === control.value} onClick={apply}>Apply</button></>}</label>
 }
 
 
