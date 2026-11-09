@@ -1077,7 +1077,7 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
     await expect(observer.getByRole('button', { name: /^Close .+ tab$/ })).toHaveCount(2)
     expect((await overlayState()).zoom).toBe(scaled.zoom)
     await observer.getByRole('tab', { name: 'Research notes', exact: true }).click()
-    expect((await overlayState()).bounds.width).toBe(before.bounds.width)
+    expect((await overlayState()).bounds.width).toBe(scaled.bounds.width)
     expect((await overlayState()).zoom).toBe(scaled.zoom)
     let selected = observer.getByRole('tab', { name: 'Research notes', exact: true })
     await expect(selected.locator('..')).toHaveCSS('border-bottom-color', 'rgb(167, 182, 156)')
