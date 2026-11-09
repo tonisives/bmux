@@ -866,3 +866,21 @@ Input and textarea fields retain their cancellable replacement event.
 The shadow-root Lexical fixture types through the page keyboard without
 refocusing between keys. It checks the live model, retained Vim focus, `:wq`,
 `ZZ`, Escape, and native editing after exit. Repeat it with the website Vim group.
+
+# Parallel browsing state publication
+
+A bounded four-platform pass reproduced 97% browser-process CPU while the app
+was unfocused. The workspace state was 4 MB: profile history accounted for about
+1.36 MB, previews 1.87 MB and favicons 0.50 MB. Each observation saved agent
+activity and scheduled another full-state IPC broadcast. Overlay refreshes also
+reapplied unchanged native bounds, zoom and visibility.
+
+Agent activity now batches publication at 250 ms while native input locks still
+update synchronously. Human changes publish immediately and cancel redundant
+agent updates. Saved activity and session timestamps retain their existing
+persistence. Overlay content updates preserve native geometry unless it changes.
+Timer fixtures cover four concurrent observation streams, final delivery and
+cancellation; geometry fixtures cover unchanged and changed bounds and zoom.
+Repeat the four-pane overlay, agent cursor, observation and reused-pane lifecycle
+cases with the visual and packaged-app checks. The live CPU baseline is from the
+old running app; measure the new build after its normal installation on exit.

@@ -1,3 +1,4 @@
+import { createAgentStatePublisher } from './agent-state-publisher'
 import { createSocialHooks } from './social-hooks'
 import type { SocialHookConfig } from '../shared/social-hooks'
 import { createBrowseRecorder } from './browse-recorder'
@@ -46,7 +47,7 @@ import { readsPage, withAgentReading } from './agent-reading'
 import { agentAction, agentActionInput, createAgentActions } from './agent-actions'
 import { agentScrollParams, smoothAgentScroll } from './agent-scroll'
 import { keyboardScroll } from './keyboard-scroll'
-import { createPluginOverlayDelivery } from './plugin-overlay-delivery'
+import { createPluginOverlayDelivery, setPluginOverlayGeometry } from './plugin-overlay-delivery'
 import { createAgentInputLock, createAgentInputOverrides, scheduleAgentInputUnlock } from './agent-input-lock'
 import { DEFAULT_AGENT_FEEDBACK, parseAgentFeedback, resolveAgentFeedback } from '../shared/agent-feedback'
 import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
@@ -431,6 +432,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let socialHookTimer: ReturnType<typeof setInterval> | undefined
   let plugins: ReturnType<typeof createPlugins> | undefined
   let automation: ReturnType<typeof createAutomationPolicy> | undefined
+  let agentStatePublisher = createAgentStatePublisher(() => publish())
   let activeAgents = new Map<string, { paneId: string; lastUsed: number; pending: number } & ReturnType<typeof agentInfo>>()
   // Numeric pane IDs are reused; pending work belongs to the original pane object.
   let agentTarget = new AsyncLocalStorage<Pane>()
@@ -461,19 +463,19 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }, agentFeedback().inputUnlockMs))
   }
   let agentCommands = new Set(['navigate', 'wait', 'dom', 'eval', 'click', 'type', 'key', 'screenshot', 'cdp', 'back', 'forward', 'reload', 'hard-reload', 'scroll', 'history.go-to', 'forms.inspect', 'forms.fill', 'plugin.run'])
-  let recordSessionActivity = (paneId: string) => {
+  let recordSessionActivity = (paneId: string, notify = true) => {
     let session = model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === paneId)))
     if (!session || Date.now() - (session.lastActivityAt ?? 0) < 1000) return
     session.lastActivityAt = Date.now()
-    save()
+    save(notify)
   }
   let touchAgent = (actor: { paneId: string } & ReturnType<typeof agentInfo>, pane: Pane) => {
     if (currentPane(actor.paneId) !== pane) return
     let current = activeAgents.get(actor.paneId) ?? { paneId: actor.paneId, lastUsed: Date.now(), pending: 0 }
     updateAgentInfo(current, actor); current.lastUsed = Date.now()
-    pane.lastUsedBy = 'agent'; pane.lastAgentInteraction = { ...structuredClone(agentInfo(current)), lastUsed: current.lastUsed }; save()
-    recordSessionActivity(actor.paneId)
-    activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); publish()
+    pane.lastUsedBy = 'agent'; pane.lastAgentInteraction = { ...structuredClone(agentInfo(current)), lastUsed: current.lastUsed }; save(false)
+    recordSessionActivity(actor.paneId, false)
+    activeAgents.set(actor.paneId, current); refreshAgentInputLock(actor.paneId); agentStatePublisher.request()
     scheduleUnlock(actor.paneId, current.lastUsed)
     let expire = setTimeout(() => { if (activeAgents.get(current.paneId) === current && !current.pending && !agentInputDue(current.paneId) && Date.now() - current.lastUsed >= 60_000) { activeAgents.delete(current.paneId); publish() } }, 60_000)
     expire.unref()
@@ -592,11 +594,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         void loading.then(() => { if (!contents.isDestroyed()) { refreshPluginOverlay(clientId, owner); publish() } }).catch(reportError)
       }
       if (view.webContents.isLoading()) continue
-      view.webContents.setZoomFactor(overlay.zoom)
       deliverOverlay(view.webContents, overlay)
-      view.setBounds({ x: overlay.bounds.x, y: overlay.bounds.y, width: Math.max(1, Math.round(overlay.bounds.width * overlay.zoom)), height: Math.max(1, Math.round(pluginOverlayHeight(overlay.bounds) * overlay.zoom)) })
+      setPluginOverlayGeometry(view, { x: overlay.bounds.x, y: overlay.bounds.y, width: Math.max(1, Math.round(overlay.bounds.width * overlay.zoom)), height: Math.max(1, Math.round(pluginOverlayHeight(overlay.bounds) * overlay.zoom)) }, overlay.zoom)
       if (!owner.window.contentView.children.includes(view)) owner.window.contentView.addChildView(view)
-      view.setVisible(true)
+      if (!view.getVisible()) view.setVisible(true)
     }
   }
   let state = (clientId = '', contentsId?: number): PublicState => ({ browseRecording: { ...(configuration?.browseRecording ?? { enabled: true, manual: true }), error: browseRecorder.error }, nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayState(clientId, contentsId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list().map(plugin => ({...plugin,sent:plugin.category === 'Social Media' ? socialHooks?.sent(plugin.id) : undefined})), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
@@ -615,6 +616,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     live.linkPreview.setVisible(true)
   }
   let publish = () => {
+    agentStatePublisher.cancel()
     if (publishTimer || shuttingDown) return
     publishTimer = setTimeout(() => {
       publishTimer = undefined
@@ -639,7 +641,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }, 30)
   }
   publishClickMode = publish
-  let save = () => {
+  let save = (notify = true) => {
     for (let session of model.sessions.filter(session => !session.remote)) for (let window of session.windows) {
       let viewers = model.clients.filter(client => client.windowId === window.id)
       let viewer = viewers.find(client => client.id === focusedClientId) ?? viewers[0]
@@ -648,7 +650,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     plugins?.reconcile()
     clearTimeout(persistTimer)
     persistTimer = setTimeout(() => { if (!shuttingDown) writeModel(dataDirectory, model, bookmarkFile) }, 150)
-    publish()
+    if (notify) publish()
   }
   let recordWindowVisit = (clientId: string) => {
     let client = model.clients.find(client => client.id === clientId)
@@ -2714,7 +2716,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let targetPane = !sourceClientId && typeof paneId === 'string' && agentCommands.has(command.method) ? paneById(model, paneId).pane : undefined
     if (targetPane) assertAgentTarget(targetPane.id)
     let activity = !sourceClientId && !humanInput.getStore() && command.args?.agentId && typeof paneId === 'string' && agentCommands.has(command.method) ? { paneId, ...agentInfo(command.args), lastUsed: Date.now(), pending: (activeAgents.get(paneId)?.pending ?? 0) + 1 } : undefined
-    if (activity) { validateAgentInfo(activity); paneById(model, activity.paneId).pane.lastUsedBy = 'agent'; activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); publish() }
+    if (activity) { validateAgentInfo(activity); paneById(model, activity.paneId).pane.lastUsedBy = 'agent'; activeAgents.set(activity.paneId, activity); refreshAgentInputLock(activity.paneId); agentStatePublisher.request() }
     let finishActivity: ((outcome?: 'success' | 'error') => void) | undefined
     let actionOutcome: 'success' | 'error' = 'error'
     let result: unknown
@@ -2966,7 +2968,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (isAutomationCommand(sourceClientId) && (automatedMethods.has(method) || ['plugin.run', 'automation.acquire'].includes(method) || ['new-window', 'new-pane', 'split-window', 'tab.create'].includes(method) && args.url !== undefined) && (configuration?.automation.agents.requireId ?? false) && !args.agentId) validateAgentRequirements(args, configuration?.automation.agents ?? DEFAULT_AGENTS)
     if (!sourceClientId && !humanInput.getStore() && (AGENT_KEYS.some(key => args[key] !== undefined)) && typeof args.tab === 'string' && (automatedMethods.has(method) || method === 'plugin.run')) {
       let { pane } = tabById(model, args.tab)
-      updateAgentInfo(pane, args); save(); publish()
+      updateAgentInfo(pane, args); save(false); agentStatePublisher.request()
     }
     if (isAutomationCommand(sourceClientId) && automatedMethods.has(method) && typeof args.tab === 'string') {
       let { pane, session } = tabById(model, args.tab)
@@ -4617,6 +4619,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     plugins?.close()
     automation?.close()
     configuration?.close()
+    agentStatePublisher.cancel()
     clearTimeout(persistTimer); clearTimeout(publishTimer); clearTimeout(overlayPublishTimer)
     faviconCache.close()
     writeModel(dataDirectory, model, bookmarkFile)

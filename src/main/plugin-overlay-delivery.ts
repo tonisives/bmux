@@ -9,3 +9,12 @@ export let createPluginOverlayDelivery = <Target extends object>(send: (target: 
     send(target, overlay)
   }
 }
+
+type Rectangle = { x: number; y: number; width: number; height: number }
+type OverlayView = { getBounds: () => Rectangle; setBounds: (bounds: Rectangle) => void; webContents: { getZoomFactor: () => number; setZoomFactor: (zoom: number) => void } }
+
+export let setPluginOverlayGeometry = (view: OverlayView, bounds: Rectangle, zoom: number) => {
+  if (view.webContents.getZoomFactor() !== zoom) view.webContents.setZoomFactor(zoom)
+  let previous = view.getBounds()
+  if (previous.x !== bounds.x || previous.y !== bounds.y || previous.width !== bounds.width || previous.height !== bounds.height) view.setBounds(bounds)
+}

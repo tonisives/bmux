@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest'
-import { createPluginOverlayDelivery } from '../src/main/plugin-overlay-delivery'
+import { createPluginOverlayDelivery, setPluginOverlayGeometry } from '../src/main/plugin-overlay-delivery'
 import type { PluginOverlayState } from '../src/shared/plugin-overlay'
 
 test('four overlay recipients receive only their changed payloads and clear once', () => {
@@ -18,4 +18,18 @@ test('four overlay recipients receive only their changed payloads and clear once
   send.mockClear()
   deliver(targets[2], undefined); deliver(targets[2], undefined)
   expect(send).toHaveBeenCalledExactlyOnceWith(targets[2], undefined)
+})
+
+test('overlay content updates leave unchanged native geometry alone', () => {
+  let bounds = { x: 12, y: 16, width: 384, height: 600 }, zoom = 1
+  let view = { getBounds: () => bounds, setBounds: vi.fn(next => { bounds = next }), webContents: { getZoomFactor: () => zoom, setZoomFactor: vi.fn(next => { zoom = next }) } }
+  for (let frame = 0; frame < 100; frame++) setPluginOverlayGeometry(view, { ...bounds }, 1)
+  expect(view.setBounds).not.toHaveBeenCalled()
+  expect(view.webContents.setZoomFactor).not.toHaveBeenCalled()
+  setPluginOverlayGeometry(view, { ...bounds, width: 576 }, 1.5)
+  expect(view.setBounds).toHaveBeenCalledOnce()
+  expect(view.webContents.setZoomFactor).toHaveBeenCalledExactlyOnceWith(1.5)
+  setPluginOverlayGeometry(view, { ...bounds }, 1.5)
+  expect(view.setBounds).toHaveBeenCalledOnce()
+  expect(view.webContents.setZoomFactor).toHaveBeenCalledOnce()
 })
