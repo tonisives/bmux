@@ -8,9 +8,10 @@ let defaultRoot = '/Volumes/sam/app-support/bmux/browse-history/local'
 let hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
 let read = async (file: string, fallback: any) => { try { return JSON.parse(await fs.readFile(file, 'utf8')) } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback; throw error } }
 let write = async (file: string, value: string | Buffer) => { let temporary = file + '.' + randomUUID(); await fs.writeFile(temporary, value, { mode: 0o600 }); await fs.rename(temporary, file) }
-export let createBrowseRecorder = (options: { directory?: string; mount?: string } = {}) => {
+export let createBrowseRecorder = (options: { directory?: string; mount?: string; captureTimeoutMs?: number } = {}) => {
   let root = options.directory ?? defaultRoot, mount = options.mount ?? (options.directory ? undefined : '/Volumes/sam')
   let error: string | undefined, queue = Promise.resolve<unknown>(undefined), seen = new Map<string, string>()
+  let capturing = new WeakSet<WebContents>()
   let store = (state: any, image: any, context: any) => {
     let operation = queue.catch(() => undefined).then(async () => {
       let platform = context.platform, mode = context.mode === 'manual' ? 'manual' : 'automation'
@@ -46,21 +47,37 @@ export let createBrowseRecorder = (options: { directory?: string; mount?: string
     return operation.catch(failure => { error = failure.message; throw failure })
   }
   let capture = async (contents: WebContents, plugins: string, context: any, enabled: () => boolean) => {
+    // A renderer or native screenshot may never settle. Keep that pane's request
+    // single-flight while allowing the runtime to move on to other pages.
+    if (capturing.has(contents)) return
+    capturing.add(contents)
+    let expired = false, timer: ReturnType<typeof setTimeout> | undefined
+    let active = () => !expired && enabled()
+    let operation = (async () => {
+      try {
+        let url = new URL(contents.getURL())
+        for (let platform of ['x', 'tiktok', 'instagram', 'youtube', 'linkedin', 'threads', 'bluesky', 'mastodon']) {
+          let contribution = await read(path.join(plugins, 'bmux.' + platform, 'simulation', 'capture.json'), null)
+          if (!active()) return
+          if (!contribution || !contribution.hosts.some((host: string) => url.hostname === host || url.hostname.endsWith('.' + host))) continue
+          let before = await contents.executeJavaScript(contribution.expression)
+          if (!before?.ok || !active()) return
+          if (!before.cardRect || !before.viewport) return
+          let image = await captureViewportScreenshot(contents, { clip: before.cardRect, viewport: before.viewport, format: 'jpeg', quality: 85, maxDimension: 1024 })
+          if (!active()) return
+          let after = await contents.executeJavaScript(contribution.expression)
+          if (!active() || !after?.ok || before.identity !== after.identity || before.text !== after.text || JSON.stringify(before.cardRect) !== JSON.stringify(after.cardRect) || JSON.stringify(before.viewport) !== JSON.stringify(after.viewport)) return
+          await store(after, { ...image, data: image.data.toString('base64') }, { ...context, platform })
+          return
+        }
+      } finally { capturing.delete(contents) }
+    })()
     try {
-      let url = new URL(contents.getURL())
-      for (let platform of ['x', 'tiktok', 'instagram', 'youtube', 'linkedin', 'threads', 'bluesky', 'mastodon']) {
-        let contribution = await read(path.join(plugins, 'bmux.' + platform, 'simulation', 'capture.json'), null)
-        if (!contribution || !contribution.hosts.some((host: string) => url.hostname === host || url.hostname.endsWith('.' + host))) continue
-        let before = await contents.executeJavaScript(contribution.expression)
-        if (!before?.ok || !enabled()) return
-        if (!before.cardRect || !before.viewport) return
-        let image = await captureViewportScreenshot(contents, { clip: before.cardRect, viewport: before.viewport, format: 'jpeg', quality: 85, maxDimension: 1024 })
-        let after = await contents.executeJavaScript(contribution.expression)
-        if (!enabled() || before.identity !== after.identity || before.text !== after.text || JSON.stringify(before.cardRect) !== JSON.stringify(after.cardRect) || JSON.stringify(before.viewport) !== JSON.stringify(after.viewport)) return
-        await store(after, { ...image, data: image.data.toString('base64') }, { ...context, platform })
-        return
-      }
+      await Promise.race([operation, new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { expired = true; reject(new Error('Browse capture timed out')) }, options.captureTimeoutMs ?? 3000)
+      })])
     } catch (failure) { error = (failure as Error).message }
+    finally { clearTimeout(timer) }
   }
   return { store, capture, get error() { return error } }
 }
