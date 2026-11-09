@@ -827,8 +827,15 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   let pauseBounds = (await pause.boundingBox())!, nextBounds = (await next.boundingBox())!, statusBounds = (await observer.getByRole('status').boundingBox())!
   expect(pauseBounds.width).toBeGreaterThanOrEqual(40); expect(pauseBounds.height).toBeGreaterThanOrEqual(40)
   expect(nextBounds.y).toBe(pauseBounds.y); expect(pauseBounds.y).toBeGreaterThanOrEqual(statusBounds.y + statusBounds.height)
-  let likesBounds = (await observer.getByText('1 like · 2 comment reads · 1 profile view', { exact: true }).boundingBox())!, footerBounds = (await observer.getByRole('button', { name: 'Settings', exact: true }).boundingBox())!
-  expect(likesBounds.y).toBeGreaterThan(pauseBounds.y + pauseBounds.height); expect(footerBounds.y - likesBounds.y).toBeLessThan(64)
+  let summary = observer.getByText('1 like · 2 comment reads · 1 profile view', { exact: true })
+  await summary.scrollIntoViewIfNeeded()
+  expect(await summary.evaluate(element => {
+    let parent = element.parentElement
+    while (parent && !['auto', 'scroll'].includes(getComputedStyle(parent).overflowY)) parent = parent.parentElement
+    return !!parent && parent.clientHeight > 0 && parent.scrollHeight >= parent.clientHeight
+  })).toBe(true)
+  let likesBounds = (await summary.boundingBox())!, footerBounds = (await observer.getByRole('button', { name: 'Settings', exact: true }).boundingBox())!
+  expect(likesBounds.y + likesBounds.height).toBeLessThanOrEqual(footerBounds.y)
   await expect(observer.getByRole('button', { name: /^Close .+ tab$/ })).toHaveCount(1)
   await observer.screenshot({ path: path.resolve('artifacts/plugin-decision-playback.png') })
   await next.click()
