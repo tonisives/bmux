@@ -43,7 +43,7 @@ test('parking hosts stay hidden when a native show exposes background pages', as
     }
     // The parked WebContents must still attach normally when the user opens it.
     await rpc('select-window', { client: original[0].id, window: background.id })
-    await expect.poll(async () => (await rpc('state')).nativePagePanes).toContain(pane)
+    await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).nativePagePanes).toContain(pane)
     await expect.poll(async () => (await rpc('diagnostics')).parkingWindows.find((window: any) => window.nativeId === host.nativeId)?.panes).not.toContain(pane)
     await expect(page.locator('h1')).toHaveText('Background page')
   } finally {
