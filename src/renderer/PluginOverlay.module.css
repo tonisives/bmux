@@ -42,7 +42,7 @@
 .error { color: #e6a69c; }
 .empty { padding: 16px; color: #c0c6ce; background: #191d23; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 
-.failure { display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+.failure { display: flex; flex-direction: column; justify-content: flex-start; gap: 16px; }
 .failure h2 { color: #e6a69c; font: inherit; margin: 0 0 8px; }
 .failure p { margin: 8px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .diagnostic { color: #8e98a4; font-size: 11px; }
@@ -130,3 +130,5 @@
 .actionLine { grid-template-columns: repeat(3, 40px) 1fr; }
 
 .panel .panelTabs > div:not([data-selected="true"]) { flex-shrink: 0; }
+
+.controls svg { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
