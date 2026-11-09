@@ -15,7 +15,7 @@ import { createPluginSocket, listenSocket } from '../../bin/ipc.mjs'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginParameter, PluginPrompt, PluginRun, PluginSettings, PluginSettingsProfiles } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
-type Run = { sharedSettings?: boolean; destination?: 'current' | 'window'; profiles?: PluginSettingsProfiles; saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
+type Run = { summary?: string[]; sharedSettings?: boolean; destination?: 'current' | 'window'; profiles?: PluginSettingsProfiles; saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
   browseHistory?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<unknown>;
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
@@ -93,7 +93,7 @@ export let createPlugins = (options: Options) => {
       return { id: shortText(item.id, 256), label: shortText(item.label), description: item.description === undefined ? undefined : shortText(item.description) }
     }) : undefined) : undefined
     if (kind === 'pick' && (!items?.length || new Set(items.map(item => item.id)).size !== items.length)) throw new Error('Picker requires unique items')
-    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { sharedSettings: run.sharedSettings, fields: run.action.parameters.filter(field => !field.hidden && (!run.sharedSettings || sharedSocialField(field))), autosave: !!run.action.configuration_save_command, savedValues: run.savedValues, profiles: run.profiles, presets: run.action.presets, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launchLabel: run.action.launch_label, launch: !!run.action.launch_url } : {}) }
+    let request: PluginPrompt = { id: randomUUID(), runId: run.public.id, pluginName: run.definition.manifest.name, kind, title: shortText(raw.title), required: raw.required === true, items, ...(kind === 'form' ? { sharedSettings: run.sharedSettings, summary: run.summary, fields: run.action.parameters.filter(field => !field.hidden && (!run.sharedSettings || sharedSocialField(field))), autosave: !!run.action.configuration_save_command, savedValues: run.savedValues, profiles: run.profiles, presets: run.action.presets, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => run.action.parameters.some(field => field.name === key && !field.hidden))), profileId: run.context.profileId, launchLabel: run.action.launch_label, launch: !!run.action.launch_url } : {}) }
     return new Promise((resolve, reject) => {
       run.pending = { prompt: request, resolve, reject }
       options.changed(); options.show(run.context.clientId!)
@@ -122,6 +122,8 @@ export let createPlugins = (options: Options) => {
       validateParameter(field, value); values[name] = value as string | boolean
     }
     if (profiled) {
+      if (payload.summary !== undefined && (!Array.isArray(payload.summary) || payload.summary.length > 12)) throw new Error('Invalid configuration summary')
+      run.summary = payload.summary === undefined ? undefined : (payload.summary as unknown[]).map(line => shortText(line, 512))
       let profiles = record(payload.profiles)
       let items = (raw: unknown) => {
         if (!Array.isArray(raw) || !raw.length || raw.length > 16) throw new Error('Invalid configuration profiles')
@@ -148,7 +150,7 @@ export let createPlugins = (options: Options) => {
       delete run.parameters[field.name]
       if (run.savedValues?.[field.name] === undefined && field.default !== undefined) run.parameters[field.name] = field.default
     }
-    run.pending.prompt = { ...request, id: randomUUID(), savedValues: run.savedValues, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => request.fields?.some(field => field.name === key))), profiles: run.profiles }
+    run.pending.prompt = { ...request, id: randomUUID(), savedValues: run.savedValues, values: Object.fromEntries(Object.entries(run.parameters).filter(([key]) => request.fields?.some(field => field.name === key))), profiles: run.profiles, summary: run.summary }
     options.changed()
     return { updated: true }
   }
@@ -164,6 +166,13 @@ export let createPlugins = (options: Options) => {
       if (!live(run) || run.pending?.prompt.id !== request.id) throw new Error('Plugin prompt is unavailable')
       await configuration(run, run.action.configuration_save_command!, patch)
       run.savedValues = { ...run.savedValues, ...patch } as Record<string, string | boolean>
+      if (run.action.configuration_profile_command && run.action.configuration_command) {
+        readConfiguration(run, await configuration(run, run.action.configuration_command))
+        if (live(run) && run.pending?.prompt.id === request.id) {
+          run.pending.prompt = { ...run.pending.prompt, summary: run.summary }
+          options.changed()
+        }
+      }
       return { saved: true }
     }
     let saving = (run.saving ?? Promise.resolve()).catch(() => undefined).then(save)

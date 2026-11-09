@@ -175,7 +175,9 @@ let DecisionTree = () => {
         {decision.options.filter(option => option.id === 'skip').map(option => <DecisionBranch key={option.id} option={option} loading={decision.loading} />)}
         <div role="treeitem" aria-expanded="true" className={css.watchBranch}><div className={css.watchLabel} data-active={!decision.loading && decision.options.some(option => ['watch','linger','finish'].includes(option.id) && option.active)}>Watch</div>
           <div role="group" className={css.watchOptions}>{decision.options.filter(option => ['watch','linger','finish'].includes(option.id)).map(option => <DecisionBranch key={option.id} option={option} loading={decision.loading} />)}</div>
-          <div role="group" aria-label="After watching" className={css.watchOptions}>{decision.options.filter(option => !['skip','watch','linger','finish'].includes(option.id)).map(option => <DecisionBranch key={option.id} option={option} loading={decision.loading} />)}</div>
+        </div>
+        <div role="treeitem" aria-expanded="true" className={css.watchBranch}><div className={css.watchLabel}>Also</div>
+          <div role="group" aria-label="Independent actions" className={css.watchOptions}>{decision.options.filter(option => !['skip','watch','linger','finish'].includes(option.id)).map(option => <DecisionBranch key={option.id} option={option} loading={decision.loading} />)}</div>
         </div>
       </div>
 }
