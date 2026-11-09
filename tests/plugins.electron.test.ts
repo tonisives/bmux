@@ -809,6 +809,8 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   await expect(observer.getByRole('status', { name: 'AI is deciding' })).toBeVisible()
   let tree = observer.getByRole('tree', { name: 'Possible outcomes' })
   await expect(tree).toHaveAttribute('aria-busy', 'true')
+  await expect(tree).toHaveCSS('background-color', 'rgb(31, 31, 31)')
+  await expect(tree).toHaveCSS('border-bottom-width', '1px')
   await expect(observer.getByText('A software demo', { exact: true })).toBeVisible()
   await expect(observer.getByRole('dialog', { name: 'Overlay settings', exact: true })).toHaveCount(0)
   await observer.screenshot({ path: path.resolve('artifacts/plugin-decision-loading.png') })
