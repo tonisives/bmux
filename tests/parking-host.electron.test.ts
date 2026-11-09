@@ -41,6 +41,13 @@ test('parking hosts stay hidden when a native show exposes background pages', as
       expect((await rpc('diagnostics')).windows.map((window: any) => window.nativeId)).toEqual(clients)
       await expect(page.locator('h1')).toHaveText('Background page')
     }
+    // Authentication popups from a background page must stay in the model too.
+    await page.evaluate(url => { window.open(url, '_blank') }, `${url}/popup`)
+    await expect.poll(() => application!.context().pages().some(page => page.url() === `${url}/popup`)).toBe(true)
+    let popup = application.context().pages().find(page => page.url() === `${url}/popup`)!
+    await expect(popup.locator('h1')).toHaveText('Background page')
+    expect((await rpc('state')).model.clients).toEqual(original)
+    expect((await rpc('diagnostics')).parkingWindows.every((window: any) => !window.visible)).toBe(true)
     // The parked WebContents must still attach normally when the user opens it.
     await rpc('select-window', { client: original[0].id, window: background.id })
     await expect.poll(async () => (await chrome.evaluate(() => (window as any).bmux.state())).nativePagePanes).toContain(pane)
