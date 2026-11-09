@@ -2941,14 +2941,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId)
       return automation?.release(token)
     }
-    if (method === 'site-info.open') {
+    if (method === 'site-info.open' || method === 'pane.control') {
+      let control = method === 'site-info.open' ? 'site-info' : required(args, 'control')
+      if (!['site-info', 'profiles', 'extensions', 'proxy', 'adblock-popup', 'dark-mode-popup'].includes(control)) throw new Error('Invalid pane control')
       if (!sourceClientId) throw new Error('Trusted UI required')
       let client = resolve(model.clients, sourceClientId, 'Client')
       let { pane, window } = paneById(model, args.pane ?? client.paneId)
       if (window.id !== client.windowId) throw new Error('Pane is not in this client window')
       await execute({ method: 'select-pane', args: { client: client.id, pane: pane.id, focus: false } })
       let chrome = clients.get(client.id)!.chrome.webContents
-      chrome.focus(); chrome.send('focus-control', 'site-info')
+      chrome.focus(); chrome.send('focus-control', control)
       return null
     }
     if (method === 'memory') {

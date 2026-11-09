@@ -1,3 +1,5 @@
+import { PaneTools } from './PaneTools'
+import type { PaneToolControl } from './PaneTools'
 import { VimMode } from './VimMode'
 import { VimCursor } from './VimCursor'
 import vimCss from './VimCursor.module.css'
@@ -76,6 +78,7 @@ export let FloatingPane = () => {
   let forward = (event: MouseEvent<HTMLButtonElement>) => { if (tab) void run('forward', { tab: tab.id, newWindow: event.metaKey }) }
   let reload = () => { if (tab) void run('reload', { tab: tab.id }) }
   let siteInfo = () => { void run('site-info.open') }
+  let showTool = (control: PaneToolControl) => { void run('pane.control', { control }) }
   let focusPage = () => { void run('select-pane') }
   let navigation = tab && state?.navigation[tab.id]
   let client = state?.model.clients.find(client => client.id === state.clientId)
@@ -91,6 +94,7 @@ export let FloatingPane = () => {
         <span className={css.paneId} title={`Pane ID: ${remote?.pane ?? paneId}`}>{remote?.pane ?? paneId}</span>
       </div>
       <div className={css.dragSpace} onPointerDown={drag} data-drag-space aria-hidden="true" />
+      {!remote && state && <div className={css.tools}><PaneTools state={state} paneId={paneId} show={showTool} run={run} inlineProfilePicker={false} /></div>}
       <div className={css.dragAbove} onPointerDown={drag} data-drag-above aria-hidden="true" />
       {remote ? <RemotePaneControls remote={remote} paneId={paneId} focused={client?.paneId === paneId} run={run} onError={setError} /> : <CloseButton label="Close floating pane" onClick={close} />}
     </form>

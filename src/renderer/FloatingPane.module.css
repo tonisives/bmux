@@ -1,4 +1,4 @@
-.frame { position: relative; height: 100%; padding: 2.25px; border-radius: 10px; background: #343c48; display: flex; flex-direction: column; overflow: hidden; }
+.frame { container-type: inline-size; position: relative; height: 100%; padding: 2.25px; border-radius: 10px; background: #343c48; display: flex; flex-direction: column; overflow: hidden; }
 .frame[data-focused="true"] { background: #627766; }
 .frame button { border: 0; border-radius: 0; background: transparent; color: inherit; padding: 2px 6px; }
 .frame button:hover { background: #3b4653; }
@@ -14,6 +14,9 @@
 .address .knob { position: relative; cursor: move; touch-action: none; }
 .address .knob:hover { background: transparent; }
 .knob::before { position: absolute; inset: 9px 11px; background: radial-gradient(circle, #8993a0 1px, transparent 1.5px) 0 0 / 4px 4px; content: ''; }
+.tools { flex: 0 0 auto; }
+.address .tools button { display: flex; align-items: center; justify-content: center; width: auto; min-width: 24px; height: 24px; flex: 0 0 auto; padding: 2px 4px; }
+.tools button:focus-visible { outline: 1px solid #a7b69c; outline-offset: -1px; }
 .dragSpace { align-self: stretch; min-width: 40px; flex: 1; cursor: move; touch-action: none; }
 .dragAbove { position: absolute; top: 0; left: 128px; right: 32px; height: 5px; cursor: move; touch-action: none; }
 /* Match the native page's 6px/8px insets after the frame's 2.25px padding. */
@@ -34,3 +37,12 @@
 .edge[data-edge="ne"] { top: 0; right: 0; cursor: nesw-resize; }
 .edge[data-edge="sw"] { bottom: 0; left: 0; cursor: nesw-resize; }
 .edge[data-edge="se"] { bottom: 0; right: 0; cursor: nwse-resize; }
+
+@container (max-width: 480px) {
+  .address { gap: 0; }
+  .address button { width: 24px; flex-basis: 24px; }
+  .address input { min-width: 0; }
+  .urlBar { flex: 1; }
+  .urlBar > [data-vim-indicator], .paneId { display: none; }
+  .dragSpace { min-width: 16px; flex: 0 0 16px; }
+}

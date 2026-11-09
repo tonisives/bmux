@@ -102,6 +102,64 @@ test.afterAll(async () => {
   if (directory) await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
+test('floating pane toolbar opens profile, extensions and page tools for its own pane', async ({}, info) => {
+  let current = await state(), client = current.model.clients[0], tiled = client.paneId
+  let floating = await rpc('new-pane', { pane: tiled, client: client.id, profile: 'bot', url: `${url}/toolbar` })
+  await rpc('wait', { tab: floating.id, selector: '#counter' })
+  let floatingFrame = await frame(floating.id)
+  try {
+    await rpc('settings.set', { key: 'showDarkModeButton', value: true })
+    await rpc('float.bounds', { client: client.id, pane: floating.id, x: 80, y: 80, width: 320, height: 300, commit: true })
+    await expect.poll(() => floatingFrame.evaluate(() => innerWidth)).toBe(320)
+    let controls = ['Profile: bot', 'Extensions', 'Ad blocking', 'Dark mode', 'Close floating pane']
+    for (let name of controls) {
+      let button = floatingFrame.getByRole('button', { name, exact: true })
+      await expect(button).toBeVisible()
+      let bounds = await button.boundingBox()
+      expect(bounds!.x).toBeGreaterThanOrEqual(0)
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320)
+    }
+    expect(await floatingFrame.getByRole('textbox', { name: 'Address', exact: true }).evaluate(input => input.clientWidth)).toBeGreaterThan(20)
+    await floatingFrame.screenshot({ path: info.outputPath('floating-toolbar-compact.png') })
+    let open = async (button: string, dialog: string) => {
+      await rpc('select-pane', { client: client.id, pane: tiled, focus: false })
+      await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(tiled)
+      await floatingFrame.getByRole('button', { name: button, exact: true }).click()
+      let panel = chrome.getByRole('dialog', { name: dialog, exact: true })
+      await expect(panel).toBeVisible()
+      await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(floating.id)
+      return panel
+    }
+    let profile = await open('Profile: bot', 'Profile')
+    await profile.getByRole('tab', { name: 'Overview', exact: true }).click()
+    await expect(profile.getByRole('combobox', { name: 'Profile for this pane', exact: true })).toHaveValue('profile_bot')
+    await profile.getByRole('button', { name: 'Close', exact: true }).click()
+    let extensions = await open('Extensions', 'Extensions')
+    await extensions.getByRole('tab', { name: 'Chrome extensions', exact: true }).click()
+    await expect(extensions.getByRole('region', { name: 'Profile extensions' })).toContainText('Profile: bot')
+    await extensions.getByRole('button', { name: 'Close', exact: true }).click()
+    let adblock = await open('Ad blocking', 'Ad blocking')
+    await adblock.getByRole('combobox', { name: 'Apply to' }).selectOption('pane')
+    await adblock.getByRole('switch', { name: 'Enabled' }).click()
+    await expect(floatingFrame.getByRole('button', { name: 'Ad blocking', exact: true })).toHaveAttribute('data-enabled', 'false')
+    expect((await state()).browserTools.tabs[tiled].adblock).toBe(true)
+    await adblock.getByRole('button', { name: 'Close', exact: true }).click()
+    let dark = await open('Dark mode', 'Dark mode')
+    await dark.getByRole('switch', { name: 'Enabled' }).click()
+    await expect(floatingFrame.getByRole('button', { name: 'Dark mode', exact: true })).toHaveAttribute('data-enabled', 'true')
+    await dark.getByRole('button', { name: 'Close', exact: true }).click()
+    await rpc('float.bounds', { client: client.id, pane: floating.id, x: 80, y: 80, width: 760, height: 400, commit: true })
+    await expect.poll(() => floatingFrame.evaluate(() => innerWidth)).toBe(760)
+    await expect(floatingFrame.getByRole('button', { name: 'Profile: bot', exact: true })).toBeVisible()
+    await floatingFrame.screenshot({ path: info.outputPath('floating-toolbar.png') })
+  } finally {
+    await rpc('browser.set', { tab: floating.id, setting: 'darkMode', value: 'off', scope: 'profile' })
+    await rpc('settings.set', { key: 'showDarkModeButton', value: false })
+    await rpc('kill-pane', { pane: floating.id, confirm: true })
+    await rpc('select-pane', { client: client.id, pane: tiled, focus: false })
+  }
+})
+
 test('floating frame border stays visible around square composited pages after repainting', async ({}, info) => {
   let current = await state(), client = current.model.clients[0]
   let floating = await rpc('new-pane', { pane: client.paneId, client: client.id })
