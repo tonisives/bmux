@@ -483,22 +483,23 @@ test('website Vim keeps Draft.js model, counter, native typing and Escape workin
 
 test('website Vim preserves rapid Lexical typing and exit commands inside a shadow root', async () => {
   let field = page.getByRole('textbox', { name: 'Lexical composer' }), model = page.locator('#lexical-model')
-  for (let exit of ['wq', 'ZZ', 'Escape']) {
+  for (let exit of ['wq', 'ZZ', 'Escape', 'q']) {
     let { overlay, editor } = await open(field)
     await page.keyboard.type('gg0Aasd')
     await expect(editor).toContainText('asd')
     await expect(model).toHaveText('lexical seedasd')
     await expect(editor).toBeFocused()
     await page.keyboard.press('Escape')
-    if (exit === 'wq') {
-      await page.keyboard.type(':wq')
+    if (exit === 'wq' || exit === 'q') {
+      await page.keyboard.type(`:${exit}`)
       await expect(overlay.locator('.cm-vim-panel input')).toBeFocused()
       await page.keyboard.press('Enter')
     } else if (exit === 'ZZ') await page.keyboard.type('ZZ')
     else await page.keyboard.press('Escape')
     await expect(overlay).toHaveCount(0)
-    await expect(model).toHaveText('lexical seedasd')
+    await expect(model).toHaveText(exit === 'q' ? 'lexical seed' : 'lexical seedasd')
     await expect(field).toBeFocused()
+    if (exit === 'q') continue
     await field.press('Meta+ArrowRight'); await field.press('Backspace'); await field.press('Backspace'); await field.press('Backspace')
     await expect(model).toHaveText('lexical seed')
   }
