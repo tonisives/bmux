@@ -63,3 +63,10 @@ export let pluginOverlaySummary = (content: PluginOverlayContent) => {
   let action = /^(paused|waiting|showing next post|browsing stopped|session complete)/i.test(content.status) ? content.status : [...lines].reverse().find(line => /^(watching|skipping|moving|reading|checking|applying|waiting|watch to|watch for)/i.test(line)) || content.status
   return { decisions, action }
 }
+
+export let resizePluginOverlay = (bounds: PluginOverlayBounds, zoom: number, edge: string, dx: number, dy: number): PluginOverlayBounds => {
+  let horizontal = edge.includes('left') ? -1 : edge.includes('right') ? 1 : 0
+  let vertical = edge.includes('top') ? -1 : edge.includes('bottom') ? 1 : 0
+  let width = Math.round(Math.max(280, bounds.width + horizontal * dx / zoom)), height = Math.round(Math.max(240, bounds.height + vertical * dy / zoom))
+  return { ...bounds, width, height, x: bounds.x + (horizontal < 0 ? (bounds.width - width) * zoom : 0), y: bounds.y + (vertical < 0 ? (bounds.height - height) * zoom : 0) }
+}

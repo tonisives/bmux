@@ -86,3 +86,11 @@ test('plugins choose a bounded shared panel icon', () => {
   expect(parsePluginOverlay(content).icon).toBeUndefined()
   expect(() => parsePluginOverlay({ ...content, icon: '<svg onload=alert(1)>' })).toThrow('Invalid overlay icon')
 })
+
+test('resizing changes container dimensions at fixed zoom and anchors the opposite edges', async () => {
+  let { resizePluginOverlay } = await import('../src/shared/plugin-overlay')
+  let bounds = { x: 100, y: 200, width: 400, height: 600, collapsed: false }
+  expect(resizePluginOverlay(bounds, 2, 'bottom-right', 80, 120)).toEqual({ ...bounds, width: 440, height: 660 })
+  expect(resizePluginOverlay(bounds, 2, 'top-left', 80, 120)).toEqual({ ...bounds, x: 180, y: 320, width: 360, height: 540 })
+  expect(resizePluginOverlay(bounds, 1, 'top-left', 1000, 1000)).toEqual({ ...bounds, x: 220, y: 560, width: 280, height: 240 })
+})

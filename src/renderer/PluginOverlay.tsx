@@ -1,4 +1,4 @@
-import { conciseConfidence, pluginOverlaySummary } from '../shared/plugin-overlay'
+import { conciseConfidence, pluginOverlaySummary, resizePluginOverlay } from '../shared/plugin-overlay'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
 import type { Bridge } from '../shared/types'
@@ -24,9 +24,7 @@ export let PluginOverlay = () => {
   let update = (event: PointerEvent) => {
     let start = drag.current; if (!start) return
     let dx = event.screenX - start.x, dy = event.screenY - start.y
-    let { width, height } = start.bounds
-    let horizontal = start.edge.includes('left') ? -1 : start.edge.includes('right') ? 1 : 0, vertical = start.edge.includes('top') ? -1 : start.edge.includes('bottom') ? 1 : 0
-    queued.current = start.edge === 'move' ? { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy } : { zoom: Math.max(.5, Math.min(2, start.zoom + (horizontal * width * dx + vertical * height * dy) / (horizontal * width * width * horizontal + vertical * height * height * vertical))) }
+    queued.current = start.edge === 'move' ? { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy } : resizePluginOverlay(start.bounds, start.zoom, start.edge, dx, dy)
     void move()
   }
   let end = () => { drag.current = undefined }
@@ -34,8 +32,7 @@ export let PluginOverlay = () => {
   let resizeKey = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!overlay || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return
     event.preventDefault()
-    let direction = event.key === 'ArrowRight' || event.key === 'ArrowUp' ? 1 : -1
-    void command('pane.overlay.zoom', { zoom: Math.max(.5, Math.min(2, Math.round((overlay.zoom + direction * .05) * 100) / 100)) })
+    void command('pane.overlay.bounds', resizePluginOverlay(overlay.bounds, overlay.zoom, event.currentTarget.dataset.edge!, event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0, event.key === 'ArrowDown' ? 16 : event.key === 'ArrowUp' ? -16 : 0))
   }
   let panelKeys = (event: KeyboardEvent) => { if (event.key === 'Escape' && overlay && !overlay.bounds.collapsed) { event.stopPropagation(); void command('pane.overlay.bounds', { ...overlay.bounds, collapsed: true, compact: false }) } }
   if (!overlay) return <aside className={css.empty}>Waiting for plugin status</aside>
@@ -43,7 +40,7 @@ export let PluginOverlay = () => {
     <OverlayTabs begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && (overlay.selectedTab === 'agent' ? <AgentPanel /> : overlay.selectedTab === 'viewport' ? <ViewportPanel /> : error || overlay.error || overlay.content.error ? <OverlayFailure error={error || overlay.error} /> : overlay.bounds.compact ? <CompactOverlay /> : overlay.content.decision ? <DecisionBody key={overlay.runId} /> : <OverlayBody key={overlay.runId} />)}
     {!overlay.bounds.collapsed && !overlay.bounds.compact && !['agent','viewport'].includes(overlay.selectedTab ?? '') && (!overlay.content.decision || overlay.content.controls.some(control => ['continue','auto'].includes(control.id)) || Boolean(error || overlay.error || overlay.content.error)) && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
-    {!overlay.bounds.collapsed && !overlay.bounds.compact && ['top','right','bottom','left','top-left','top-right','bottom-left','bottom-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label={`Panel zoom ${edge}`} aria-valuemin={50} aria-valuemax={200} aria-valuenow={Math.round(overlay.zoom * 100)} aria-valuetext={`${Math.round(overlay.zoom * 100)}%`} title={`Panel zoom: ${Math.round(overlay.zoom * 100)}%`} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
+    {!overlay.bounds.collapsed && !overlay.bounds.compact && ['top','right','bottom','left','top-left','top-right','bottom-left','bottom-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label={`Resize panel ${edge}`} aria-valuemin={edge === 'top' || edge === 'bottom' ? 240 : 280} aria-valuemax={16384} aria-valuenow={edge === 'top' || edge === 'bottom' ? overlay.bounds.height : overlay.bounds.width} aria-valuetext={`${overlay.bounds.width} × ${overlay.bounds.height}`} title="Resize panel" onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
   </aside></OverlayContext.Provider>
 }
 
@@ -66,6 +63,7 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
     void command('pane.overlay.select', { panel: buttons[next].dataset.tab })
   }
   return <header className={css.dockHeader} onPointerDown={begin} onPointerMove={update} onPointerUp={end} onPointerCancel={end}>
+    {!overlay.bounds.collapsed && <OverlayZoom />}
     <nav className={`${appCss.panelTabs} ${css.panelTabs}`} role="tablist" aria-label="Pane panels" onKeyDown={keys}>{tabs.map(tab => {
       let selected = !overlay.bounds.collapsed && tab.id === overlay.selectedTab
       return <div key={tab.id} className={appCss.panelTab} role="presentation" data-selected={selected || undefined}>
@@ -75,6 +73,11 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
     })}</nav>
     {!overlay.bounds.collapsed && <nav aria-label="Overlay controls"><button aria-label="Minimize page overlay" title="Minimize page overlay" onClick={minimize}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg></button></nav>}
   </header>
+}
+let OverlayZoom = () => {
+  let { overlay, command } = useOverlay()
+  let zoom = (direction: number) => void command('pane.overlay.zoom', { zoom: Math.max(.5, Math.min(2, Math.round((overlay.zoom + direction * .05) * 100) / 100)) })
+  return <nav aria-label="Overlay zoom"><button aria-label="Zoom out overlay" title="Zoom out overlay" disabled={overlay.zoom <= .5} onClick={() => zoom(-1)}>−</button><button aria-label="Zoom in overlay" title="Zoom in overlay" disabled={overlay.zoom >= 2} onClick={() => zoom(1)}>+</button></nav>
 }
 let DismissTab = ({ tab }: { tab: PaneOverlayTab }) => {
   let { command } = useOverlay()
