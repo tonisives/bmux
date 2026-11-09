@@ -82,6 +82,9 @@ export let createPlugins = (options: Options) => {
     options.changed()
     pump()
   }
+  let stopBrowsing = (paneId: string) => {
+    for (let run of runs.values()) if (live(run) && run.context.paneId === paneId && run.definition.manifest.category === 'Social Media') finish(run, 'cancelled')
+  }
   let cancel = (id: string) => { let run = runs.get(id); if (!run) throw new Error('Run not found'); finish(run, 'cancelled'); return { id } }
   let requestUI = (run: Run, raw: Record<string, unknown>): Promise<unknown> => {
     if (!live(run) || !run.interactive || !run.context.clientId || !options.interactive(run.context)) throw new Error('Interactive client required')
@@ -505,5 +508,5 @@ export let createPlugins = (options: Options) => {
       return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
     } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
   })
-  return { browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  return { stopBrowsing, browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }

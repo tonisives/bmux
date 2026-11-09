@@ -861,6 +861,18 @@ test('plugin decision tree highlights answers and moves settings and usage into 
 })
 
 
+test('page Stop cancels social browsing so another session can start', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let id = await run('overlay', { pane: client.paneId })
+  await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.id === id).status).toBe('running')
+  await rpc('stop', { tab: client.paneId })
+  await completed(id, 'cancelled')
+  let next = await run('overlay', { pane: client.paneId })
+  await expect.poll(async () => (await rpc('plugin.runs')).find((run: any) => run.id === next).status).toBe('running')
+  await rpc('plugin.cancel', { id: next })
+})
+
+
 test('four visible panes each retain a static plugin overlay zoom with independent controls', async () => {
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
   let previousWindow = client.windowId

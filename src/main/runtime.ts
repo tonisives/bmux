@@ -4269,7 +4269,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return { pane: tabId }
     }
     if (method === 'stop') {
-      let tabId = required(args, 'tab'), live = await ensureLiveTab(tabId, false)
+      let tabId = required(args, 'tab')
+      plugins?.stopBrowsing(tabId)
+      let live = await ensureLiveTab(tabId, false)
       live.initialNavigation = undefined
       live.unloadGuard?.cancel()
       live.contents.stop()
