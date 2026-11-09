@@ -88,22 +88,25 @@ export let writeField = (field: TextField, value: string, selection: FieldSelect
     value = value.replace(/[\r\n]/g, '')
   }
   if (readField(field) !== value) {
-    if (!field.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, composed: true, cancelable: true, inputType: 'insertReplacementText', data: value }))) return false
     if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+      if (!field.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, composed: true, cancelable: true, inputType: 'insertReplacementText', data: value }))) return false
       // Bypass React's instance value tracker, then notify its real page handlers.
       let prototype = field instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype
       Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(field, value)
       field.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertReplacementText', data: value }))
       field.dispatchEvent(new Event('change', { bubbles: true }))
     } else {
+      // Rich editors can consume a replacement beforeinput and mutate their
+      // model while cancelling it. Select the full draft before native editing;
+      // a separate preflight event would insert at the old caret and abort sync.
       // Native editing preserves the rich editor's model, input events, and undo.
       // Never replace its HTML: Draft.js/Lexical and other composers own that DOM.
       field.focus({ preventScroll: true })
-      if (field.classList.contains('public-DraftEditor-content')) {
-        // Draft owns its text spans and model. Native replacement destroys those
-        // spans; paste lets Draft replace the selected text in its own model.
+      if (field.classList.contains('public-DraftEditor-content') || field.hasAttribute('data-lexical-editor')) {
+        // These editors own their text nodes and model. Paste replaces the
+        // selected draft through their own editing commands.
         return (async () => {
-          // Focus, selection, and paste each update Draft's controlled state.
+          // Focus, selection, and paste each update the editor's controlled state.
           // Let each render finish before issuing the next event or blurring.
           await renderField()
           if (!field.isConnected) return false

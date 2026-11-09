@@ -852,3 +852,17 @@ change another overlay's zoom. The four-pane fixture exercises independent
 start, pause and close controls, page zoom, and drag clamping within each pane. Zoom changes retain the preferred popup size
 so zooming back restores its previous dimensions. Hidden
 windows still detach overlays, and page captures still exclude plugin controls.
+
+## Rich composer replacement events
+
+A replacement `beforeinput` sent before selecting a rich composer's contents can
+be consumed by Lexical: the editor updates its model and cancels the event.
+Treating that cancellation as a rejected write leaves the native draft ahead of
+Vim's synchronization checkpoint. Later writes and save-and-exit commands then
+stop at the external-change check. Rich composers now receive their replacement
+through native editing or their paste handler, after focus and selection settle.
+Input and textarea fields retain their cancellable replacement event.
+
+The shadow-root Lexical fixture types through the page keyboard without
+refocusing between keys. It checks the live model, retained Vim focus, `:wq`,
+`ZZ`, Escape, and native editing after exit. Repeat it with the website Vim group.
