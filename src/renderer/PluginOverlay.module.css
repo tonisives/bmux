@@ -107,6 +107,7 @@
 .panel[data-collapsed="true"] .dockHeader .panelTabs { height: 100%; justify-content: flex-start; gap: 0; overflow-y: hidden; scrollbar-width: none; }
 .panel[data-collapsed="true"] .panelTabs > div { height: 100%; flex: 0 0 auto; border: 0; }
 .panel[data-collapsed="true"] .dockHeader .panelTabs button { width: 32px; min-width: 32px; height: 100%; padding: 0; }
+.panel[data-collapsed="true"] .dockHeader .panelTabs .tabClose { width: 12px; min-width: 12px; height: 12px; }
 
 .resize[data-edge="top"], .resize[data-edge="bottom"] { left: 12px; right: 12px; height: 4px; cursor: ns-resize; }
 .resize[data-edge="top"] { top: 0; }
