@@ -431,9 +431,9 @@ test('plugin overlay sits above the page, zooms, collapses and receives controls
   await observer.getByRole('tab').first().click()
   await expect(observer.getByRole('button', { name: 'Choose session settings', exact: true })).toBeVisible()
   await observer.getByRole('button', { name: 'Restart session', exact: true }).click()
-  await expect.poll(async () => (await rpc('plugin.runs')).some((item: any) => item.id !== id && item.pluginId === 'local.page-tools' && item.actionId === 'overlay' && item.status === 'running')).toBe(true)
+  await expect.poll(async () => (await rpc('plugin.runs')).some((item: any) => item.id !== id && item.pluginId === 'test' && item.actionId === 'overlay' && item.status === 'running')).toBe(true)
   await expect(observer.getByRole('button', { name: 'Start browsing', exact: true })).toBeVisible()
-  let restarted = (await rpc('plugin.runs')).find((item: any) => item.id !== id && item.pluginId === 'local.page-tools' && item.actionId === 'overlay' && item.status === 'running')
+  let restarted = (await rpc('plugin.runs')).find((item: any) => item.id !== id && item.pluginId === 'test' && item.actionId === 'overlay' && item.status === 'running')
   await rpc('plugin.cancel', { id: restarted.id })
   let page = application.context().pages().find(page => page.url().startsWith(url))!
   expect(await page.evaluate(() => typeof (window as any).bmux)).toBe('undefined')
