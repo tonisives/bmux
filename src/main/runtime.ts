@@ -668,7 +668,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let parkHost = (profileId: string) => {
     let host = hosts.get(profileId)
     if (host && !host.isDestroyed()) return host
-    host = new BaseWindow({ show: false, focusable: false, width: 1280, height: 900, hiddenInMissionControl: true })
+    host = new BaseWindow({ show: false, focusable: false, skipTaskbar: true, width: 1280, height: 900, hiddenInMissionControl: true })
+    // App activation and native dialogs can expose a window created with show:false.
+    // Parking hosts own background pages, never a user-facing browser surface.
+    let parkingWindow = host
+    host.on('show', () => { if (!parkingWindow.isDestroyed()) parkingWindow.hide() })
     filePickers.watchWindow(host)
     hosts.set(profileId, host)
     return host
@@ -3728,7 +3732,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       owner.chrome.webContents.focus()
       return client
     }
-    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, capture: { error: frameCaptureError() ?? null, panes: [...tabs].filter(([, live]) => !live.disposed && !live.contents.isDestroyed()).map(([pane, live]) => ({ pane, contentsId: live.contents.id, crashed: live.contents.isCrashed(), bounds: live.view.getBounds() })) }, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), filePickers: filePickers.snapshot(), processes: app.getAppMetrics() }
+    if (method === 'diagnostics') return { pid: process.pid, accessibilityFeatures: app.getAccessibilitySupportFeatures(), panes: tabs.size, visibleClients: clients.size, focusedClientId, capture: { error: frameCaptureError() ?? null, panes: [...tabs].filter(([, live]) => !live.disposed && !live.contents.isDestroyed()).map(([pane, live]) => ({ pane, contentsId: live.contents.id, crashed: live.contents.isCrashed(), bounds: live.view.getBounds() })) }, windows: [...clients].map(([id, live]) => ({ id, nativeId: live.window.id, focused: live.window.isFocused(), visible: live.window.isVisible() })), parkingWindows: [...hosts].filter(([, host]) => !host.isDestroyed()).map(([profile, host]) => ({ profile, nativeId: host.id, visible: host.isVisible(), panes: [...tabs].filter(([, live]) => live.parent === host).map(([pane]) => pane) })), filePickers: filePickers.snapshot(), processes: app.getAppMetrics() }
     if (method === 'switch-client') {
       let client = switchClient(model, { ...args, client: args.client ?? sourceClientId ?? focusedClientId ?? model.clients[0]?.id }, configuration?.keyboard ?? DEFAULT_KEYBOARD)
       if (client.id === focusedClientId) { prefixUntil = 0; pendingSequence = undefined; pendingModifierShortcut = undefined }
