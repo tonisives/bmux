@@ -32,7 +32,7 @@
 .field[data-kind="toggle"] { flex-wrap: nowrap; }
 .field input[type="checkbox"] { width: auto; flex: 0 0 auto; margin: 0; accent-color: #a7b69c; }
 .resize { position: absolute; touch-action: none; user-select: none; z-index: 1; }
-.resize[data-edge="left"], .resize[data-edge="right"] { top: 48px; bottom: 12px; width: 6px; cursor: ew-resize; }
+.resize[data-edge="left"], .resize[data-edge="right"] { top: 12px; bottom: 12px; width: 4px; cursor: ew-resize; }
 .resize[data-edge="left"] { left: 0; }
 .resize[data-edge="right"] { right: 0; }
 .resize[data-edge="bottom-left"], .resize[data-edge="bottom-right"] { bottom: 0; width: 12px; height: 12px; }
@@ -89,15 +89,17 @@
 .watchOptions { display: grid; grid-template-columns: 1fr; gap: 8px; margin-left: 12px; padding: 8px 0 0 12px; border-left: 1px solid #444b59; }
 
 .panel { background: #181818; }
-.panel .dockHeader { height: 32px; padding: 0 16px 0 8px; gap: 4px; }
+.panel .dockHeader { height: 32px; padding: 0 0 0 8px; gap: 4px; }
 .panel[data-collapsed="true"] .dockHeader { padding: 0; border: 0; }
 .panel .dockHeader .panelTabs { flex: 1; min-width: 0; gap: 2px; border: 0; overflow: auto; justify-content: flex-end; }
 .panel .dockHeader .panelTabs button { gap: 8px; min-width: 32px; height: 30px; padding: 6px 8px; border-radius: 0; }
 .panel .panelTabs button[aria-selected="true"] { flex-shrink: 1; min-width: 0; }
 .panel .panelTabs button strong { min-width: 0; }
+.panel .dockHeader .panelTabs > div:has(.tabClose) > button[aria-selected="true"] { padding-right: 16px; }
 .panel .panelTabs svg, .panel .panelTabs img { flex-shrink: 0; }
-.panel .dockHeader .panelTabs .tabClose { width: 24px; min-width: 24px; padding: 0; }
-.panel .panelTabs .tabClose svg { width: 12px; height: 12px; }
+.panel .panelTabs > div { position: relative; }
+.panel .dockHeader .panelTabs .tabClose { position: absolute; top: 0; right: 0; width: 12px; min-width: 12px; height: 12px; padding: 0; z-index: 1; background: #181818; }
+.panel .panelTabs .tabClose svg { width: 8px; height: 8px; }
 
 .panel .panelTabs button:active { transform: translateY(1px); }
 .panel .panelTabs svg { width: 16px; height: 16px; }
@@ -105,8 +107,13 @@
 .panel[data-collapsed="true"] .dockHeader .panelTabs { height: 100%; justify-content: flex-start; gap: 0; overflow-y: hidden; scrollbar-width: none; }
 .panel[data-collapsed="true"] .panelTabs > div { height: 100%; flex: 0 0 auto; border: 0; }
 .panel[data-collapsed="true"] .dockHeader .panelTabs button { width: 32px; min-width: 32px; height: 100%; padding: 0; }
-.panel[data-collapsed="true"] .dockHeader .panelTabs .tabClose { width: 24px; min-width: 24px; }
-.resize[data-edge="top-right"] { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; border-top: 2px solid #8e98a4; border-right: 2px solid #8e98a4; }
+
+.resize[data-edge="top"], .resize[data-edge="bottom"] { left: 12px; right: 12px; height: 4px; cursor: ns-resize; }
+.resize[data-edge="top"] { top: 0; }
+.resize[data-edge="bottom"] { bottom: 0; }
+.resize[data-edge="top-left"], .resize[data-edge="top-right"] { top: 0; width: 4px; height: 4px; }
+.resize[data-edge="top-left"] { left: 0; cursor: nwse-resize; }
+.resize[data-edge="top-right"] { right: 0; cursor: nesw-resize; }
 .viewportForm { display: grid; gap: 12px; margin-top: 16px; }
 .viewportForm label { display: grid; gap: 4px; }
 .viewportForm input { width: 100%; font: inherit; color: #eceef2; background: #272727; border: 1px solid #444b59; padding: 4px 8px; }

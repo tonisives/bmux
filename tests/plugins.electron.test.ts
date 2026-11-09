@@ -384,10 +384,10 @@ test('plugin overlay sits above the page, zooms, collapses and receives controls
   let checkboxBounds = await skipAds.boundingBox(), labelBounds = await observer.getByText('Skip ads', { exact: true }).boundingBox()
   expect(Math.abs(checkboxBounds!.y + checkboxBounds!.height / 2 - labelBounds!.y - labelBounds!.height / 2)).toBeLessThan(2)
   let before = (await state()).pluginOverlay.bounds
-  await observer.getByRole('slider', { name: 'Panel zoom', exact: true }).focus()
+  await observer.getByRole('slider', { name: 'Panel zoom top-right', exact: true }).focus()
   await observer.keyboard.press('ArrowLeft')
   await expect.poll(async () => (await state()).pluginOverlay.zoom).toBe(.95)
-  let corner = observer.getByRole('slider', { name: 'Panel zoom', exact: true })
+  let corner = observer.getByRole('slider', { name: 'Panel zoom top-right', exact: true })
   await corner.focus(); await observer.keyboard.press('ArrowRight')
   await expect.poll(async () => (await state()).pluginOverlay.zoom).toBe(1)
   expect((await state()).pluginOverlay.bounds.width).toBe(before.width)
@@ -1017,7 +1017,7 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
     let before = await overlayState()
     await viewport.click()
     await expect(observer.getByRole('form', { name: 'Viewport settings' })).toBeVisible()
-    let corner = observer.getByRole('slider', { name: 'Panel zoom', exact: true })
+    let corner = observer.getByRole('slider', { name: 'Panel zoom top-right', exact: true })
     await corner.focus(); await observer.keyboard.press('ArrowLeft')
     await expect.poll(async () => (await overlayState()).zoom).toBe(.95)
     let grip = (await corner.boundingBox())!
@@ -1026,6 +1026,24 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
     await observer.mouse.move(grip.x + grip.width / 2 - 16, grip.y + grip.height / 2 + 24)
     await observer.mouse.up()
     await expect.poll(async () => (await overlayState()).zoom).toBeLessThan(.95)
+    for (let [edge, dx, dy] of [['top', 0, -12], ['right', 12, 0], ['bottom', 0, 12], ['left', -12, 0], ['top-left', -12, -12], ['top-right', 12, -12], ['bottom-left', -12, 12], ['bottom-right', 12, 12]] as const) {
+      let beforeResize = (await overlayState()).zoom
+      let handle = observer.getByRole('slider', { name: `Panel zoom ${edge}`, exact: true }), box = (await handle.boundingBox())!
+      await observer.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await observer.mouse.down()
+      await observer.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy)
+      await observer.mouse.up()
+      await expect.poll(async () => (await overlayState()).zoom).toBeGreaterThan(beforeResize)
+    }
+    let layout = await observer.evaluate(() => {
+      let tab = document.querySelector('[role="tab"][aria-label="Research notes"]')!.getBoundingClientRect()
+      let close = document.querySelector('[aria-label="Close Research notes tab"]')!.getBoundingClientRect()
+      let minimize = document.querySelector('[aria-label="Minimize page overlay"]')!.getBoundingClientRect()
+      return { closeRight: tab.right - close.right, closeTop: close.top - tab.top, rightGap: innerWidth - minimize.right }
+    })
+    expect(Math.abs(layout.closeRight)).toBeLessThanOrEqual(1)
+    expect(Math.abs(layout.closeTop)).toBeLessThanOrEqual(1)
+    expect(layout.rightGap).toBeLessThanOrEqual(1)
     let scaled = await overlayState()
     await rpc('zoom', { pane, factor: .5 })
     expect((await overlayState()).zoom).toBe(scaled.zoom)
@@ -1033,7 +1051,7 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
     expect((await overlayState()).zoom).toBe(scaled.zoom)
     await expect.poll(async () => (await pluginViews())[0].zoom).toBeCloseTo(scaled.zoom, 5)
     await observer.getByRole('tab', { name: 'Agent control', exact: true }).click()
-    await expect(observer.getByRole('button', { name: /^Close .+ tab$/ })).toHaveCount(0)
+    await expect(observer.getByRole('button', { name: /^Close .+ tab$/ })).toHaveCount(2)
     expect((await overlayState()).zoom).toBe(scaled.zoom)
     await observer.getByRole('tab', { name: 'Research notes', exact: true }).click()
     expect((await overlayState()).bounds.width).toBe(before.bounds.width)
@@ -1052,10 +1070,10 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
     expect((await overlayState()).selectedTab).toBe('agent')
     for (let zoom of [scaled.zoom, 1, 2]) {
       await observer.evaluate(({ pane, zoom }) => (window as any).bmux.command({ method: 'pane.overlay.zoom', args: { pane, zoom } }), { pane, zoom })
-      await expect.poll(async () => (await pluginViews())[0].bounds.width).toBe(Math.round(178 * zoom))
+      await expect.poll(async () => (await pluginViews())[0].bounds.width).toBe(Math.round(130 * zoom))
       let geometry = await observer.evaluate(() => {
         let panel = document.querySelector('[role="tabpanel"]')!, strip = document.querySelector('[role="tablist"]')!
-        let bounds = panel.getBoundingClientRect(), tabs = [...strip.querySelectorAll<HTMLButtonElement>('button')]
+        let bounds = panel.getBoundingClientRect(), tabs = [...strip.querySelectorAll<HTMLButtonElement>('[role=tab]')]
         return { left: tabs[0].getBoundingClientRect().left - bounds.left, right: bounds.right - tabs.at(-1)!.getBoundingClientRect().right, bottom: bounds.bottom - tabs[0].getBoundingClientRect().bottom, top: tabs[0].getBoundingClientRect().top - bounds.top, overflow: strip.scrollWidth - strip.clientWidth, centers: tabs.map(tab => {
           let button = tab.getBoundingClientRect(), icon = tab.querySelector('svg,img')!.getBoundingClientRect()
           return { x: (icon.left + icon.right - button.left - button.right) / 2, y: (icon.top + icon.bottom - button.top - button.bottom) / 2 }

@@ -25,7 +25,8 @@ export let PluginOverlay = () => {
     let start = drag.current; if (!start) return
     let dx = event.screenX - start.x, dy = event.screenY - start.y
     let { width, height } = start.bounds
-    queued.current = start.edge === 'move' ? { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy } : { zoom: Math.max(.5, Math.min(2, start.zoom + (width * dx - height * dy) / (width * width + height * height))) }
+    let horizontal = start.edge.includes('left') ? -1 : start.edge.includes('right') ? 1 : 0, vertical = start.edge.includes('top') ? -1 : start.edge.includes('bottom') ? 1 : 0
+    queued.current = start.edge === 'move' ? { ...start.bounds, x: start.bounds.x + dx, y: start.bounds.y + dy } : { zoom: Math.max(.5, Math.min(2, start.zoom + (horizontal * width * dx + vertical * height * dy) / (horizontal * width * width * horizontal + vertical * height * height * vertical))) }
     void move()
   }
   let end = () => { drag.current = undefined }
@@ -42,7 +43,7 @@ export let PluginOverlay = () => {
     <OverlayTabs begin={begin} update={update} end={end} />
     {!overlay.bounds.collapsed && (overlay.selectedTab === 'agent' ? <AgentPanel /> : overlay.selectedTab === 'viewport' ? <ViewportPanel /> : error || overlay.error || overlay.content.error ? <OverlayFailure error={error || overlay.error} /> : overlay.bounds.compact ? <CompactOverlay /> : overlay.content.decision ? <DecisionBody key={overlay.runId} /> : <OverlayBody key={overlay.runId} />)}
     {!overlay.bounds.collapsed && !overlay.bounds.compact && !['agent','viewport'].includes(overlay.selectedTab ?? '') && (!overlay.content.decision || overlay.content.controls.some(control => ['continue','auto'].includes(control.id)) || Boolean(error || overlay.error || overlay.content.error)) && <OverlayButtons failed={Boolean(error || overlay.error || overlay.content.error)} />}
-    {!overlay.bounds.collapsed && !overlay.bounds.compact && ['top-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label="Panel zoom" aria-valuemin={50} aria-valuemax={200} aria-valuenow={Math.round(overlay.zoom * 100)} aria-valuetext={`${Math.round(overlay.zoom * 100)}%`} title={`Panel zoom: ${Math.round(overlay.zoom * 100)}%`} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
+    {!overlay.bounds.collapsed && !overlay.bounds.compact && ['top','right','bottom','left','top-left','top-right','bottom-left','bottom-right'].map(edge => <div key={edge} className={css.resize} data-edge={edge} role="slider" tabIndex={0} aria-label={`Panel zoom ${edge}`} aria-valuemin={50} aria-valuemax={200} aria-valuenow={Math.round(overlay.zoom * 100)} aria-valuetext={`${Math.round(overlay.zoom * 100)}%`} title={`Panel zoom: ${Math.round(overlay.zoom * 100)}%`} onPointerDown={beginResize} onPointerMove={update} onPointerUp={end} onPointerCancel={end} onKeyDown={resizeKey} />)}
   </aside></OverlayContext.Provider>
 }
 
@@ -69,7 +70,7 @@ let OverlayTabs = ({ begin, update, end }: { begin:(event:PointerEvent)=>void;up
       let selected = !overlay.bounds.collapsed && tab.id === overlay.selectedTab
       return <div key={tab.id} className={appCss.panelTab} role="presentation" data-selected={selected || undefined}>
         <button role="tab" aria-label={tab.title} aria-selected={selected} aria-controls="pane-panel" tabIndex={tab.id === overlay.selectedTab ? 0 : -1} title={tab.title} data-tab={tab.id} onClick={select}><PanelIcon icon={tab.icon} />{selected && <strong>{tab.title}</strong>}</button>
-        {(selected || overlay.bounds.collapsed) && !['agent','viewport'].includes(tab.id) && <DismissTab tab={tab} />}
+        {!['agent','viewport'].includes(tab.id) && <DismissTab tab={tab} />}
       </div>
     })}</nav>
     {!overlay.bounds.collapsed && <nav aria-label="Overlay controls"><button aria-label="Minimize page overlay" title="Minimize page overlay" onClick={minimize}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" /></svg></button></nav>}
