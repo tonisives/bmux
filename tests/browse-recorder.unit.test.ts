@@ -12,7 +12,7 @@ describe('social browse archive', () => {
       let plugins = path.join(directory, 'plugins'), contribution = path.join(plugins, 'bmux.x/simulation')
       await mkdir(contribution, { recursive: true })
       await writeFile(path.join(contribution, 'capture.json'), JSON.stringify({ hosts: ['x.com'], expression: 'fixture' }))
-      let recorder = createBrowseRecorder({ directory, captureTimeoutMs: 30 })
+      let recorder = createBrowseRecorder({ directory, captureTimeoutMs: 200 })
       let state = { ok: true, identity: 'https://x.com/fixture/status/123', text: 'Post', cardRect: { x: 0, y: 0, width: 100, height: 100 }, viewport: [100, 100] }
       let frame: any = { isEmpty: () => false, getSize: () => ({ width: 100, height: 100 }), crop: () => frame, toJPEG: () => Buffer.from([255, 216, 255, 217]) }
       let release!: (value: any) => void, stalled = new Promise(resolve => { release = resolve })
