@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { sharedSocialField } from '../shared/plugins'
 import { AgentScrollError } from './agent-scroll'
+import { ProfileBusyError } from './website-locks'
 import { pluginRangeValue } from '../shared/plugin-range'
 import { parsePluginOverlay, validatePluginOverlayInput } from '../shared/plugin-overlay'
 import type { PluginOverlayContent, PluginOverlayInput } from '../shared/plugin-overlay'
@@ -305,7 +306,7 @@ export let createPlugins = (options: Options) => {
     try { return await options.browser(method, { ...args, _automationLease: run.automationToken }, { ...run.context, runId: run.public.id, pacing: run.action.pacing }, run.controller.signal) }
     catch (error) {
       if (isAutomationSafetyError(error)) { run.policyError = error.message; finish(run, 'failed'); throw error }
-      if (error instanceof AgentScrollError) throw error
+      if (error instanceof AgentScrollError || error instanceof ProfileBusyError) throw error
       throw new Error('Browser operation failed or target document changed')
     }
   }
@@ -377,7 +378,10 @@ export let createPlugins = (options: Options) => {
   let pump = () => {
     if (closed) return
     while (active < 4) {
-      let run = [...runs.values()].filter(run => run.public.status === 'queued').sort((a, b) => Number(a.public.hook) - Number(b.public.hook))[0]
+      let running = [...runs.values()].filter(run => run.public.status === 'running')
+      let run = [...runs.values()].filter(run => run.public.status === 'queued' && !running.some(other =>
+        run.context.profileId && other.context.profileId === run.context.profileId && (run.action.pacing === 'plugin' || other.action.pacing === 'plugin')
+      )).sort((a, b) => Number(a.public.hook) - Number(b.public.hook))[0]
       if (!run) break
       active++; run.public.status = 'running'
       if (run.public.hook || run.action.pacing !== 'plugin') run.timer = setTimeout(() => finish(run, 'failed', 'Plugin timed out'), run.action.timeout_seconds * 1000)

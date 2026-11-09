@@ -4,6 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { stringify } from 'yaml'
 import { createPlugins } from '../src/main/plugins'
+import { ProfileBusyError } from '../src/main/website-locks'
 import { parsePluginManifest, matchesPluginUrl } from '../src/main/plugin-manifest'
 import { pluginRangeValue } from '../src/shared/plugin-range'
 import { parseConfig } from '../src/main/config'
@@ -42,6 +43,27 @@ describe('plugin definitions', () => {
     expect((await done(plugins, run.id)).status).toBe('completed')
     expect(finished).toHaveBeenCalledExactlyOnceWith(run.id)
     expect(browser).toHaveBeenCalledWith('dom', expect.any(Object), expect.objectContaining({ pacing: 'plugin', runId: run.id }), expect.any(AbortSignal))
+  })
+  test('queues plugin sessions on the same profile and starts the next after cancellation', async () => {
+    let { plugins } = fixture('setInterval(() => {}, 1000)', { pacing: 'plugin' })
+    let first = plugins.run('test/run', { profileId: 'one', paneId: 'first' })
+    let second = plugins.run('test/run', { profileId: 'one', paneId: 'second' })
+    let cancelled = plugins.run('test/run', { profileId: 'one', paneId: 'third' })
+    let independent = plugins.run('test/run', { profileId: 'two', paneId: 'fourth' })
+    expect(plugins.runs().find(run => run.id === first.id)?.status).toBe('running')
+    expect(plugins.runs().find(run => run.id === second.id)?.status).toBe('queued')
+    expect(plugins.runs().find(run => run.id === independent.id)?.status).toBe('running')
+    plugins.cancel(cancelled.id)
+    plugins.cancel(first.id)
+    await vi.waitFor(() => expect(plugins.runs().find(run => run.id === second.id)?.status).toBe('running'))
+    expect(plugins.runs().find(run => run.id === cancelled.id)?.status).toBe('cancelled')
+  })
+  test('preserves profile contention errors from browser operations', async () => {
+    let { plugins, browser } = fixture(hostScript + "host('result', {error: (() => {try {host('dom')} catch(error) {return error.stderr?.toString() ?? error.message}})()});")
+    browser.mockRejectedValueOnce(new ProfileBusyError())
+    let run = plugins.run('test/run', {})
+    let result = await done(plugins, run.id)
+    expect(JSON.stringify(result.result)).toContain('Profile is busy with another agent')
   })
   test('binds follow reservations to the invocation profile, pane and lease', async () => {
     let automation = { acquire: vi.fn(() => ({ token: 'private-lease', group: 'social' })), release: vi.fn(), follow: vi.fn(() => ({ reserved: true, remaining: 9 })), like: vi.fn(), authorize: vi.fn(), status: vi.fn() }

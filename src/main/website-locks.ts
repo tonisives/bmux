@@ -1,3 +1,7 @@
+export class ProfileBusyError extends Error {
+  constructor() { super('Profile is busy with another agent') }
+}
+
 // Plugin pacing owns a profile until that run ends.
 export let createWebsiteLocks = () => {
   let owners = new Map<string, string>()
@@ -10,7 +14,7 @@ export let createWebsiteLocks = () => {
   let assertAvailable = (profileId: string, urls: string[], owner?: string) => {
     for (let url of urls) {
       let key = keyFor(profileId, url), current = key && owners.get(key)
-      if (current && current !== owner) throw new Error('Profile is busy with another agent')
+      if (current && current !== owner) throw new ProfileBusyError()
     }
   }
   let claim = (profileId: string, urls: string[], owner: string) => {
