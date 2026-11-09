@@ -59,7 +59,7 @@ describe('plugin definitions', () => {
     expect(plugins.runs().find(run => run.id === cancelled.id)?.status).toBe('cancelled')
   })
   test('preserves profile contention errors from browser operations', async () => {
-    let { plugins, browser } = fixture(hostScript + "host('result', {error: (() => {try {host('dom')} catch(error) {return error.stderr?.toString() ?? error.message}})()});")
+    let { plugins, browser } = fixture(hostScript + "host('result', {error: (() => {try {host('dom')} catch(error) {return JSON.parse(error.stdout.toString()).error}})()});")
     browser.mockRejectedValueOnce(new ProfileBusyError())
     let run = plugins.run('test/run', {})
     let result = await done(plugins, run.id)
