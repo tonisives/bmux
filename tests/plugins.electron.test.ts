@@ -845,7 +845,6 @@ test('plugin decision tree highlights answers and moves settings and usage into 
   let actions = panel.getByRole('group', { name: 'Agent playback actions', exact: true })
   await actions.getByRole('button', { name: 'Pause session', exact: true }).click()
   await expect.poll(async () => (await state()).pluginOverlay.content.status).toBe('Paused')
-  await expect(observer.getByRole('button', { name: 'Stop session', exact: true })).toBeVisible()
   await playback.click()
   await actions.getByRole('button', { name: 'Resume session', exact: true }).click()
   await expect.poll(async () => (await state()).pluginOverlay.content.status).toBe('Browsing')

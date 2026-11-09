@@ -128,3 +128,5 @@
 .panel header .overlayZoom { gap: 0; }
 .panel header .overlayZoom button { min-width: 20px; }
 .actionLine { grid-template-columns: repeat(3, 40px) 1fr; }
+
+.panel .panelTabs > div > button[role="tab"] { flex-grow: 1; }
