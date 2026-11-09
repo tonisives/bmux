@@ -481,6 +481,7 @@ test('different plugins retain separate overlay tabs and a new run replaces only
 
 test('manual plugin paced sessions outlive the general timeout and release their profile on stop', async () => {
   let { plugins, context } = fixture('setInterval(() => {}, 1000)', { pacing: 'plugin', timeout_seconds: 1 })
+  context.profileId = 'bot'
   let { id } = plugins.run('test/run', context)
   expect(plugins.sessionManaged(context.profileId!, context.paneId)).toBe(true)
   await new Promise(resolve => setTimeout(resolve, 1200))
