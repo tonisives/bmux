@@ -12,7 +12,7 @@ let pageErrors: string[] = []
 let fixture = `<!doctype html><title>Vim field fixture</title>
 <link rel="stylesheet" href="/fixture.css">
 <form><input id="text" value="alpha bravo"><textarea id="notes">alpha bravo\ncharlie delta</textarea><input id="password" type="password"><input id="readonly" readonly value="locked"><input id="number" type="number"></form>
-<div id="rich" contenteditable="true"><p>alpha bravo</p><p>charlie delta</p></div>
+<div id="lexical"></div><output id="lexical-model"></output><div id="rich" contenteditable="true"><p>alpha bravo</p><p>charlie delta</p></div>
 <output id="notes-count">25</output><output id="rich-count"></output><div id="react"></div><div id="draft"></div><form id="search-form"><input id="map-search" role="combobox" name="q"><output id="search-result"></output></form><div id="shadow"></div><button id="outside">Outside</button>
 <script nonce="bmux-fixture" src="/fixture.js"></script>`
 
@@ -23,6 +23,15 @@ test.beforeAll(async () => {
   let bundle = await build({ stdin: { contents: `
     import React, { useState } from 'react'; import { createRoot } from 'react-dom/client';
     import { Editor, EditorState, ContentState } from 'draft-js';
+    import { createEditor, $getRoot, $createParagraphNode, $createTextNode } from 'lexical';
+    import { registerPlainText } from '@lexical/plain-text';
+    let lexicalRoot = document.querySelector('#lexical').attachShadow({ mode: 'open' });
+    lexicalRoot.innerHTML = '<div id="lexical-field" contenteditable="true" role="textbox" aria-label="Lexical composer" style="width:450px;min-height:80px;border:1px solid #888"></div>';
+    let lexical = createEditor({ namespace: 'fixture', onError: error => { throw error; } });
+    lexical.setRootElement(lexicalRoot.querySelector('#lexical-field'));
+    registerPlainText(lexical);
+    lexical.registerUpdateListener(({ editorState }) => editorState.read(() => { document.querySelector('#lexical-model').textContent = $getRoot().getTextContent(); }));
+    lexical.update(() => { $getRoot().append($createParagraphNode().append($createTextNode('lexical seed'))); });
     let Form = () => { let [value, setValue] = useState('controlled'); return React.createElement(React.Fragment, null, React.createElement('input', { id: 'controlled', value, onChange: e => setValue(e.target.value) }), React.createElement('output', { id: 'controlled-value' }, value)); };
     createRoot(document.querySelector('#react')).render(React.createElement(Form));
     let Composer = () => {
@@ -470,6 +479,29 @@ test('website Vim keeps Draft.js model, counter, native typing and Escape workin
   await editor.pressSequentially('irecovered'); await editor.press('Escape'); await ex(editor, 'wq')
   await expect(overlay).toHaveCount(0); await expect(model).toHaveText('recovered')
   await field.press('Meta+ArrowRight'); await field.pressSequentially('!'); await expect(model).toHaveText('recovered!')
+})
+
+test('website Vim preserves rapid Lexical typing and exit commands inside a shadow root', async () => {
+  let field = page.getByRole('textbox', { name: 'Lexical composer' }), model = page.locator('#lexical-model')
+  for (let exit of ['wq', 'ZZ', 'Escape']) {
+    let { overlay, editor } = await open(field)
+    await page.keyboard.type('gg0Aasd')
+    await expect(editor).toContainText('asd')
+    await expect(model).toHaveText('lexical seedasd')
+    await expect(editor).toBeFocused()
+    await page.keyboard.press('Escape')
+    if (exit === 'wq') {
+      await page.keyboard.type(':wq')
+      await expect(overlay.locator('.cm-vim-panel input')).toBeFocused()
+      await page.keyboard.press('Enter')
+    } else if (exit === 'ZZ') await page.keyboard.type('ZZ')
+    else await page.keyboard.press('Escape')
+    await expect(overlay).toHaveCount(0)
+    await expect(model).toHaveText('lexical seedasd')
+    await expect(field).toBeFocused()
+    await field.press('Meta+ArrowRight'); await field.press('Backspace'); await field.press('Backspace'); await field.press('Backspace')
+    await expect(model).toHaveText('lexical seed')
+  }
 })
 
 test('website Vim removes a closed composer during a pending Draft write and restores native editing', async () => {
