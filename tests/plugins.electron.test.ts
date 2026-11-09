@@ -1062,7 +1062,7 @@ test('plugins and viewport controls share one independently zoomed tabbed pane v
       let tab = document.querySelector('[role="tab"][aria-label="Research notes"]')!.getBoundingClientRect()
       let close = document.querySelector('[aria-label="Close Research notes tab"]')!.getBoundingClientRect()
       let minimize = document.querySelector('[aria-label="Minimize page overlay"]')!.getBoundingClientRect()
-      return { closeRight: tab.right - close.right, closeTop: close.top - tab.top, rightGap: innerWidth - minimize.right }
+      return { closeRight: tab.right - close.right, closeTop: close.top - tab.top, rightGap: document.querySelector('[role="tabpanel"]')!.getBoundingClientRect().right - minimize.right }
     })
     expect(Math.abs(layout.closeRight)).toBeLessThanOrEqual(1)
     expect(Math.abs(layout.closeTop)).toBeLessThanOrEqual(1)
