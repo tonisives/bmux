@@ -152,7 +152,7 @@ let DecisionBody = () => {
   let usage = () => setPopup(current => current === 'usage' ? undefined : 'usage')
   let close = () => setPopup(undefined)
   let keys = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); close() } }
-  if (awaitingStart) return <div className={css.body}><h2>{startLabel === 'Build feed' ? 'Ready to build feed' : 'Ready to browse'}</h2><p role="status">Choose {startLabel} to review each action, or Start with auto continue.</p><p>{overlay.content.subtitle}</p></div>
+  if (awaitingStart) return <div className={css.body}><h2>{startLabel === 'Build feed' ? 'Ready to build feed' : 'Ready to browse'}</h2><p role="status">Adjust settings, then choose {startLabel}.</p><p>{overlay.content.subtitle.split(' · ').slice(0, 2).join(' · ')}</p>{overlay.content.controls.filter(control => control.kind !== 'button').map(control => <OverlayField key={control.id} control={control} />)}</div>
   return <>
     <div className={css.body}>
       <p className={css.status}>{overlay.content.status}</p><section className={css.postExcerpt}><h2>{post?.title || 'Post'}</h2><p title={post?.lines.join(' ')}>{post?.lines.join(' ').slice(0, 240) || 'Waiting for a post'}</p></section>
