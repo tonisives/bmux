@@ -9,7 +9,7 @@ import path from 'node:path'
 import { pageVimPlugin } from '../page-vim-build'
 import { closeTestApplication } from './electron-fixture'
 
-test('account seal rejects identity edits and preserves browser headers and viewport after relaunch', async () => {
+test('account seal rejects identity edits and preserves browser headers and viewport after relaunch', async ({}, info) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-account-seal-electron-')), output = path.join(directory, 'build')
   await fs.mkdir(output); await fs.writeFile(path.join(output, 'package.json'), '{"type":"module"}')
   await fs.symlink(path.join(process.cwd(), 'node_modules'), path.join(output, 'node_modules'))
@@ -21,7 +21,9 @@ test('account seal rejects identity edits and preserves browser headers and view
   let url = `http://127.0.0.1:${(server.address() as {port:number}).port}/`, data = path.join(directory,'profile')
   await fs.mkdir(data); await fs.writeFile(path.join(data,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
   let launch = () => electron.launch({ args: [path.join(output,'main/main.js')], env: { ...process.env, BMUX_DATA_DIR:data, BMUX_CONFIG:path.join(data,'config.yaml') } })
-  let application = await launch()
+  let application = await launch(), stderr = ''
+  let track = () => application.process().stderr?.on('data', value => { stderr += value.toString() })
+  track()
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
@@ -29,6 +31,7 @@ test('account seal rejects identity edits and preserves browser headers and view
     let state = await chrome.evaluate(() => (window as any).bmux.state()), client = state.model.clients.find((item: any) => item.id === state.clientId)
     await rpc('navigate',{pane:client.paneId,url})
     await expect.poll(() => application.context().pages().some(page => page.url()===url)).toBe(true)
+    await expect(application.context().pages().find(page => page.url()===url)!.getByRole('heading')).toHaveText('Account seal fixture')
     await rpc('lock-window',{window:client.windowId}); await rpc('lock-viewport',{window:client.windowId,width:1200,height:800})
     let receipt = await application.evaluate(async (_electron, settingsHash) => {
       let runtime = (globalThis as any).remoteLayoutRuntime, session = runtime.model.sessions[0], window = session.windows[0], pane = window.panes[0]
@@ -50,11 +53,11 @@ test('account seal rejects identity edits and preserves browser headers and view
     }, {session:client.sessionId,pane:client.paneId,url})
     await expect.poll(() => page.evaluate(() => document.body.dataset.clicked)).toBe('1')
 
-    await closeTestApplication(application); application = await launch()
+    await closeTestApplication(application); await info.attach('sealed-state',{body:await fs.readFile(path.join(data,'state.json')),contentType:'application/json'}); application = await launch(); track()
     await expect.poll(() => application.context().pages().some(page => page.url()===url),{timeout:15000}).toBe(true)
     page = application.context().pages().find(page => page.url()===url)!
     await expect.poll(() => page.evaluate(() => ({width:innerWidth,height:innerHeight,userAgent:navigator.userAgent}))).toEqual({width:1200,height:800,userAgent})
     expect(headers.length).toBeGreaterThan(1); expect(new Set(headers)).toEqual(new Set([userAgent]))
     expect(await application.evaluate(() => Object.keys((globalThis as any).remoteLayoutRuntime.model.accountSeals).length)).toBe(1)
-  } finally { await closeTestApplication(application); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory,{recursive:true,force:true}) }
+  } finally { await info.attach('electron-stderr',{body:stderr,contentType:'text/plain'}); await info.attach('restored-state',{body:JSON.stringify(await application.evaluate(() => { let runtime = (globalThis as any).remoteLayoutRuntime; return runtime ? {model:runtime.model,crashes:runtime.state().crashes} : {missingRuntime:true} }).catch(() => ({}))),contentType:'application/json'}); await closeTestApplication(application); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory,{recursive:true,force:true}) }
 })
