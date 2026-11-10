@@ -2,6 +2,9 @@ import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication } from '@playwright/test'
 import type { ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import fs from 'node:fs/promises'
 import http from 'node:http'
 import net from 'node:net'
@@ -163,4 +166,39 @@ for (let scenario of [
     if (scenario.ordinaryLive) await expect.poll(() => f.requests.get('/ordinary') ?? 0).toBe(1)
     expect((await f.contents(ordinary.id)) !== null).toBe(scenario.ordinaryLive)
   } finally { await f.cleanup() }
+})
+
+
+test('Quit blocks background relaunches until the app is opened again', async () => {
+  test.setTimeout(90000)
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-quit-policy-'))
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  let env: Record<string, string> = { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)), BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' }
+  delete env.ELECTRON_RUN_AS_NODE
+  let cli = async (...args: string[]) => promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env, timeout: 15000 })
+  let launch = async () => {
+    application = await electron.launch({ args: ['.'], env })
+    let pid = application.process().pid
+    await expect(async () => expect(JSON.parse((await cli('diagnostics', '--no-start')).stdout).result.pid).toBe(pid)).toPass({ timeout: 15000 })
+  }
+  try {
+    await fs.writeFile(env.BMUX_CONFIG, 'keyboard: {}\nbrowser:\n  adblock: false\n  autoUpdateFilters: false\n')
+    await launch()
+    let exited = new Promise(resolve => application!.process().once('exit', resolve))
+    // The native Quit menu and Cmd-Q both emit before-quit.
+    await application!.evaluate(({ app }) => { setTimeout(() => app.quit(), 0) })
+    await exited
+    application = undefined
+    expect(await fs.stat(path.join(directory, 'autostart-paused')).then(() => true)).toBe(true)
+    await expect(cli('list-sessions')).rejects.toMatchObject({ stderr: expect.stringContaining('bmux was quit') })
+    let executable = createRequire(import.meta.url)('electron') as string
+    await promisify(execFile)(executable, ['.', '--background'], { env: { ...env, BMUX_AUTOSTART: '1' }, timeout: 15000 })
+    await expect(cli('diagnostics', '--no-start')).rejects.toMatchObject({ stderr: expect.stringContaining('BMUX is not running') })
+    await launch()
+    expect(await fs.stat(path.join(directory, 'autostart-paused')).then(() => true, () => false)).toBe(false)
+    expect(JSON.parse((await cli('list-sessions')).stdout).ok).toBe(true)
+  } finally {
+    await closeTestApplication(application)
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
 })
