@@ -13,6 +13,11 @@ profile isolation, completed-transfer and CLI ownership assertions remain.
 
 Repeat both cases in CI before the full release suite.
 
+The CLI agent fixture also launched more than thirty Node processes inside one
+five-second test deadline. Its existing assertions are now grouped into separate
+isolated socket cases. Each child command retains its five-second bound; the
+suite no longer gives the combined process startup cost a single deadline.
+
 # Restart fixtures wait for their own control server
 
 The two direct browser restarts in the recovery fixtures waited only for
