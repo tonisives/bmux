@@ -1,3 +1,4 @@
+import { assertAccountSeals } from './account-seals'
 import { assignWindowNumbers } from '../shared/window-number'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -79,6 +80,7 @@ export let readModel = (directory: string, bookmarkFile = path.join(directory, '
   return model
 }
 export let writeModel = (directory: string, model: Model, bookmarkFile = path.join(directory, 'bookmarks.yaml')) => {
+  assertAccountSeals(model)
   for (let session of model.sessions) assignWindowNumbers(session)
   let profiles = bookmarkProfiles(model)
   // Leave hand-edited formatting and comments intact when only session state changed.

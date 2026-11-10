@@ -1,3 +1,4 @@
+import { assertAccountSeals, assertAccountMutation, assertAccountCDP, sealAccount } from './account-seals'
 import { createAgentStatePublisher } from './agent-state-publisher'
 import { createSocialHooks } from './social-hooks'
 import type { SocialHookConfig } from '../shared/social-hooks'
@@ -162,6 +163,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let bookmarkFile = bookmarksPath(configPath(dataDirectory))
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
+  assertAccountSeals(model)
   let interactiveOnly = process.env.BMUX_INTERACTIVE_ONLY === 'true'
   if (interactiveOnly && (model.sessions.length !== 1 || model.sessions[0].windows.length !== 1 || model.sessions[0].windows[0].panes.length !== 1)) throw new Error('Included browser requires one session and one pane')
   let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
@@ -685,7 +687,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
     let browser = privateSessionId ? electronSession.fromPath(privateStoragePath(privateSessionId, profileId)) : electronSession.fromPartition(`persist:${profileId}`)
     if (!defaultUserAgents.has(key)) defaultUserAgents.set(key, browser.getUserAgent())
-    browser.setUserAgent(persona ? deviceUserAgent(persona) : defaultUserAgents.get(key)!, persona?.locale)
+    let seal = !privateSessionId ? Object.values(model.accountSeals ?? {}).find(seal => seal.identity.connectionId === profileId) : undefined
+    browser.setUserAgent(seal?.userAgent ?? (persona ? deviceUserAgent(persona) : defaultUserAgents.get(key)!), seal?.locale ?? persona?.locale)
     return browser
   }
   let profileCacheSessions = (connectionId: string) => {
@@ -968,6 +971,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     })().catch(() => undefined)
   }
   let cdp = async (tabId: string, method: string, params: Record<string, unknown> = {}, sessionId?: string, readOnly = false, automatedMouse = false, scrolling?: unknown) => {
+    assertAccountCDP(model, tabId, method)
     let scaleInput = automatedMouse
     automatedMouse = automatedMouse && !humanInput.getStore()
     let live = await ensureLiveTab(tabId)
@@ -1031,12 +1035,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let applyDevicePersona = async (contents: Electron.WebContents, persona: DevicePersona, scale = 1) => {
     let debuggerApi = contents.debugger
     if (!debuggerApi.isAttached()) debuggerApi.attach('1.3')
-    let metadata = deviceUserAgentMetadata(persona)
+    let pane = [...tabs].find(([, live]) => live.contents === contents)?.[0]
+    let connection = pane ? paneConnectionId(paneById(model, pane).pane) : undefined
+    let seal = Object.values(model.accountSeals ?? {}).find(seal => seal.identity.connectionId === connection)
+    let chromeVersion = seal?.chromeVersion ?? process.versions.chrome
+    let metadata = seal?.userAgentMetadata ?? deviceUserAgentMetadata(persona, chromeVersion)
     let deviceMemoryScript = persona.platform === 'android'
       ? "Object.defineProperty(Navigator.prototype, 'deviceMemory', { configurable: true, get: () => 8 })"
       : "delete Navigator.prototype.deviceMemory"
     await Promise.all([
-      debuggerApi.sendCommand('Emulation.setUserAgentOverride', { userAgent: deviceUserAgent(persona), acceptLanguage: persona.locale, platform: persona.platform === 'android' ? 'Linux armv81' : 'iPhone', ...(metadata ? { userAgentMetadata: metadata } : {}) }),
+      debuggerApi.sendCommand('Emulation.setUserAgentOverride', { userAgent: seal?.userAgent ?? deviceUserAgent(persona, chromeVersion), acceptLanguage: seal?.locale ?? persona.locale, platform: seal?.platform ?? (persona.platform === 'android' ? 'Linux armv81' : 'iPhone'), ...(metadata ? { userAgentMetadata: metadata } : {}) }),
       debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: deviceMemoryScript }),
       debuggerApi.sendCommand('Emulation.setSafeAreaInsetsOverride', { insets: deviceSafeAreaInsets(persona) }),
       debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: deviceSafeAreaScript(persona), worldName: 'bmux:device-safe-areas', runImmediately: true }),
@@ -1419,7 +1427,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       profileNetworkReady.get(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane)),
       // Let Chromium open native pickers. CDP interception aborts the File System
       // Access API, whose requests have no input node to receive selected files.
-      bootstrap.then(() => { if (pane.device && isLiveTabOpen(live)) return applyDevicePersona(contents, pane.device) }).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents && !restoringHistory) }),
+      bootstrap.then(async () => {
+        if (!isLiveTabOpen(live)) return
+        if (pane.device) await applyDevicePersona(contents, pane.device)
+        let seal = Object.values(model.accountSeals ?? {}).find(seal => seal.identity.connectionId === paneConnectionId(pane))
+        if (seal) {
+          if (!contents.debugger.isAttached()) contents.debugger.attach('1.3')
+          await contents.debugger.sendCommand('Emulation.setUserAgentOverride', { userAgent: seal.userAgent, acceptLanguage: seal.locale, platform: seal.platform, ...(seal.userAgentMetadata ? { userAgentMetadata: seal.userAgentMetadata } : {}) })
+        }
+      }).then(() => { if (isLiveTabOpen(live)) return pageTools?.attach(tabId, pane.profileId, contents, !popupOptions?.webContents && !restoringHistory) }),
     ]).then(async () => { if (isLiveTabOpen(live)) { await installSwipe?.(); return startSecurity() } }).finally(() => { bootstrapping = false })
     void live.ready.catch(error => { if (!live.disposed) { setNavigationError(tabId, `Device identity failed: ${errorText(error)}`); publish(); void scheduleVisuals() } })
     let internalBootstrap = () => bootstrapping && initialUrl !== 'about:blank' && contents.getURL() === 'about:blank'
@@ -2755,6 +2771,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let perform = async ({ method, args = {} }: Command, sourceClientId?: string): Promise<unknown> => {
     if (typeof args.pane === 'string' && args.tab === undefined) args = { ...args, tab: args.pane }
     validateAgentInfo(args)
+    assertAccountMutation(model, method, args)
     let sourceClient = model.clients.find(client => client.id === sourceClientId)
     let target = typeof args.pane === 'string' || typeof args.tab === 'string' ? model.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === (args.pane ?? args.tab))))
       : typeof args.window === 'string' ? model.sessions.find(session => session.windows.some(window => window.id === args.window))
@@ -3025,8 +3042,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         { label: window.pinned ? 'Unpin Window' : 'Pin Window', click: () => invoke('toggle-window-pin', { window: window.id }) },
         { label: 'Duplicate Window', click: () => invoke('duplicate-window', { window: window.id, client: client.id }) },
         { type: 'separator' },
-        { label: window.locked ? 'Unlock Window' : 'Lock Window', icon: lockMenuIcon('window'), click: () => invoke(window.locked ? 'unlock-window' : 'lock-window', { window: window.id }) },
-        { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', icon: lockMenuIcon('viewport'), click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id, client: client.id }) },
+        { label: window.locked ? 'Unlock Window' : 'Lock Window', enabled: !window.panes.some(pane => model.accountSeals?.[pane.id]), icon: lockMenuIcon('window'), click: () => invoke(window.locked ? 'unlock-window' : 'lock-window', { window: window.id }) },
+        { label: window.lockedViewports ? 'Unlock Viewport' : 'Lock Viewport', enabled: !window.panes.some(pane => model.accountSeals?.[pane.id]), icon: lockMenuIcon('viewport'), click: () => invoke(window.lockedViewports ? 'unlock-viewport' : 'lock-viewport', { window: window.id, client: client.id }) },
         { type: 'separator' },
         { label: 'Move Left', enabled: index > 0 && !!session.windows[index - 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index - 1].id, position: 'before' }) },
         { label: 'Move Right', enabled: index < session.windows.length - 1 && !!session.windows[index + 1].pinned === !!window.pinned, click: () => invoke('reorder-window', { client: client.id, window: window.id, target: session.windows[index + 1].id, position: 'after' }) },
@@ -4783,5 +4800,20 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return remoteViewport(pane)
     },
   }
-  return { activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane,...agentInfo(paneById(model,pane).pane)} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, executeHuman, state, overlayState, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
+  let accounts = { seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
+    let { pane, session } = paneById(model, identity.paneId)
+    controls.assert(session.id)
+    let live = await ensureLiveTab(pane.id)
+    await live.ready
+    controls.assert(session.id)
+    if (!valid()) throw new Error('ACCOUNT_REQUEST_EXPIRED')
+    let device = pane.device ?? model.profiles.find(profile => profile.id === pane.profileId)?.device
+    let headers = await live.contents.executeJavaScriptInIsolatedWorld(999, [{ code: `(async () => { let hints = navigator.userAgentData; return { userAgent: navigator.userAgent, locale: navigator.language, platform: navigator.platform, ...(hints ? { userAgentMetadata: { ...hints.toJSON(), ...await hints.getHighEntropyValues(['architecture','bitness','model','platformVersion','fullVersionList','wow64']) } } : {}) } })()` }])
+    if (!valid()) throw new Error('ACCOUNT_REQUEST_EXPIRED')
+    controls.assert(session.id)
+    let seal = sealAccount(model, account, identity, { ...headers, chromeVersion: process.versions.chrome!, ...(device ? { userAgent: deviceUserAgent(device), locale: device.locale } : {}) })
+    save()
+    return { account: seal.account, headersHash: seal.headersHash, sealedAt: seal.sealedAt }
+  } }
+  return { accounts, activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane,...agentInfo(paneById(model,pane).pane)} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, executeHuman, state, overlayState, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
 }
