@@ -16,7 +16,7 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
     try {
       let browsing = control ? await control.inventory() : undefined
       if (stopped || current !== socket || current.readyState !== WebSocket.OPEN) return
-      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), type: 'inventory', control: 1, name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model) })
+      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), type: 'inventory', control: 1, name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model).map(pane => ({ ...pane, controlled: runtime.accounts.controlled(pane.key) })) })
       if (Buffer.byteLength(message) <= 262144) socket.send(message)
     } catch { current.close() } finally { reporting = false }
   }

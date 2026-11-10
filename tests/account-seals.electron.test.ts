@@ -16,7 +16,7 @@ test('account seal rejects identity edits and preserves browser headers and view
   for (let name of ['preload','renderer','native']) await fs.symlink(path.join(process.cwd(), 'out', name), path.join(output, name))
   await build({ configFile: false, logLevel: 'error', plugins: [externalizeDepsPlugin(), pageVimPlugin()], build: { ssr: true, emptyOutDir: false, outDir: path.join(output, 'main'), rollupOptions: { input: 'tests/fixtures/remote-layout-main.ts', output: { format: 'es', entryFileNames: 'main.js' } } } })
   let headers: string[] = []
-  let server = http.createServer((request, response) => { headers.push(request.headers['user-agent'] ?? ''); response.setHeader('Content-Type','text/html'); response.end('<!doctype html><title>Account seal fixture</title><h1>Account seal fixture</h1>') })
+  let server = http.createServer((request, response) => { headers.push(request.headers['user-agent'] ?? ''); response.setHeader('Content-Type','text/html'); response.end('<!doctype html><title>Account seal fixture</title><h1 onclick="document.body.dataset.clicked=1">Account seal fixture</h1>') })
   await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve))
   let url = `http://127.0.0.1:${(server.address() as {port:number}).port}/`, data = path.join(directory,'profile')
   await fs.mkdir(data); await fs.writeFile(path.join(data,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
@@ -40,6 +40,16 @@ test('account seal rejects identity edits and preserves browser headers and view
     let page = application.context().pages().find(page => page.url()===url)!
     await expect.poll(() => page.evaluate(() => ({width:innerWidth,height:innerHeight}))).toEqual({width:1200,height:800})
     let userAgent = await page.evaluate(() => navigator.userAgent)
+    await expect(rpc('navigate',{pane:client.paneId,url})).rejects.toThrow('ACCOUNT_CONTROL_REQUIRED')
+    await application.evaluate(async (_electron, {session,pane}) => {
+      let runtime = (globalThis as any).remoteLayoutRuntime
+      let lease = runtime.remote.acquire(session,'fixture-owner',false)
+      try { runtime.remote.acquire(session,'competing-owner',true); throw new Error('A competing controller acquired the sealed session') } catch (error) { if ((error as Error).message !== 'CONTROL_HELD') throw error }
+      await runtime.remote.command('fixture-owner',lease.generation,{method:'click',args:{pane,selector:'h1'}})
+      runtime.remote.release(session,'fixture-owner')
+    }, {session:client.sessionId,pane:client.paneId,url})
+    await expect.poll(() => page.evaluate(() => document.body.dataset.clicked)).toBe('1')
+
     await closeTestApplication(application); application = await launch()
     await expect.poll(() => application.context().pages().some(page => page.url()===url),{timeout:15000}).toBe(true)
     page = application.context().pages().find(page => page.url()===url)!

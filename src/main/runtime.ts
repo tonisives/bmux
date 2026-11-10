@@ -212,7 +212,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (changed) void scheduleVisuals()
   }
+  let managedConnection = (pane: Model['sessions'][number]['windows'][number]['panes'][number]) => Object.values(model.accountSeals ?? {}).some(seal => seal.identity.connectionId === paneConnectionId(pane))
+  let managedSession = (sessionId: string) => model.sessions.some(session => session.id === sessionId && session.windows.some(window => window.panes.some(managedConnection)))
   let reclaimDesktopControl = (sessionId: string) => {
+    if (managedSession(sessionId)) return
     controls.release(sessionId)
     clearRemoteSizes()
     void scheduleVisuals()
@@ -241,6 +244,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           : clientSession ? model.sessions.filter(session => session.id === clientSession)
             : affectedProfile ? model.sessions.filter(session => session.windows.some(window => window.panes.some(pane => pane.profileId === affectedProfile)))
               : model.sessions
+    if (['navigate', 'back', 'forward', 'reload', 'hard-reload', 'stop', 'eval', 'cdp', 'click', 'type', 'key', 'scroll', 'forms.fill', 'plugin.run'].includes(method)) {
+      let panes = sessions.flatMap(session => session.windows.flatMap(window => window.panes)).filter(pane => typeof paneId !== 'string' || pane.id === paneId)
+      if (panes.some(managedConnection) && !actor) throw new Error('ACCOUNT_CONTROL_REQUIRED')
+    }
     for (let session of sessions) controls.assert(session.id, actor?.owner, actor?.generation)
   }
   let crashRecovery = startNavigationCrashRecovery(dataDirectory, model)
@@ -453,7 +460,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let agentUnlockTimers = new Map<string, () => void>()
   let agentInputOverrides = createAgentInputOverrides(paneId => { refreshAgentInputLock(paneId); publish() })
   let agentInputDue = (paneId: string) => { let actor = activeAgents.get(paneId); return !!actor && (actor.pending > 0 || Date.now() - actor.lastUsed < agentFeedback().inputUnlockMs) }
-  let agentInputLocked = (paneId: string) => !agentInputOverrides.has(currentPane(paneId)) && agentInputDue(paneId)
+  let agentInputLocked = (paneId: string) => !!currentPane(paneId) && managedConnection(currentPane(paneId)!) || !agentInputOverrides.has(currentPane(paneId)) && agentInputDue(paneId)
   let refreshAgentInputLock = (paneId: string) => tabs.get(paneId)?.inputLock?.setLocked(agentInputLocked(paneId))
   let scheduleUnlock = (paneId: string, lastUsed: number) => {
     agentUnlockTimers.get(paneId)?.()
@@ -602,7 +609,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!view.getVisible()) view.setVisible(true)
     }
   }
-  let state = (clientId = '', contentsId?: number): PublicState => ({ browseRecording: { ...(configuration?.browseRecording ?? { enabled: true, manual: true }), error: browseRecorder.error }, nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayState(clientId, contentsId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...activeAgents.keys()].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list().map(plugin => ({...plugin,sent:plugin.category === 'Social Media' ? socialHooks?.sent(plugin.id) : undefined})), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = '', contentsId?: number): PublicState => ({ browseRecording: { ...(configuration?.browseRecording ?? { enabled: true, manual: true }), error: browseRecorder.error }, nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayState(clientId, contentsId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...new Set([...activeAgents.keys(), ...walkPanes(model).filter(item => managedConnection(item.pane)).map(item => item.pane.id)])].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list().map(plugin => ({...plugin,sent:plugin.category === 'Social Media' ? socialHooks?.sent(plugin.id) : undefined})), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -2789,7 +2796,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       pane.lastUsedBy = 'human'; pane.lastActivityAt = Date.now()
       save()
     }
-    if (method === 'remote.reclaim' && sourceClientId) { reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
+    if (method === 'remote.reclaim' && sourceClientId) { if (managedSession(resolve(model.clients, sourceClientId, 'Client').sessionId)) throw new Error('ACCOUNT_CONTROL_REQUIRED'); reclaimDesktopControl(resolve(model.clients, sourceClientId, 'Client').sessionId); return { released: true } }
     let remoteTab = typeof args.tab === 'string' ? args.tab : sourceClientId ? model.clients.find(client => client.id === sourceClientId)?.paneId : undefined
     let remoteView = remoteTab ? remotePages.get(remoteTab)?.view : undefined
     if (remoteTab && remoteView && !target?.remote && ['cycle-window', 'cycle-pane'].includes(method) && remoteView.panes.length) {
@@ -4750,7 +4757,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (contents && !contents.isDestroyed() && contents.isCrashed()) throw new Error('Page process crashed. Reload to recover.')
       return createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents })
     },
-    acquire: (session: string, owner: string, takeover: boolean) => { resolve(model.sessions, session, 'Session'); let lease = controls.acquire(session, owner, takeover); publish(); return lease },
+    acquire: (session: string, owner: string, takeover: boolean) => {
+      let target = resolve(model.sessions, session, 'Session'), managed = managedSession(session)
+      if (managed) {
+        let connections = new Set(target.windows.flatMap(window => window.panes).filter(managedConnection).map(paneConnectionId))
+        for (let peer of model.sessions) if (peer.id !== session && peer.windows.some(window => window.panes.some(pane => connections.has(paneConnectionId(pane))))) {
+          let lease = controls.get(peer.id)
+          if (lease && lease.owner !== owner) throw new Error('CONTROL_HELD')
+        }
+      }
+      let lease = controls.acquire(session, owner, managed ? false : takeover); publish(); return lease
+    },
     renew: controls.renew,
     release: (session: string, owner?: string) => { controls.release(session, owner); clearRemoteSizes(); publish() },
     disconnect: (owner: string) => { controls.disconnect(owner); clearRemoteSizes(); publish() },
@@ -4804,7 +4821,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return remoteViewport(pane)
     },
   }
-  let accounts = { seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
+  let accounts = { controlled: (pane: string) => !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
     let { pane, session } = paneById(model, identity.paneId)
     controls.assert(session.id)
     let live = await ensureLiveTab(pane.id)
@@ -4817,6 +4834,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     controls.assert(session.id)
     let seal = sealAccount(model, account, identity, { ...headers, chromeVersion: process.versions.chrome!, ...(device ? { userAgent: deviceUserAgent(device), locale: device.locale } : {}) })
     save()
+    for (let { pane } of walkPanes(model)) if (managedConnection(pane)) refreshAgentInputLock(pane.id)
+    publish()
     return { account: seal.account, headersHash: seal.headersHash, sealedAt: seal.sealedAt }
   } }
   return { accounts, activity, recordingTarget: (pane: string) => { let remote = remotePages.get(pane)?.view; return remote ? {pane:remote.pane,host:remote.hostId,session:remote.sessionId,generation:remote.generation} : {pane,...agentInfo(paneById(model,pane).pane)} }, recordingContents: async (pane: string) => (await ensureLiveTab(pane)).contents, get automaticUpdates() { return configuration?.automaticUpdates ?? true }, showMessageDialog, setAutomaticUpdates: (enabled: boolean) => configuration?.update(['automaticUpdates'], enabled), execute, executeHuman, state, overlayState, start, shutdown, sourceClient, clipboard: textClipboard, setBounds, createClient, openRemotePage, openExternalLink, preferredClient, remote, get model() { return model }, get tabCount() { return tabs.size } }
