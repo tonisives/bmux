@@ -533,6 +533,7 @@ test('Social Media details launch one settings form and a muted window with the 
   await expect(details.getByText('Plugin runs', { exact: true })).toBeVisible()
   await tabs.getByRole('tab', { name: 'Hooks', exact: true }).click()
   let hooks = details.getByRole('region', { name: 'Social post hooks' })
+  await expect(hooks.getByRole('link', { name: 'Setup guide and JSON example' })).toHaveAttribute('href', 'https://bmux.cc/articles/social-post-hooks/#social-post-json-example')
   await expect(hooks.getByLabel('Endpoint URL')).toBeVisible()
   await hooks.getByLabel('Endpoint URL').fill('https://receiver.example/posts')
   await hooks.getByRole('button', { name: 'Save hook', exact: true }).click()

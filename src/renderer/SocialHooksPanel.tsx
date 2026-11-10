@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import type { SocialHookConfig, SocialHookState } from '../shared/social-hooks'
 import css from './Observations.module.css'
 
-type Props = { pluginId: string; profiles: {id:string;name:string}[]; run: (method:string,args?:Record<string,unknown>) => Promise<unknown> }
-export let SocialHooksPanel = ({pluginId,profiles,run}: Props) => {
+type Props = { pluginId: string; openGuide: (event: React.MouseEvent<HTMLAnchorElement>) => void; profiles: {id:string;name:string}[]; run: (method:string,args?:Record<string,unknown>) => Promise<unknown> }
+export let SocialHooksPanel = ({pluginId,profiles,run,openGuide}: Props) => {
   let [profile,setProfile] = useState(''), [state,setState] = useState<SocialHookState>(), [draft,setDraft] = useState<SocialHookConfig>(), [secret,setSecret] = useState<string>(), [error,setError] = useState(''), [busy,setBusy] = useState(false), [notice,setNotice] = useState('')
   useEffect(() => {
     let active = true
@@ -30,7 +30,7 @@ export let SocialHooksPanel = ({pluginId,profiles,run}: Props) => {
   let removeSecret = () => setSecret('')
   let inherit = () => { void save(true) }
   return <section className={css.panel} aria-label="Social post hooks">
-    <p>Send observed posts from ordinary browsing and plugin sessions to a remote endpoint.</p>
+    <p>Send observed posts from ordinary browsing and plugin sessions to a remote endpoint. <a href="https://bmux.cc/articles/social-post-hooks/#social-post-json-example" onClick={openGuide}>Setup guide and JSON example</a></p>
     <label>Configuration<select value={profile} onChange={changeProfile}><option value="">Shared across profiles</option>{profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     {profile && <p>{state?.override ? 'This profile overrides shared settings.' : 'This profile uses shared settings. Saving creates an override.'}</p>}
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}

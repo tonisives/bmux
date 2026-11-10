@@ -490,6 +490,8 @@ inside this view. Recovery IDs must refer to existing button controls.
 
 ### Social post hooks
 
+See the [setup guide and social post JSON example](https://bmux.cc/articles/social-post-hooks/#social-post-json-example).
+
 Social Media plugins have a **Hooks** tab. Configure a shared endpoint for each
 platform, or select a browser profile to override the shared settings. Saving a
 profile configuration creates an override; **Use shared settings** removes it.
