@@ -51,11 +51,10 @@ test('remote web Account preserves Apple linking and the responsive session work
         if (!signedIn && route !== '/api/config') { response.writeHead(401, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: 'Sign in to continue' })); return }
         if (route === '/api/connect') connectRequests++
         if (route === '/api/services' && request.method === 'POST') { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ service: 'self-hosted-fixture', key: 'c'.repeat(64) })); return }
-        let result = route === '/api/v1/accounts/overview' ? { projects: [{ id: 'project', name: 'tskr', timezone: 'Asia/Bangkok' }], personas: [{ id: 'persona', project_id: 'project', name: 'Finland', interests: 'Productivity tools' }], accounts: [{ id: 'account', persona_id: 'persona', platform: 'tiktok', handle: '@tskr.fixture', status: 'draft' }], schedules: [], executionEnabled: false }
-          : route === '/api/auth/providers' ? providers
+        let result = route === '/api/auth/providers' ? providers
           : route === '/api/me' ? { owner: 'fixture-owner', entitlement: { canStream: true } }
           : route === '/api/connect' ? { ticket: 'fixture-ticket', iceServers: [] }
-          : route === '/api/config' ? { googleClientId: 'fixture', accountsPreview: true }
+          : route === '/api/config' ? { googleClientId: 'fixture' }
           : route === '/api/billing/status' ? { enabled: false, relay: { active: false, monthlyCents: 1000, currency: 'usd', maxStreams: 2, cancelRequested: false, status: 'inactive' } }
           : route === '/api/billing/rates' ? { base: 'USD', date: '2026-10-25', source: 'fixture', rates: { USD: 1 } }
           : route === '/api/rentals/catalog' ? { enabled: false, quotes: [] } : []
@@ -100,15 +99,6 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByText('Apple linked', { exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Link Apple', exact: true })).toHaveCount(0)
     await page.getByRole('button', { name: 'Sessions', exact: true }).click()
-    await page.getByRole('button', { name: 'Accounts', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Account overview', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: '@tskr.fixture', exact: true }).click()
-    await expect(page.getByText('Not sealed', { exact: true })).toBeVisible()
-    await page.screenshot({ path: info.outputPath('accounts-overview.png') })
-    await page.getByRole('button', { name: 'Calendar', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Project calendar', exact: true })).toBeVisible()
-    await expect(page.getByText('No jobs planned.', { exact: false })).toBeVisible()
-    await page.getByRole('button', { name: 'BMUX home', exact: true }).click()
     let windowId = await application.evaluate(({ BaseWindow }) => {
       let window = BaseWindow.getAllWindows().find(window => window.isVisible())!
       window.setMinimumSize(320, 240)

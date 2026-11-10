@@ -55,7 +55,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile --child-concurrency=4
-      - run: pnpm exec vitest run tests/activity-hooks.unit.test.ts tests/managed-accounts.unit.test.ts --maxWorkers=4
+      - run: pnpm exec vitest run tests/activity-hooks.unit.test.ts --maxWorkers=4
         env:
           BMUX_HOOKS_TEST_DATABASE_URL: postgres://postgres:fixture@127.0.0.1:5432/bmux_hooks_test
 
