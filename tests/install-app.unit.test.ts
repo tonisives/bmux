@@ -29,6 +29,7 @@ test('signs the staged copy before replacing the installed app and removes its b
     } })
     expect(result.deferred).toBe(false)
     expect(await current.read()).toBe('new')
+    expect((await fs.stat(current.destination)).ino).toBe(original.ino)
     expect(await fs.readdir(current.output)).toEqual(['bmux.app'])
   } finally { await current.cleanup() }
 })
@@ -40,6 +41,16 @@ test('leaves the installed executable untouched if signing or verification fails
     await expect(installApp({ ...current.options, sign: async () => { throw new Error('verification failed') } })).rejects.toThrow('verification failed')
     expect(await current.read()).toBe('old')
     expect((await fs.stat(current.destination)).ino).toBe(original.ino)
+    expect(await fs.readdir(current.output)).toEqual(['bmux.app'])
+  } finally { await current.cleanup() }
+})
+
+test('installs a new bundle when no Dock bookmark can refer to an existing directory', async () => {
+  let current = await fixture()
+  try {
+    await fs.rm(current.destination, { recursive: true })
+    expect((await installApp(current.options)).deferred).toBe(false)
+    expect(await current.read()).toBe('new')
     expect(await fs.readdir(current.output)).toEqual(['bmux.app'])
   } finally { await current.cleanup() }
 })
@@ -61,6 +72,7 @@ test('keeps a running bundle at its original path until the app and its helpers 
     } })).toBe(true)
     expect(waits).toBe(1)
     expect(await current.read()).toBe('new')
+    expect((await fs.stat(current.destination)).ino).toBe(original.ino)
     expect(await fs.readdir(current.output)).toEqual(['bmux.app'])
   } finally { await current.cleanup() }
 })

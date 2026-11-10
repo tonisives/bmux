@@ -38,14 +38,31 @@ let locked = async (directory, action) => {
 }
 
 let promote = async (temporary, destination) => {
-  let staged = path.join(temporary, 'bmux.app'), previous = path.join(temporary, 'previous.app'), backedUp = false
-  try { await fs.rename(destination, previous); backedUp = true } catch (error) { if (error.code !== 'ENOENT') throw error }
-  try { await fs.rename(staged, destination) }
-  catch (error) {
-    if (backedUp) {
-      try { await fs.rename(previous, destination) }
-      catch (restoreError) { throw new AggregateError([error, restoreError], `Installation and rollback failed; files preserved at ${temporary}`) }
+  let staged = path.join(temporary, 'bmux.app'), previous = path.join(temporary, 'previous.app')
+  if (!await fs.stat(destination).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error })) {
+    await fs.rename(staged, destination)
+    return
+  }
+  // Dock bookmarks identify the bundle directory. Keep its inode across updates.
+  await fs.mkdir(previous)
+  let backedUp = [], installed = []
+  try {
+    for (let entry of await fs.readdir(destination)) {
+      await fs.rename(path.join(destination, entry), path.join(previous, entry))
+      backedUp.push(entry)
     }
+    for (let entry of await fs.readdir(staged)) {
+      await fs.rename(path.join(staged, entry), path.join(destination, entry))
+      installed.push(entry)
+    }
+  }
+  catch (error) {
+    try {
+      for (let entry of installed.reverse()) await fs.rename(path.join(destination, entry), path.join(staged, entry))
+      for (let entry of backedUp.reverse()) await fs.rename(path.join(previous, entry), path.join(destination, entry))
+      await fs.rmdir(previous)
+    }
+    catch (restoreError) { throw new AggregateError([error, restoreError], `Installation and rollback failed; files preserved at ${temporary}`) }
     throw error
   }
 }

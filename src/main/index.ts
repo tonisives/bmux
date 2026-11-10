@@ -98,20 +98,23 @@ let receiveLink = (url: string, allowFile = false) => {
 app.on('open-url', (event, url) => { event.preventDefault(); receiveLink(url) })
 app.on('open-file', (event, filePath) => { event.preventDefault(); receiveLink(pathToFileURL(filePath).href, true) })
 
-// macOS delivers launch documents before ready. Let a second process receive
-// them before it hands its pending links to the existing process and exits.
+app.on('second-instance', (_event, argv, _workingDirectory, additionalData) => {
+  let forwarded = additionalData as { links?: typeof pendingLinks; background?: boolean } | undefined
+  if (Array.isArray(forwarded?.links) && forwarded.links.length) {
+    for (let link of forwarded.links) if (typeof link?.url === 'string') receiveLink(link.url, link.allowFile === true)
+    return
+  }
+  let links = argv.filter(value => /^https?:\/\//i.test(value))
+  if (links.length) { links.forEach(link => receiveLink(link)); return }
+  if (!forwarded?.background && !argv.includes('--background')) activateExistingClient()
+})
+// Background launches have no macOS documents to collect. Reject duplicates
+// before Chromium startup and keep them out of the Dock from the outset.
+let primaryInstance = background && app.requestSingleInstanceLock({ background })
+if (background) app.dock?.hide()
 void app.whenReady().then(async () => {
-  if (!app.requestSingleInstanceLock({ links: pendingLinks })) { app.quit(); return }
-  app.on('second-instance', (_event, argv, _workingDirectory, additionalData) => {
-    let forwarded = additionalData as { links?: typeof pendingLinks } | undefined
-    if (Array.isArray(forwarded?.links) && forwarded.links.length) {
-      for (let link of forwarded.links) if (typeof link?.url === 'string') receiveLink(link.url, link.allowFile === true)
-      return
-    }
-    let links = argv.filter(value => /^https?:\/\//i.test(value))
-    if (links.length) { links.forEach(link => receiveLink(link)); return }
-    if (!argv.includes('--background')) activateExistingClient()
-  })
+  // Foreground launches must collect macOS open-file events before forwarding.
+  if (!primaryInstance && !app.requestSingleInstanceLock({ links: pendingLinks, background })) { app.quit(); return }
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
   app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
   let quitting = false, flushing: Promise<void> | undefined
