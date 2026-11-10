@@ -56,6 +56,8 @@ let App = () => {
   let [auth, setAuth] = useState<'checking' | 'signed-out' | 'connecting' | 'ready'>('checking')
   let [knownAccount, setKnownAccount] = useState(() => localStorage.getItem('bmux-known-account') === '1')
   let [googleReady, setGoogleReady] = useState(false)
+  let [accountsPreview, setAccountsPreview] = useState(false)
+  useEffect(() => { let active = true; void api('/api/config').then(config => { if (active) setAccountsPreview(config.accountsPreview === true) }).catch(report); return () => { active = false } }, [])
   let [hostsLoaded, setHostsLoaded] = useState(false)
   let [machineId, setMachineId] = useState<string>()
   let machine = hosts.find(host => host.id === machineId), machineColors = useRemoteMachineColors(hosts)
@@ -195,10 +197,10 @@ let App = () => {
   let addBox = () => { leave(); setRent(true); setView('service') }
   let signIn = () => googleClient.current?.requestAccessToken()
   return <main className={styles.main}>
-    <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home"><img src="https://cdn.digthree.tonis.dev/bmux/website-ca1a3c8712d7/icon-512.png" alt="" width="28" height="28" />bmux</button><span className={styles.headerLabel}>Remote</span>{viewer && <button onClick={() => { leave(); setView('accounts') }}>Accounts</button>}{(viewer || knownAccount) && <button className={styles.avatar} onClick={() => { if (!viewer) return; if (selected) leave(); setRent(false); setView(view === 'service' && !rent ? 'sessions' : 'service') }} aria-label="Account" title="Account" disabled={!viewer} aria-busy={auth !== 'ready'}><Icon name="user" />{auth !== 'ready' && <span className={styles.avatarSpinner} />}</button>}</header>
+    <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home"><img src="https://cdn.digthree.tonis.dev/bmux/website-ca1a3c8712d7/icon-512.png" alt="" width="28" height="28" />bmux</button><span className={styles.headerLabel}>Remote</span>{viewer && accountsPreview && <button onClick={() => { leave(); setView('accounts') }}>Accounts</button>}{(viewer || knownAccount) && <button className={styles.avatar} onClick={() => { if (!viewer) return; if (selected) leave(); setRent(false); setView(view === 'service' && !rent ? 'sessions' : 'service') }} aria-label="Account" title="Account" disabled={!viewer} aria-busy={auth !== 'ready'}><Icon name="user" />{auth !== 'ready' && <span className={styles.avatarSpinner} />}</button>}</header>
     {error && <p role="status" className={styles.error}>{error}</p>}
     {!viewer && <section className={styles.signIn}>{auth === 'signed-out' ? <button className={styles.googleButton} onClick={() => googleClient.current?.requestAccessToken()} disabled={!googleReady}><GoogleIcon />Sign in with Google</button> : <p role="status" className={styles.loadingMessage}><span className={styles.spinner} />{auth === 'connecting' ? 'Connecting…' : 'Signing in…'}</p>}</section>}
-    {view === 'accounts' && viewer && <AccountsDashboard />}
+    {view === 'accounts' && viewer && (accountsPreview ? <AccountsDashboard /> : <p>Accounts preview is not enabled.</p>)}
     {view === 'sessions' && viewer && <div className={`${styles.workspace} ${selected || machine ? styles.workspaceActive : ''}`}><aside className={styles.library} aria-label="Sessions"><div className={styles.sectionHeading}><h1>Sessions</h1><span>{hostsLoaded ? listed.length : '…'}</span></div><div className={styles.libraryActions}><button onClick={connectRelay}>Relay</button><button onClick={addBox}>Add box</button></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
       <div className={styles.sessions}><SessionTree hosts={hosts} selected={selectedId} pane={state?.pane} select={selectTree} details={host => setMachineId(host.id)} color={machineColors.color} /></div>
     </aside>

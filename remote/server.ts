@@ -25,6 +25,7 @@ let pool = new Pool({ connectionString: required('DATABASE_URL'), max: 4 })
 pool.on('error', error => console.error('Idle database connection lost', { code: (error as Error & { code?: string }).code }))
 let activityHooks = createActivityHooks(pool)
 let accounts = createAccounts(pool)
+let accountsPreview = process.env.BMUX_ACCOUNTS_PREVIEW === 'true'
 let managed = process.env.BMUX_MANAGED_BILLING === 'true'
 let leases = createStreamLeases(pool, managed)
 let ready = false, stopped = false
@@ -102,7 +103,7 @@ let server = http.createServer((request, response) => {
     let url = new URL(request.url ?? '/', publicOrigin)
     if (!ready) { json(503, { error: 'Service starting' }); return }
     if (request.method === 'GET' && url.pathname === '/health') { await pool.query('SELECT 1'); json(200, { ok: true }); return }
-    if (request.method === 'GET' && url.pathname === '/api/config') { json(200, { googleClientId: audience, appleEnabled: mobileAuth.appleEnabled }); return }
+    if (request.method === 'GET' && url.pathname === '/api/config') { json(200, { googleClientId: audience, appleEnabled: mobileAuth.appleEnabled, accountsPreview }); return }
     let authentication: LoginContext | undefined
     let protectedFlow = request.method === 'POST' && ['/api/auth/mobile/exchange','/api/auth/mobile/refresh','/api/auth/mobile/password','/api/auth/apple/callback'].includes(url.pathname)
     if (!['GET','HEAD'].includes(request.method ?? '') && request.headers.origin !== publicOrigin && !protectedFlow) {
@@ -142,6 +143,7 @@ let server = http.createServer((request, response) => {
       let auth = authentication ?? await mobileAuth.authenticate(request), owner = auth.owner
       if (auth.nativeSession && !['/api/me','/api/hosts','/api/connect','/api/streams','/api/streams/disconnect'].includes(url.pathname)) throw new Error('Native operation unavailable')
       if (url.pathname.startsWith('/api/v1/')) {
+        if (!accountsPreview) { json(404, { error: 'Accounts preview is not enabled' }); return }
         try { json(200, await accounts.api(owner, request.method ?? 'GET', url.pathname, request.method === 'POST' ? await body(request) : {})) }
         catch (error) { if (error instanceof AccountsError) json(error.status, { error: error.message }); else throw error }
         return

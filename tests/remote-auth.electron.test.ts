@@ -55,7 +55,7 @@ test('remote web Account preserves Apple linking and the responsive session work
           : route === '/api/auth/providers' ? providers
           : route === '/api/me' ? { owner: 'fixture-owner', entitlement: { canStream: true } }
           : route === '/api/connect' ? { ticket: 'fixture-ticket', iceServers: [] }
-          : route === '/api/config' ? { googleClientId: 'fixture' }
+          : route === '/api/config' ? { googleClientId: 'fixture', accountsPreview: true }
           : route === '/api/billing/status' ? { enabled: false, relay: { active: false, monthlyCents: 1000, currency: 'usd', maxStreams: 2, cancelRequested: false, status: 'inactive' } }
           : route === '/api/billing/rates' ? { base: 'USD', date: '2026-10-25', source: 'fixture', rates: { USD: 1 } }
           : route === '/api/rentals/catalog' ? { enabled: false, quotes: [] } : []
