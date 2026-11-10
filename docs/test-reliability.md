@@ -1,3 +1,18 @@
+# November 10 release fixture readiness
+
+The agent-notice fixture could issue its first CLI request after the renderer
+opened but before the control socket was listening. It now waits for status
+from its own process before the first request and after restoration, and every
+CLI call uses `--no-start` to keep startup failures attached to that fixture.
+
+The download fixture created a background session without loading its profile.
+Calling Electron's partition API directly at that point could bypass the
+runtime's download listener. It now loads and waits for the local fixture in
+that background pane before starting the transfer. The selected default pane,
+profile isolation, completed-transfer and CLI ownership assertions remain.
+
+Repeat both cases in CI before the full release suite.
+
 # Restart fixtures wait for their own control server
 
 The two direct browser restarts in the recovery fixtures waited only for

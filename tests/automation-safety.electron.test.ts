@@ -288,12 +288,21 @@ test('automation and permission notices identify agent panes while personal brow
     let state = await chrome.evaluate(() => (window as any).bmux.state())
     let personal = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
     let cli = async (args: string[]) => {
-      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args, '--no-start'], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         if (error.stdout) return { stdout: error.stdout }
         throw error
       })
       return JSON.parse(result.stdout)
     }
+    let waitForServer = async () => {
+      let status = await waitForControlStatus(async (...args) => {
+        let response = await cli(args)
+        expect(response.ok).toBe(true)
+        return response.result
+      })
+      expect(status.pid).toBe(application!.process().pid)
+    }
+    await waitForServer()
     let agents = await command('new-session', { name: 'agents', profile: 'default' })
     let first = (await cli(['new-window', '-t', agents.id, '-n', 'research', '--agent-id', '%45', '--agent-name', 'Research agent', '--agent-purpose', 'Review sources for the launch article', '--agent-type', 'terminal', '--agent-data', JSON.stringify({ sessionId: '$7', paneId: '%145' })])).result.panes[0]
     let second = (await cli(['new-window', '-t', agents.id, '-n', 'review', '--agent-id', '%46', '--agent-type', 'tmux', '--agent-data', JSON.stringify({ sessionId: '$8', sessionName: 'reviews', windowId: '@52', windowIndex: '3', paneId: '%146' })])).result.panes[0]
@@ -311,6 +320,7 @@ test('automation and permission notices identify agent panes while personal brow
     application = await electron.launch({ args: [process.cwd(), '--host-resolver-rules=MAP *.example.com 127.0.0.1', `--unsafely-treat-insecure-origin-as-secure=${new URL(url).origin}`], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    await waitForServer()
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await address.pressSequentially(url); await address.press('Enter')
