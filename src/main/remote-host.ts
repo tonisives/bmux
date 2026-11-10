@@ -10,6 +10,7 @@ import { sessionActivityTime } from '../shared/pane-activity'
 import { agentInfo } from '../shared/agent-info'
 import { encryptRemotePreview } from '../shared/remote-preview'
 import { buildInfo } from '../shared/build-info'
+import { startAccountRelay } from './account-relay'
 import { remoteStreamQuality, type RemoteStreamQuality, type RemoteRPCRequest } from '../shared/remote-management'
 
 type PublicKey = { kty: string; crv: string; x: string }
@@ -33,6 +34,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let allowed = (id: string) => authorized.get(id)?.permission
   let verify = createEnvelopeVerifier(hostId, generation, () => Object.fromEntries([...authorized].map(([id, value]) => [id, value.key])))
   let socket: WebSocket | undefined, stopped = false, retry: ReturnType<typeof setTimeout> | undefined, backoff = 1000
+  let accountRelay: ReturnType<typeof startAccountRelay> | undefined
   let opening = new Map<string, symbol>()
   let previewing = new Set<string>()
   let streams = new Map<string, { owner: string; view?: string; metadata: boolean; session?: string; peer: Stream; pane?: string; request?: string; connection: string; expires?: number; expiry?: ReturnType<typeof setTimeout>; renewing?: boolean }>(), iceServers: RTCIceServer[] = []
@@ -220,7 +222,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       void (async () => {
         let message = JSON.parse(raw.toString())
         if (message.type === 'activity-recorded') { runtime.activity.acknowledge(message.id); return }
-        if (message.type === 'ready') { activitySupported = message.activityHooks === 1; iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); reportActivity(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
+        if (message.type === 'ready') { accountRelay?.close(); accountRelay = startAccountRelay(() => runtime.model, current.url, current.token, hostId, generation); activitySupported = message.activityHooks === 1; iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); reportActivity(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
         if (message.type === 'attention-recorded') { let item = attention.get(message.episode); if (item && item.target.revision === message.revision) item.acknowledged = true; return }
         if (message.type === 'stream-permit') { let pending = permits.get(message.request); if (pending) { clearTimeout(pending.timer); permits.delete(message.request); if (message.error) pending.reject(Object.assign(new Error(String(message.error)),{code:message.code})); else pending.resolve() } return }
         if (message.type === 'stream-revoked') { for (let [id, stream] of streams) if (stream.connection === message.connection) disconnect(id); return }
@@ -310,6 +312,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       })().catch(() => undefined)
     })
     socket.on('close', () => {
+      accountRelay?.close(); accountRelay = undefined
       for (let pending of permits.values()) { clearTimeout(pending.timer); pending.reject(new Error('Relay disconnected')) } permits.clear()
       opening.clear()
       for (let id of streams.keys()) disconnect(id)
@@ -341,7 +344,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       }
     } } catch { for (let id of streams.keys()) disconnect(id) }
   }, 5000)
-  let close = () => { opening.clear(); usage(); stopped = true; clearInterval(timer); clearTimeout(retry); for (let id of streams.keys()) disconnect(id); socket?.close() }
+  let close = () => { accountRelay?.close(); opening.clear(); usage(); stopped = true; clearInterval(timer); clearTimeout(retry); for (let id of streams.keys()) disconnect(id); socket?.close() }
   let unsubscribeActivity = runtime.activity.subscribe(reportActivity)
   connect()
   return {
