@@ -219,7 +219,7 @@ test('optional dark mode button opens scoped popups beside ad blocking and links
     await panel.getByRole('checkbox', { name: 'Show next to URL bar' }).click()
     await expect(panel.getByRole('checkbox', { name: 'Show next to URL bar' })).not.toBeChecked()
     await expect(button).toHaveCount(0)
-    await expect(panel.getByRole('button', { name: 'Close', exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
     await panel.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(popup).toBeVisible()
     await expect(popup.getByRole('combobox', { name: 'Apply to' })).toHaveValue('site')
