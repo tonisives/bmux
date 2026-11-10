@@ -6,7 +6,7 @@ Chromium headless-shell engine or claim a smaller browser bundle.
 
 ## Managed relay and rented boxes
 
-Open **Sessions > Remote > Relay**, or **Settings > Account**.
+Open **Sessions > Remote > Relay**, or **Plugins > Settings > Remote**.
 Sign in and activate relay for **$10 per account per month**. Connect the
 running computer with a recognizable name; its sessions keep running throughout.
 The Relay button above the session list turns green while this computer is
@@ -17,7 +17,7 @@ You can also manage the same account at <https://remote.bmux.cc/?view=account>.
 Relay includes two simultaneous live pane views across the account, including
 direct connections and TURN connections. Two viewers watching the same pane use
 both views. Saved sessions and background jobs use no live-view allowance. If a
-view is occupied, disconnect it from Account settings without closing its page
+view is occupied, disconnect it from **Plugins > Settings > Remote** without closing its page
 or stopping its job. Shared viewers use the host owner's allowance.
 
 Choose **Add box** for a persistent Linux machine with 4 GB or 8 GB RAM. The
