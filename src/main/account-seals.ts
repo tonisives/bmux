@@ -37,7 +37,6 @@ export let sealAccount = (model: Model, account: string, expected: AccountSeal['
   let seal: AccountSeal = { account, identity: structuredClone(expected), ...pinned, ...(device ? { device: structuredClone(device) } : {}), sealedAt: new Date().toISOString(), headersHash: accountFingerprint(headerIdentity(pinned)) }
   let candidate = { ...model, accountSeals: { ...model.accountSeals, [pane.id]: seal } }
   assertAccountSeals(candidate)
-  pane.connectionId = expected.connectionId
   model.accountSeals = candidate.accountSeals
   return seal
 }
