@@ -1,3 +1,4 @@
+import { createAccounts, AccountsError } from './accounts'
 import http from 'node:http'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -23,11 +24,12 @@ let pool = new Pool({ connectionString: required('DATABASE_URL'), max: 4 })
 // pg removes failed idle clients; handling this event keeps the relay alive.
 pool.on('error', error => console.error('Idle database connection lost', { code: (error as Error & { code?: string }).code }))
 let activityHooks = createActivityHooks(pool)
+let accounts = createAccounts(pool)
 let managed = process.env.BMUX_MANAGED_BILLING === 'true'
 let leases = createStreamLeases(pool, managed)
 let ready = false, stopped = false
 let initialize = async () => {
-  let schema = await fs.readFile(new URL('./schema.sql', import.meta.url), 'utf8') + await fs.readFile(new URL('./mobile-auth.sql', import.meta.url), 'utf8')
+  let schema = await fs.readFile(new URL('./schema.sql', import.meta.url), 'utf8') + await fs.readFile(new URL('./mobile-auth.sql', import.meta.url), 'utf8') + await fs.readFile(new URL('./accounts.sql', import.meta.url), 'utf8')
   let retryable = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ENETUNREACH', 'EHOSTUNREACH', '57P03', '53300'])
   while (!stopped) {
     try { await pool.query(schema); ready = true; return }
@@ -139,6 +141,11 @@ let server = http.createServer((request, response) => {
     if (url.pathname.startsWith('/api/')) {
       let auth = authentication ?? await mobileAuth.authenticate(request), owner = auth.owner
       if (auth.nativeSession && !['/api/me','/api/hosts','/api/connect','/api/streams','/api/streams/disconnect'].includes(url.pathname)) throw new Error('Native operation unavailable')
+      if (url.pathname.startsWith('/api/v1/')) {
+        try { json(200, await accounts.api(owner, request.method ?? 'GET', url.pathname, request.method === 'POST' ? await body(request) : {})) }
+        catch (error) { if (error instanceof AccountsError) json(error.status, { error: error.message }); else throw error }
+        return
+      }
       if (url.pathname === '/api/hooks' || url.pathname.startsWith('/api/hooks/')) { json(200,await activityHooks.api(owner,request.method ?? 'GET',url.pathname,['POST','PATCH'].includes(request.method ?? '') ? await body(request) : {})); return }
       if (request.method === 'GET' && url.pathname === '/api/me') { let user = (await pool.query('SELECT email,name FROM bmux_accounts WHERE owner=$1', [owner])).rows[0]; json(200, { owner, ...user, entitlement:await leases.status(owner) }); return }
       if (request.method === 'GET' && url.pathname === '/api/streams') { json(200, (await leases.list(owner)).map(view => ({...view,session:peers.get(view.host)?.sessions?.find(session=>session.panes.some(pane=>pane.id===view.pane))?.id}))); return }
@@ -219,7 +226,7 @@ let server = http.createServer((request, response) => {
       json(404, { error: 'Not found' }); return
     }
     if (request.method !== 'GET') { json(404, { error: 'Not found' }); return }
-    let filename = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
+    let filename = ['/', '/accounts'].includes(url.pathname) ? 'index.html' : url.pathname.slice(1)
     if (!/^(index\.html|assets\/[A-Za-z0-9_.-]+)$/.test(filename)) { json(404, { error: 'Not found' }); return }
     let file = await fs.readFile(path.join(import.meta.dirname, 'dist', filename))
     let nonce = randomBytes(18).toString('base64')
