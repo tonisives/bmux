@@ -98,7 +98,7 @@ test('Quit blocks background relaunches until the app is opened again', async ()
     expect(await fs.stat(path.join(directory, 'autostart-paused')).then(() => true)).toBe(true)
     await expect(cli('list-sessions')).rejects.toMatchObject({ stderr: expect.stringContaining('bmux was quit') })
     let executable = createRequire(import.meta.url)('electron') as string
-    await promisify(execFile)(executable, ['.', '--background'], { env, timeout: 15000 })
+    await promisify(execFile)(executable, ['.', '--background'], { env: { ...env, BMUX_AUTOSTART: '1' }, timeout: 15000 })
     await expect(cli('diagnostics', '--no-start')).rejects.toMatchObject({ stderr: expect.stringContaining('BMUX is not running') })
     await launch()
     expect(await fs.stat(path.join(directory, 'autostart-paused')).then(() => true, () => false)).toBe(false)

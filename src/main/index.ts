@@ -112,13 +112,13 @@ app.on('second-instance', (_event, argv, _workingDirectory, additionalData) => {
 })
 // Background launches have no macOS documents to collect. Reject duplicates
 // before Chromium startup and keep them out of the Dock from the outset.
-if (background && isAutoStartPaused(dataDirectory)) app.exit(0)
+if (background && process.env.BMUX_AUTOSTART === '1' && isAutoStartPaused(dataDirectory)) app.exit(0)
 let primaryInstance = background && app.requestSingleInstanceLock({ background })
 if (background) app.dock?.hide()
 void app.whenReady().then(async () => {
   // Foreground launches must collect macOS open-file events before forwarding.
   if (!primaryInstance && !app.requestSingleInstanceLock({ links: pendingLinks, background })) { app.quit(); return }
-  if (!background) resumeAutoStart(dataDirectory)
+  if (!background || process.env.BMUX_AUTOSTART !== '1') resumeAutoStart(dataDirectory)
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
   app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
   let quitting = false, flushing: Promise<void> | undefined
