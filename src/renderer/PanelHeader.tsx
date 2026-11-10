@@ -29,5 +29,5 @@ export let BackButton = ({ back }: { back: PanelBack }) => {
 
 export let PanelHeader = ({ children, back, dismiss, actions }: { children: ReactNode; back?: PanelBack | null; dismiss: () => void; actions?: ReactNode }) => <header>
   <div className={css.heading}>{back && <BackButton back={back} />}{children}</div>
-  {actions ? <div className={css.actions}>{actions}{!back && <CloseButton label="Close" onClick={dismiss} />}</div> : !back && <CloseButton label="Close" onClick={dismiss} />}
+  {actions ? <div className={css.actions}>{actions}<CloseButton label="Close" onClick={dismiss} /></div> : <CloseButton label="Close" onClick={dismiss} />}
 </header>
