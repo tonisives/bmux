@@ -166,6 +166,8 @@ For `list-panes`, you can also use a session name and one-based window index, su
 
 CLI output is JSON: `{ "ok": true, "result": ... }`. Errors use `ok: false`, an error message, and a nonzero exit code. Browser actions require an explicit pane ID; `list-panes` and pane creation commands return those IDs. New panes use short numeric IDs such as `%1`, and closing a pane makes its number available again. Keep an ID only while its pane exists. An open pane's ID stays stable across view transfers and session restarts. A page reload or process crash can reset JavaScript state while the pane ID remains the same.
 
+Quitting bmux pauses automatic background launches until you open it again. Agent commands report that bmux was quit instead of reopening it. `bmux host` explicitly resumes the browser runtime.
+
 The `default` profile throttles inactive pages. The `bot` profile keeps background pages running. Additional bot profiles can be created using `profile create NAME --background`. A bot profile is a browser storage partition with a background-execution policy, not an OS user account or an authorization boundary against the local CLI.
 
 Use `bmux memory` to inspect process memory and its pane/profile associations, or

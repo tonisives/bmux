@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { runtimeDataDirectory, developmentExecutable, macAppCandidates } from './runtime-paths.mjs'
 import { controlSocketPath } from './ipc.mjs'
+import { isAutoStartPaused, resumeAutoStart } from './startup-policy.mjs'
 import { identifyTmuxAgent, resolveTmuxAgent } from './tmux-agent.mjs'
 
 let root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -244,6 +245,8 @@ let observe = async id => {
   }
 }
 let start = async (foreground = false) => {
+  if (foreground) resumeAutoStart(dataDirectory)
+  else if (isAutoStartPaused(dataDirectory)) throw new Error('bmux was quit. Open bmux to resume background browsing.')
   let binary = process.platform === 'win32' ? 'bmux.exe' : 'bmux'
   let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? macAppCandidates(os.homedir()) : [path.join(root, binary), path.join(root, '..', binary)]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
   let executable
@@ -257,7 +260,7 @@ let start = async (foreground = false) => {
   }
   if (!fs.existsSync(executable)) throw new Error('Electron not found. Run pnpm install, or set BMUX_APP to bmux.app')
   if (foreground) {
-    let env = { ...process.env, BMUX_BACKGROUND: '1', BMUX_DATA_DIR: dataDirectory }
+    let env = { ...process.env, BMUX_BACKGROUND: '1', BMUX_AUTOSTART: '0', BMUX_DATA_DIR: dataDirectory }
     delete env.ELECTRON_RUN_AS_NODE
     let child = spawn(executable, args, { stdio: 'inherit', env })
     for (let signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal))
@@ -266,7 +269,7 @@ let start = async (foreground = false) => {
   }
   fs.mkdirSync(dataDirectory, { recursive: true, mode: 0o700 })
   let log = fs.openSync(path.join(dataDirectory, 'server.log'), 'a', 0o600)
-  let env = { ...process.env, BMUX_BACKGROUND: '1' }
+  let env = { ...process.env, BMUX_BACKGROUND: '1', BMUX_AUTOSTART: '1' }
   if (configuredDataDirectory) env.BMUX_DATA_DIR = dataDirectory
   delete env.ELECTRON_RUN_AS_NODE
   let child = spawn(executable, args, { detached: true, stdio: ['ignore', log, log], env })
