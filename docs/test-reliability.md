@@ -908,3 +908,5 @@ old running app; measure the new build after its normal installation on exit.
 Shared social recording settings update through IPC. Wait for both the main-process setting and the rendered checkbox state before reversing a toggle; an RPC state read can precede the renderer update.
 
 The keyboard-scroll GUI case checks delivered scroll events and exact endpoints, key accumulation, wheel-handler bypass, nested scrolling and reduced motion. Chromium may coalesce a short animation into one scroll event on a busy desktop. Intermediate animation positions and pending-key accumulation are checked with a controlled frame clock in keyboard-scroll.unit.test.ts.
+
+Use a native click followed by auto-waited checkbox and saved-state assertions for IPC-controlled recording toggles. Playwright check/uncheck requires the DOM property to change immediately after the click, while React restores the controlled value until the asynchronous settings response arrives. Do not retry the click.
