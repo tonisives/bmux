@@ -1,6 +1,7 @@
 .panel { display: flex; flex-direction: column; gap: 12px; margin-block: 16px; color: inherit; font: inherit; }
 .panel h3, .panel p { margin: 0; }
 .panel p { line-height: 1.5; text-wrap: pretty; }
+.panel a { color: inherit; text-decoration: underline; }
 .panel button, .panel input, .panel select { font: inherit; color: inherit; background: transparent; border: 1px solid #8886; border-radius: 4px; padding: 8px 12px; }
 .panel button { cursor: pointer; }
 .panel button:hover { background: #8882; }
