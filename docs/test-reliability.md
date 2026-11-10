@@ -906,3 +906,5 @@ cases with the visual and packaged-app checks. The live CPU baseline is from the
 old running app; measure the new build after its normal installation on exit.
 
 Shared social recording settings update through IPC. Wait for both the main-process setting and the rendered checkbox state before reversing a toggle; an RPC state read can precede the renderer update.
+
+The keyboard-scroll GUI case checks delivered scroll events and exact endpoints, key accumulation, wheel-handler bypass, nested scrolling and reduced motion. Chromium may coalesce a short animation into one scroll event on a busy desktop. Intermediate animation positions and pending-key accumulation are checked with a controlled frame clock in keyboard-scroll.unit.test.ts.

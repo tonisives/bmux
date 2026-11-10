@@ -198,7 +198,7 @@ test('keyboard scrolls bypass page wheel handlers and accumulate repeated keys',
     }, { keyCode, count, control })
     await key('j')
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(100)
-    expect(await page.evaluate(() => (window as any).positions.length)).toBeGreaterThan(1)
+    await expect.poll(() => page.evaluate(() => (window as any).positions.at(-1))).toBe(100)
     await key('j', 4)
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(500)
     await key('k')
