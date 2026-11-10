@@ -1425,7 +1425,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let restoringDocument = restoringHistory && savedHistory!.entries[savedHistory!.index]?.url !== 'about:blank'
     if (restoringDocument) live.initialHistory = { index: savedHistory!.index, blankIndex: savedHistory!.entries.length, started: false, cancelled: false }
     let bootstrap = restoringHistory ? contents.navigationHistory.restore({ entries: restoringDocument ? [...savedHistory!.entries, { url: 'about:blank', title: '' }] : savedHistory!.entries, index: restoringDocument ? savedHistory!.entries.length : savedHistory!.index })
-      : pane.device ? contents.loadURL('about:blank') : Promise.resolve()
+      : pane.device || managedConnection(pane) ? contents.loadURL('about:blank') : Promise.resolve()
     let startSecurity = trackSiteSecurity(contents, next => { if (!live.disposed) { security[tabId] = next; publish() } })
     faviconRevisions.set(tabId, 0)
     extensions.track(session.private ? `private:${session.id}:${paneConnectionId(pane)}` : paneConnectionId(pane), contents, parent)
