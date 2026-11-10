@@ -10,6 +10,7 @@ import { createRecordings } from './recordings'
 import { createRuntime } from './runtime'
 import type { Command } from '../shared/types'
 import { runtimeDataDirectory } from '../../bin/runtime-paths.mjs'
+import { isAutoStartPaused, pauseAutoStart, resumeAutoStart } from '../../bin/startup-policy.mjs'
 import { controlSocketPath, prepareControlSocket, listenSocket, removeSocket } from '../../bin/ipc.mjs'
 import { startRemoteHost } from './remote-host'
 import { createLocalRemote } from './remote-client'
@@ -24,7 +25,8 @@ if (!configuredDataDirectory && !fs.existsSync(defaultDataDirectory) && legacyDa
 let dataDirectory = runtimeDataDirectory(process.platform, os.homedir(), process.env)
 let background = process.env.BMUX_BACKGROUND === '1' || process.env.BROWMUX_BACKGROUND === '1' || process.argv.includes('--background')
 app.setName('bmux')
-for (let signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => app.quit())
+let pauseOnQuit = true
+for (let signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { pauseOnQuit = false; app.quit() })
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp')
 if (process.platform === 'linux' && process.env.BMUX_DISK_SHARED_MEMORY === '1') app.commandLine.appendSwitch('disable-dev-shm-usage')
 app.setPath('userData', dataDirectory)
@@ -110,11 +112,13 @@ app.on('second-instance', (_event, argv, _workingDirectory, additionalData) => {
 })
 // Background launches have no macOS documents to collect. Reject duplicates
 // before Chromium startup and keep them out of the Dock from the outset.
+if (background && isAutoStartPaused(dataDirectory)) app.exit(0)
 let primaryInstance = background && app.requestSingleInstanceLock({ background })
 if (background) app.dock?.hide()
 void app.whenReady().then(async () => {
   // Foreground launches must collect macOS open-file events before forwarding.
   if (!primaryInstance && !app.requestSingleInstanceLock({ links: pendingLinks, background })) { app.quit(); return }
+  if (!background) resumeAutoStart(dataDirectory)
   app.on('window-all-closed', () => { /* Clients detach; the server owns browser lifetime. */ })
   app.on('activate', () => { if (runtime && !runtime.model.clients.length) activateExistingClient() })
   let quitting = false, flushing: Promise<void> | undefined
@@ -122,6 +126,7 @@ void app.whenReady().then(async () => {
     if (quitting) return
     event.preventDefault()
     if (flushing) return
+    if (pauseOnQuit) pauseAutoStart(dataDirectory)
     updateMenu?.close()
     remoteHost?.close()
     flushing = (async () => { await recordings?.close(); localRemote?.close(); await Promise.all([runtime?.shutdown(),localRemote?.flush()]) })()
@@ -239,7 +244,7 @@ void app.whenReady().then(async () => {
   })
   ipcMain.on('bounds', (event, bounds) => runtime!.setBounds(event.sender.id, bounds))
   await runtime.start(background)
-  updateMenu = installUpdateMenu({ showMessageDialog: options => runtime!.showMessageDialog(options), enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => runtime?.shutdown() })
+  updateMenu = installUpdateMenu({ showMessageDialog: options => runtime!.showMessageDialog(options), enabled: () => runtime!.automaticUpdates, setEnabled: enabled => runtime!.setAutomaticUpdates(enabled), beforeRestart: () => { pauseOnQuit = false; return runtime?.shutdown() } })
   let remoteConfig = process.env.BMUX_REMOTE_CONFIG ?? (fs.existsSync(enrollmentFile) ? enrollmentFile : undefined)
   if (remoteConfig) remoteHost = startRemoteHost(runtime, dataDirectory, remoteConfig)
   readyForLinks = true
@@ -279,5 +284,5 @@ void app.whenReady().then(async () => {
     })
   })
   await listenSocket(server, socketPath)
-  server.on('error', error => { console.error(`bmux control socket: ${error.message}`); app.quit() })
+  server.on('error', error => { console.error(`bmux control socket: ${error.message}`); pauseOnQuit = false; app.quit() })
 }).catch(error => { console.error(`bmux startup failed: ${error instanceof Error ? error.message : String(error)}`); app.exit(1) })

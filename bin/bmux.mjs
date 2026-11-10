@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { runtimeDataDirectory, developmentExecutable, macAppCandidates } from './runtime-paths.mjs'
 import { controlSocketPath } from './ipc.mjs'
+import { isAutoStartPaused, resumeAutoStart } from './startup-policy.mjs'
 import { identifyTmuxAgent, resolveTmuxAgent } from './tmux-agent.mjs'
 
 let root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -244,6 +245,8 @@ let observe = async id => {
   }
 }
 let start = async (foreground = false) => {
+  if (foreground) resumeAutoStart(dataDirectory)
+  else if (isAutoStartPaused(dataDirectory)) throw new Error('bmux was quit. Open bmux to resume background browsing.')
   let binary = process.platform === 'win32' ? 'bmux.exe' : 'bmux'
   let packaged = process.env.BMUX_APP ?? process.env.BROWMUX_APP ?? (process.platform === 'darwin' ? macAppCandidates(os.homedir()) : [path.join(root, binary), path.join(root, '..', binary)]).find(candidate => fs.existsSync(candidate) && (candidate.endsWith('.app') || fs.statSync(candidate).isFile()))
   let executable
