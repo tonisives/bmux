@@ -295,12 +295,12 @@ test('automation and permission notices identify agent panes while personal brow
       return JSON.parse(result.stdout)
     }
     let waitForServer = async () => {
-      let status = await waitForControlStatus(async (...args) => {
+      await waitForControlStatus(async (...args) => {
         let response = await cli(args)
         expect(response.ok).toBe(true)
         return response.result
       })
-      expect(status.pid).toBe(application!.process().pid)
+      expect(await cli(['diagnostics'])).toMatchObject({ ok: true, result: { pid: application!.process().pid } })
     }
     await waitForServer()
     let agents = await command('new-session', { name: 'agents', profile: 'default' })
