@@ -904,3 +904,5 @@ cancellation; geometry fixtures cover unchanged and changed bounds and zoom.
 Repeat the four-pane overlay, agent cursor, observation and reused-pane lifecycle
 cases with the visual and packaged-app checks. The live CPU baseline is from the
 old running app; measure the new build after its normal installation on exit.
+
+Shared social recording settings update through IPC. Wait for both the main-process setting and the rendered checkbox state before reversing a toggle; an RPC state read can precede the renderer update.
