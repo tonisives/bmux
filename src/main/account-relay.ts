@@ -2,15 +2,23 @@ import os from 'node:os'
 import { WebSocket } from 'ws'
 import type { createRuntime } from './runtime'
 import { lockedPaneInventory } from './locked-pane-inventory'
+import { createAccountRelayControl } from './account-relay-control'
+import type { AccountConfiguration, AccountSettingsOperation } from './account-relay-control'
 
-export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 'model' | 'accounts'>, origin: string, token: string, host: string, generation: string) => {
+export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 'model' | 'accounts'>, origin: string, token: string, host: string, generation: string, directory?: string, configure?: (platform: string, profileId: string, operation?: AccountSettingsOperation) => Promise<AccountConfiguration>) => {
   let stopped = false, socket: WebSocket | undefined, retry: ReturnType<typeof setTimeout> | undefined, backoff = 1000
-  let report = () => {
-    if (socket?.readyState !== WebSocket.OPEN || socket.bufferedAmount > 262144) return
+  let control = directory && configure ? createAccountRelayControl(directory, () => lockedPaneInventory(runtime.model), configure) : undefined
+  let reporting = false
+  let report = async () => {
+    if (reporting || socket?.readyState !== WebSocket.OPEN || socket.bufferedAmount > 262144) return
+    reporting = true
+    let current = socket
     try {
-      let message = JSON.stringify({ type: 'inventory', control: 1, name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model) })
+      let browsing = control ? await control.inventory() : undefined
+      if (stopped || current !== socket || current.readyState !== WebSocket.OPEN) return
+      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), type: 'inventory', control: 1, name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model) })
       if (Buffer.byteLength(message) <= 262144) socket.send(message)
-    } catch { socket.close() }
+    } catch { current.close() } finally { reporting = false }
   }
   let connect = () => {
     if (stopped) return
@@ -24,7 +32,14 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
       queue = queue.then(async () => {
         if (stopped || socket !== connection || connection.readyState !== WebSocket.OPEN) return
         let message = JSON.parse(raw.toString())
-        if (message.type === 'ready') { backoff = 1000; report(); return }
+        if (message.type === 'ready') { backoff = 1000; await report(); return }
+        if (message.type === 'recorded' && control && Array.isArray(message.commands)) {
+          for (let command of message.commands.slice(0, 4)) {
+            let result = await control.apply(command)
+            if (!stopped && socket === connection && connection.readyState === WebSocket.OPEN) connection.send(JSON.stringify({ type: 'settings-result', ...result }))
+          }
+          return
+        }
         if (message.type !== 'seal') return
         if (!/^[a-f0-9-]{36}$/.test(message.request) || !/^[a-f0-9-]{36}$/.test(message.account) || !Number.isFinite(message.expires) || message.expires <= Date.now() || message.expires > Date.now() + 60000) throw new Error('Invalid account request')
         let valid = () => !stopped && socket === connection && connection.readyState === WebSocket.OPEN && message.expires > Date.now()

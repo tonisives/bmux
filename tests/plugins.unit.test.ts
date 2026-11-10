@@ -511,3 +511,21 @@ test('manual plugin paced sessions outlive the general timeout and release their
   plugins.cancel(id)
   expect(plugins.sessionManaged(context.profileId!, context.paneId)).toBe(false)
 })
+
+test('account settings use declared form commands without starting a browser action', async () => {
+  let { plugins, directory, manifest, writeManifest, browser, settings } = fixture('throw Error("Must not execute")', {
+    id: 'simulate', configuration_command: [process.execPath, '-e', 'let fs=require("fs");let value=fs.existsSync("account-settings.json")?JSON.parse(fs.readFileSync("account-settings.json")): {ai_daily_limit:"120"};console.log(JSON.stringify(value))'],
+    configuration_save_command: [process.execPath, '-e', 'let input="";process.stdin.on("data",v=>input+=v);process.stdin.on("end",()=>require("fs").writeFileSync("account-settings.json",input))'],
+    parameters: [{ name: 'ai_daily_limit', title: 'Daily AI request limit', kind: 'text' }, { name: 'private', title: 'Private', kind: 'password' }],
+  })
+  let updated = { ...manifest, id: 'bmux.x', category: 'Social Media' }
+  writeManifest(updated); settings({ 'bmux.x': { enabled: true, hooks: false } })
+  let current = await plugins.accountConfiguration('x', 'herald')
+  expect(current.fields.map(field => field.name)).toEqual(['ai_daily_limit'])
+  await expect(plugins.accountConfiguration('x', 'herald', { revision: 'stale', values: { ai_daily_limit: '500' } })).rejects.toThrow('Settings changed')
+  let saved = await plugins.accountConfiguration('x', 'herald', { revision: current.revision, values: { ai_daily_limit: '500' } })
+  expect(saved.values.ai_daily_limit).toBe('500'); expect(saved.revision).not.toBe(current.revision)
+  await expect(plugins.accountConfiguration('x', 'herald', { revision: saved.revision, values: { private: 'secret' } })).rejects.toThrow('Unknown saved setting')
+  expect(plugins.runs()).toEqual([]); expect(browser).not.toHaveBeenCalled()
+  expect(fs.existsSync(path.join(directory, 'plugins/test/account-settings.json'))).toBe(true)
+})
