@@ -1745,12 +1745,10 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     {BUILTIN_TOOLS.map(tool => <BuiltinPluginSettings key={tool.id} feature={tool.id} matches={matches} />)}
     <PluginConfiguration compact={compact} matches={matches} />
   </>
-  let sharedSettings = stack.selected === 'social:settings'
-  let settingsPlugin = state.plugins?.find(plugin => plugin.enabled && plugin.category === 'Social Media' && plugin.settingsAction)
-  let openSharedSettings = () => { if (settingsPlugin) void run('plugin.run', { action: `${settingsPlugin.id}/${settingsPlugin.settingsAction}`, sharedSettings: true }) }
-  let selectSharedSettings = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event); if (!prompt) openSharedSettings() }
+  let sharedSettings = stack.selected === 'social:settings' || !!prompt?.sharedSettings
+  let selectSharedSettings = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }
   let sharedSettingsRow = <div data-panel-row><button className={css.listRow} data-details="social:settings" aria-current={sharedSettings || undefined} onClick={selectSharedSettings}><strong>Settings</strong></button></div>
-  let details = prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : sharedSettings ? <section aria-label="Shared social settings" className={css.extensionDetails}><h2>Settings</h2><p>Share browsing profiles and AI decisions across social platforms.</p><button type="button" disabled={!settingsPlugin} onClick={openSharedSettings}>Edit shared settings</button>{!settingsPlugin && <p>Enable a social browsing plugin to configure shared settings.</p>}</section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
+  let details = sharedSettings ? <section aria-label="Shared settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><SharedPluginSettings prompt={prompt?.sharedSettings ? prompt : undefined} /></section> : prompt ? <section aria-label="Browsing settings" className={`${css.extensionDetails} ${css.pluginDetails}`}><PluginDialog key={prompt.runId} /></section> : (builtin || plugin) && <section aria-label="Plugin details" className={`${css.extensionDetails} ${plugin ? css.pluginDetails : ''}`}>
     {builtin ? <><h2>{builtin.name}</h2><p>{builtin.description}</p><BuiltinPluginSettings key={builtin.id} feature={builtin.id} /></> : <PluginDetails key={plugin!.id} plugin={plugin!} />}
   </section>
   let open = (event: MouseEvent<HTMLButtonElement>) => { if (prompt) dismissPluginPrompt(prompt); stack.open(event) }
@@ -1759,16 +1757,17 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
   let builtins = BUILTIN_TOOLS.filter(tool => includes(`${tool.name} ${tool.description}`))
   let plugins = [...(state.plugins ?? [])].filter(plugin => includes(`${plugin.category ?? ''} ${plugin.name} ${plugin.actions.map(action => `${action.group ?? ''} ${action.title} ${action.description ?? ''}`).join(' ')}`)).sort((a, b) => a.name.localeCompare(b.name))
   let row = (plugin: NonNullable<typeof state.plugins>[number]) => <div key={plugin.id} data-panel-row className={css.extensionRow}>
-    <button className={css.extensionName} aria-label={plugin.name} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={open}><strong>{plugin.name}</strong>{plugin.sent !== undefined && <span>{plugin.sent} sent</span>}{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
+    <button className={css.extensionName} aria-label={plugin.name} data-details={`plugin:${plugin.id}`} aria-current={stack.selected === `plugin:${plugin.id}` || undefined} onClick={open}><strong>{plugin.name}</strong>{plugin.error && <span className={css.error}>{plugin.error}</span>}</button>
     <button type="button" role="switch" className={css.extensionToggle} aria-label={`Enable ${plugin.name}`} aria-checked={plugin.enabled} data-id={plugin.id} onClick={toggle} disabled={changing.includes(plugin.id)} />
   </div>
   return <div className={css.extensionWorkspace} data-details-open={!!details} data-browsing-settings={!!prompt} onKeyDown={keys}>
     <section aria-label="Plugin list" className={css.extensionList} ref={stack.list} tabIndex={-1}>
     <SearchInput aria-label="Find plugin action" value={query} onChange={change} autoFocus={!compact && !prompt} />
+    {sharedSettingsRow}
     <h2>Built-in</h2>
     {builtins.map(tool => <div key={tool.id} data-panel-row><button className={css.listRow} data-details={`builtin:${tool.id}`} aria-current={stack.selected === `builtin:${tool.id}` || undefined} onClick={open}><strong>{tool.name}</strong></button></div>)}
     {plugins.filter(plugin => plugin.bundled && plugin.category !== 'Social Media').map(row)}
-    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{sharedSettingsRow}{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
+    {plugins.some(plugin => plugin.category === 'Social Media') && <><h2>Social Media</h2>{plugins.filter(plugin => plugin.category === 'Social Media').map(row)}</>}
     <h2>Custom</h2>
     {plugins.filter(plugin => !plugin.bundled && plugin.category !== 'Social Media').map(row)}
     {!plugins.some(plugin => !plugin.bundled && plugin.category !== 'Social Media') && <p>{query ? 'No matching custom plugins.' : 'Add folders containing plugin.yaml beside your config, in plugins/.'}</p>}
@@ -1777,6 +1776,38 @@ let PluginList = ({ compact = false, matches, browsingPrompt = false }: { compac
     </section>
     {details || <p className={css.extensionPlaceholder}>Select a plugin to see its details.</p>}
   </div>
+}
+
+let PluginDeliverySummary = () => {
+  let { state } = useUI()
+  let plugins = state.plugins?.filter(plugin => plugin.sent !== undefined) ?? []
+  return <section className={css.settingsGroup} data-setting-id="plugin-summary" aria-label="Plugin summary"><h3>Plugin summary</h3>
+    {plugins.length ? <><p>{plugins.reduce((total, plugin) => total + (plugin.sent ?? 0), 0)} sent</p>{plugins.map(plugin => <p key={plugin.id}>{plugin.name} · {plugin.sent} sent{plugin.error && <span className={css.error}> · {plugin.error}</span>}</p>)}</> : <p>No plugin deliveries yet.</p>}
+  </section>
+}
+let SHARED_PLUGIN_TABS = ['General', 'Browsing', 'Remote'] as const
+let SharedPluginSettings = ({ prompt }: { prompt?: PluginPrompt }) => {
+  let { state, run } = useUI()
+  let [tab, setTab] = useState<typeof SHARED_PLUGIN_TABS[number]>(prompt ? 'Browsing' : 'General'), id = useId()
+  let settingsPlugin = state.plugins?.find(plugin => plugin.enabled && plugin.category === 'Social Media' && plugin.settingsAction)
+  let openBrowsing = () => { if (settingsPlugin) void run('plugin.run', { action: `${settingsPlugin.id}/${settingsPlugin.settingsAction}`, sharedSettings: true }) }
+  let select = (next: typeof tab) => { if (tab === 'Browsing' && prompt && next !== tab) dismissPluginPrompt(prompt); setTab(next); if (next === 'Browsing' && !prompt) openBrowsing() }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => select(event.currentTarget.dataset.tab as typeof tab)
+  let move = (event: KeyboardEvent<HTMLDivElement>) => {
+    let index = SHARED_PLUGIN_TABS.indexOf((event.target as HTMLElement).dataset.tab as typeof tab)
+    if (index < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault(); event.stopPropagation()
+    let next = event.key === 'Home' ? 0 : event.key === 'End' ? SHARED_PLUGIN_TABS.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + SHARED_PLUGIN_TABS.length) % SHARED_PLUGIN_TABS.length
+    select(SHARED_PLUGIN_TABS[next]); event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+  }
+  return <><h2>Settings</h2>
+    <div className={css.panelTabs} role="tablist" aria-label="Shared settings sections" onKeyDown={move}>{SHARED_PLUGIN_TABS.map((item, index) => <button key={item} type="button" role="tab" id={`${id}-tab-${index}`} aria-selected={tab === item} aria-controls={`${id}-panel`} tabIndex={tab === item ? 0 : -1} data-tab={item} onClick={choose}>{item}</button>)}</div>
+    <div className={css.pluginFeaturePanel} role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-tab-${SHARED_PLUGIN_TABS.indexOf(tab)}`}>
+      {tab === 'General' && <PluginDeliverySummary />}
+      {tab === 'Browsing' && (prompt ? <PluginDialog key={prompt.runId} /> : <><p>Share browsing profiles and AI decisions across social platforms.</p><button type="button" disabled={!settingsPlugin} onClick={openBrowsing}>Edit shared settings</button>{!settingsPlugin && <p>Enable a social browsing plugin to configure shared settings.</p>}</>)}
+      {tab === 'Remote' && <><h3>Remote sharing</h3><DesktopRemoteAccount /><h3>Previews</h3><RemotePreviewSettings /><HooksPanel account={bridge.remoteAccount} /></>}
+    </div>
+  </>
 }
 
 let PluginPlayback = () => {
@@ -1836,7 +1867,7 @@ let PluginDetails = ({ plugin }: { plugin: PluginInfo }) => {
     <h2>{plugin.name}</h2>
     <div className={css.panelTabs} role="tablist" aria-label="Plugin features" onKeyDown={move}>{tabs.map((item, index) => <button type="button" key={item.id} id={`${id}-tab-${index}`} role="tab" aria-selected={selected.id === item.id} aria-controls={`${id}-content`} tabIndex={selected.id === item.id ? 0 : -1} data-feature={item.id} onClick={choose}>{item.title}</button>)}</div>
     <div className={css.pluginFeaturePanel} role="tabpanel" id={`${id}-content`} aria-labelledby={`${id}-tab-${tabs.indexOf(selected)}`}>
-      {selected.id === 'hooks' ? <SocialHooksPanel openGuide={openGuide} pluginId={plugin.id} profiles={state.model.profiles.flatMap(profile => profile.connections?.length ? profile.connections.map((connection,index) => ({id:connection.id,name:profile.name+(index ? ` (${index+1})` : '')})) : [profile])} run={run} /> : selected.id === 'recordings' ? <RecordingPanel run={run} context={plugin.id} /> : selected.id === 'settings' ? <><p>Version {plugin.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin.id} compact settingsOnly /></> : selected.id === 'activity' ? <PluginActivity pluginId={plugin.id} /> : <>{plugin.description && <p>{plugin.description}</p>}{!plugin.enabled && <p>Enable {plugin.name} in Settings to use these actions.</p>}<PluginActions plugin={plugin} actions={plugin.actions.filter(action => `feature:${action.group ?? 'Actions'}` === selected.id)} /></>}
+      {selected.id === 'hooks' ? <SocialHooksPanel openGuide={openGuide} pluginId={plugin.id} profiles={state.model.profiles.flatMap(profile => profile.connections?.length ? profile.connections.map((connection,index) => ({id:connection.id,name:profile.name+(index ? ` (${index+1})` : '')})) : [profile])} run={run} /> : selected.id === 'recordings' ? <RecordingPanel run={run} context={plugin.id} /> : selected.id === 'settings' ? <><p>Version {plugin.version || 'unavailable'}</p><PluginConfiguration pluginId={plugin.id} compact settingsOnly /></> : selected.id === 'activity' ? <>{plugin.sent !== undefined && <p>{plugin.sent} sent</p>}<PluginActivity pluginId={plugin.id} /></> : <>{plugin.description && <p>{plugin.description}</p>}{!plugin.enabled && <p>Enable {plugin.name} in Settings to use these actions.</p>}<PluginActions plugin={plugin} actions={plugin.actions.filter(action => `feature:${action.group ?? 'Actions'}` === selected.id)} /></>}
     </div>
   </>
 }
@@ -3920,11 +3951,11 @@ let BuiltinPluginSettings = ({ feature, matches }: { feature: BuiltinTool; match
   </>
 }
 
-type SettingsTab = 'general' | 'appearance' | 'memory' | 'keyboard' | 'account'
+type SettingsTab = 'general' | 'appearance' | 'memory' | 'keyboard'
 type SettingsSearchItem = { tab: SettingsTab; label: string; section?: string; keywords?: string; target: string }
-let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'keyboard', label: 'Keyboard' }, { id: 'account', label: 'Account' }]
+let SETTINGS_TABS: { id: SettingsTab; label: string }[] = [{ id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'memory', label: 'Memory' }, { id: 'keyboard', label: 'Keyboard' }]
 let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
-  { tab: 'account', label: 'Relay, boxes and billing', section: 'Remote account', keywords: 'rent server subscription payment connect computer live views streams', target: '[data-setting-id="remote-account"]' },
+  { tab: 'general', label: 'Plugin summary', keywords: 'sent deliveries activity', target: '[data-setting-id="plugin-summary"]' },
   { tab: 'general', label: 'About bmux', section: 'Build information', keywords: 'version build commit date timestamp', target: '[data-setting-id="build-info"]' },
   { tab: 'general', label: 'Normal session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.normal"]' },
   { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
@@ -3956,6 +3987,7 @@ let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting:
   let show = (target: string) => !matches || matches.has(target)
   return <>
     {show('[data-setting-id="build-info"]') && <BuildInformation />}
+    {show('[data-setting-id="plugin-summary"]') && <PluginDeliverySummary />}
     {(show('[name="searchApps.normal"]') || show('[name="searchApps.private"]')) && <section className={css.settingsGroup} aria-label="Search apps"><h3>Search apps</h3>
       {show('[name="searchApps.normal"]') && <label className={css.settingsRow}><span>Normal session search app</span><select name="searchApps.normal" value={state.searchApps?.normal ?? DEFAULT_SEARCH_APPS.normal} onChange={changeSetting}><SearchAppOptions /></select></label>}
       {show('[name="searchApps.private"]') && <label className={css.settingsRow}><span>Private session search app</span><select name="searchApps.private" value={state.searchApps?.private ?? DEFAULT_SEARCH_APPS.private} onChange={changeSetting}><SearchAppOptions /></select></label>}
@@ -4016,7 +4048,6 @@ let SettingsSearchResults = ({ results, changeSetting, makeDefault, prefix, curr
     {tab.id === 'appearance' && <AppearanceSettings changeSetting={changeSetting} matches={matches} />}
     {tab.id === 'memory' && <MemorySettings changeSetting={changeSetting} matches={matches} />}
     {tab.id === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={currentPrefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} matches={matches} />}
-    {tab.id === 'account' && <DesktopRemoteAccount />}
   </section>)}{!results.length && <p role="status">No matching settings.</p>}</div>
 }
 let SettingsContent = () => {
@@ -4073,7 +4104,6 @@ let SettingsContent = () => {
       {tab === 'appearance' && <AppearanceSettings changeSetting={changeSetting} />}
       {tab === 'memory' && <MemorySettings changeSetting={changeSetting} />}
       {tab === 'keyboard' && <KeyboardSettings prefix={prefix} currentPrefix={state.keyboard?.prefix} changePrefix={changePrefix} savePrefix={savePrefix} edit={edit} />}
-      {tab === 'account' && <DesktopRemoteAccount />}
       </>}
     </section>
     {state.configError && <p className={css.error}>{state.configError}</p>}
