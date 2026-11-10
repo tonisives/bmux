@@ -38,6 +38,7 @@ COPY --from=service-build /opt/bmux/package.json ./package.json
 COPY --from=service-build /opt/bmux/remote/server.mjs ./remote/server.mjs
 COPY --from=service-build /opt/bmux/remote/schema.sql ./remote/schema.sql
 COPY --from=service-build /opt/bmux/remote/mobile-auth.sql ./remote/mobile-auth.sql
+COPY --from=service-build /opt/bmux/remote/accounts.sql ./remote/accounts.sql
 COPY --from=service-build /opt/bmux/remote/dist ./remote/dist
 USER node
 EXPOSE 8788
