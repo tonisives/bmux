@@ -4648,6 +4648,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     reopen:async pane => { disposeTab(pane); await scheduleVisuals() },
   })
   let remote = {
+    accountConfiguration: (platform: string, profileId: string, operation?: Parameters<NonNullable<typeof plugins>['accountConfiguration']>[2]) => {
+      if (!model.profiles.some(profile => profile.id === profileId) || !plugins) throw new Error('Browsing profile unavailable')
+      return plugins.accountConfiguration(platform, profileId, operation)
+    },
     capabilities:management.capabilities,
     rpc:management.rpc,
     sessionRevision:management.sessionRevision,

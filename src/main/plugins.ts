@@ -7,7 +7,7 @@ import { parsePluginOverlay, validatePluginOverlayInput } from '../shared/plugin
 import type { PluginOverlayContent, PluginOverlayInput } from '../shared/plugin-overlay'
 import path from 'node:path'
 import net from 'node:net'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { spawn, execFile } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
@@ -140,6 +140,37 @@ export let createPlugins = (options: Options) => {
       run.profiles = { active, items: entries, ...(profiles.templates === undefined ? {} : { templates: items(profiles.templates) }) }
     }
     run.savedValues = values
+  }
+  let accountConfiguration = async (platform: string, profileId: string, operation?: { revision: string; values?: Record<string, unknown>; profile?: Record<string, unknown> }) => {
+    let definition = definitions.get(`bmux.${platform}`)
+    let action = definition?.manifest.actions.find(action => action.id === 'simulate')
+    if (!definition || !settings[definition.manifest.id]?.enabled || definition.manifest.category !== 'Social Media' || !action?.configuration_command || !action.configuration_save_command) throw new Error('Browsing settings unavailable')
+    let fields = action.parameters.filter(field => !field.hidden && field.kind !== 'password')
+    let run: Run = { definition, action, context: { profileId }, parameters: {}, token: '', interactive: false, controller: new AbortController(), public: { id: randomUUID(), pluginId: definition.manifest.id, actionId: action.id, title: action.title, status: 'completed', hook: false } }
+    let read = async () => {
+      readConfiguration(run, await configuration(run, action.configuration_command!))
+      let value = { fields, values: run.savedValues ?? {}, ...(run.profiles ? { profiles: run.profiles } : {}), summary: run.summary ?? [] }
+      return { ...value, revision: createHash('sha256').update(JSON.stringify(value)).digest('hex') }
+    }
+    let current = await read()
+    if (!operation) return current
+    if (operation.revision !== current.revision) throw new Error('Settings changed; refresh before saving')
+    if (!!operation.values === !!operation.profile) throw new Error('Choose one settings operation')
+    if (operation.values) {
+      let values = record(operation.values)
+      for (let [name, value] of Object.entries(values)) {
+        let field = fields.find(field => field.name === name)
+        if (!field || value === undefined) throw new Error('Unknown saved setting')
+        validateParameter(field, value)
+      }
+      await configuration(run, action.configuration_save_command, values)
+    } else {
+      let profile = record(operation.profile)
+      if (!action.configuration_profile_command || !['create','select','rename','delete'].includes(String(profile.action)) || Object.keys(profile).some(key => !['action','id','name','template'].includes(key))) throw new Error('Invalid browsing profile operation')
+      for (let key of ['id','name','template']) if (profile[key] !== undefined) shortText(profile[key], key === 'name' ? 60 : 128)
+      await configuration(run, action.configuration_profile_command, profile)
+    }
+    return read()
   }
   let changeProfile = async (run: Run, raw: unknown) => {
     let operation = record(raw), request = run.pending!.prompt
@@ -512,5 +543,5 @@ export let createPlugins = (options: Options) => {
       return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
     } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
   })
-  return { sessionManaged: (profileId: string, paneId?: string) => [...runs.values()].some(run => live(run) && !run.public.hook && !run.pending && run.action.pacing === 'plugin' && run.context.profileId === profileId && (!paneId || run.context.paneId === paneId)), stopBrowsing, browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  return { accountConfiguration, sessionManaged: (profileId: string, paneId?: string) => [...runs.values()].some(run => live(run) && !run.public.hook && !run.pending && run.action.pacing === 'plugin' && run.context.profileId === profileId && (!paneId || run.context.paneId === paneId)), stopBrowsing, browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }
