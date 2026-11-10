@@ -82,6 +82,7 @@ test('paid remote account connects a running computer and opens regional box che
     await settings.getByRole('button',{name:'Settings',exact:true}).click()
     await settings.getByRole('tab',{name:'Remote',exact:true}).click()
     await expect(settings.getByRole('button',{name:'Confirm billing email with Google',exact:true})).toBeVisible()
+    await fs.mkdir(info.outputDir,{recursive:true}); await chrome.screenshot({path:info.outputPath('plugin-remote-settings.png')})
     billingEmail = 'pilot@example.com'
     await settings.getByRole('button',{name:'Close',exact:true}).click()
     await chrome.getByRole('button',{name:'Command prompt',exact:true}).click()
