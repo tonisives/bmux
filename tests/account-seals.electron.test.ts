@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { build } from 'vite'
 import { externalizeDepsPlugin } from 'electron-vite'
@@ -29,14 +30,11 @@ test('account seal rejects identity edits and preserves browser headers and view
     await rpc('navigate',{pane:client.paneId,url})
     await expect.poll(() => application.context().pages().some(page => page.url()===url)).toBe(true)
     await rpc('lock-window',{window:client.windowId}); await rpc('lock-viewport',{window:client.windowId,width:1200,height:800})
-    let receipt = await application.evaluate(async () => {
+    let receipt = await application.evaluate(async (_electron, settingsHash) => {
       let runtime = (globalThis as any).remoteLayoutRuntime, session = runtime.model.sessions[0], window = session.windows[0], pane = window.panes[0]
-      let identity = {sessionId:session.id,windowId:window.id,paneId:pane.id,profileId:pane.profileId,connectionId:pane.connectionId??pane.profileId,viewport:window.lockedViewports[pane.id],locked:true,network:'direct',settingsHash:''}
-      // The settings digest comes from the same finite fixture model as production.
-      let { createHash } = await import('node:crypto')
-      identity.settingsHash = createHash('sha256').update(JSON.stringify({device:null,proxy:null})).digest('hex')
+      let identity = {sessionId:session.id,windowId:window.id,paneId:pane.id,profileId:pane.profileId,connectionId:pane.connectionId??pane.profileId,viewport:window.lockedViewports[pane.id],locked:true,network:'direct',settingsHash}
       return runtime.accounts.seal('10000000-0000-4000-8000-000000000001',identity)
-    })
+    }, createHash('sha256').update(JSON.stringify({device:null,proxy:null})).digest('hex'))
     expect(receipt.headersHash).toMatch(/^[a-f0-9]{64}$/)
     for (let [method,args] of [['unlock-window',{window:client.windowId}],['unlock-viewport',{window:client.windowId}],['lock-viewport',{window:client.windowId,width:800,height:600}],['pane.proxy.set',{pane:client.paneId,profile:client.profileId}],['kill-window',{window:client.windowId,confirm:true}],['cdp',{pane:client.paneId,method:'Network.setExtraHTTPHeaders',params:{headers:{'User-Agent':'changed'}}}]] as const) await expect(rpc(method,args)).rejects.toThrow('ACCOUNT_IDENTITY_SEALED')
     let page = application.context().pages().find(page => page.url()===url)!
