@@ -21,7 +21,7 @@ test('account seal rejects identity edits and preserves browser headers and view
   await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve))
   let url = `http://www.tiktok.com:${(server.address() as {port:number}).port}/`, data = path.join(directory,'profile')
   let plugin = path.join(data, 'plugins', 'fixture'), marker = path.join(data, 'job-starts')
-  await fs.mkdir(plugin, { recursive: true }); await fs.writeFile(path.join(data,'config.yaml'),'browser:\n  autoUpdateFilters: false\nplugins:\n  bmux.tiktok:\n    enabled: true\n')
+  await fs.mkdir(plugin, { recursive: true }); await fs.writeFile(path.join(data,'config.yaml'), JSON.stringify({ browser: { autoUpdateFilters: false }, plugins: { 'bmux.tiktok': { enabled: true } } }))
   await fs.writeFile(path.join(plugin, 'plugin.yaml'), JSON.stringify({ schema_version: 1, id: 'bmux.tiktok', name: 'Local account job fixture', version: '1', category: 'Social Media', actions: [{ id: 'publish-post', title: 'Publish fixture', command: [process.execPath, './run.mjs'], capabilities: ['browser.read','browser.write'], parameters: [{ name: 'hold', title: 'Hold', kind: 'boolean' }], timeout_seconds: 60 }] }))
   await fs.writeFile(path.join(plugin, 'run.mjs'), `import {execFileSync} from 'node:child_process'; import fs from 'node:fs'; let host=(method,args={})=>JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8'})).result; let context=host('context'); host('click',{selector:'h1'}); fs.appendFileSync(${JSON.stringify(marker)},'started\\n'); if(context.parameters.hold)await new Promise(resolve=>setTimeout(resolve,30000));`)
   // The social hostname resolves only to this disposable local fixture server.
@@ -33,6 +33,7 @@ test('account seal rejects identity edits and preserves browser headers and view
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string,unknown>) => chrome.evaluate(({method,args}) => (window as any).bmux.command({method,args}), {method,args})
+    await expect.poll(async () => (await rpc('plugin.list', {})).find((plugin: any) => plugin.id === 'bmux.tiktok')?.enabled).toBe(true)
     let state = await chrome.evaluate(() => (window as any).bmux.state()), client = state.model.clients.find((item: any) => item.id === state.clientId)
     await rpc('navigate',{pane:client.paneId,url})
     await expect.poll(() => application.context().pages().some(page => page.url()===url)).toBe(true)

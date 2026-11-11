@@ -54,9 +54,9 @@ export let createAccountJobs = (options: Options) => {
     for (let [id, run] of active) {
       let status = run.handle.status()
       if (status === 'completed') await finish(id, 'succeeded')
-      else if (status === 'failed' || status === 'cancelled') await finish(id, status === 'failed' ? 'failed' : 'cancelled', status === 'failed' ? 'PLUGIN_FAILED' : undefined)
       else if (closed || !run.valid()) await finish(id, 'interrupted', 'RELAY_DISCONNECTED')
       else if (Date.now() >= saved[id].deadline) await finish(id, 'interrupted', 'EXECUTION_DEADLINE')
+      else if (status === 'failed' || status === 'cancelled') await finish(id, status === 'failed' ? 'failed' : 'cancelled', status === 'failed' ? 'PLUGIN_FAILED' : undefined)
       else { try { run.handle.renew() } catch { await finish(id, 'interrupted', 'CONTROL_EXPIRED') } }
     }
   })

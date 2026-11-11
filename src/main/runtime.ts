@@ -227,10 +227,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let pluginCommand = new AsyncLocalStorage<PluginContext & { signal?: AbortSignal }>(), websiteLocks = createWebsiteLocks()
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
   let scheduledActors = new Map<string, { actor: { owner: string; generation: number }; pane: string; guard: () => void }>()
-  let accountJobScope = <T>(context: PluginContext, operation: () => Promise<T>) => {
+  let accountJobScope = <T>(context: PluginContext, method: string, operation: () => Promise<T>) => {
     let job = context.runId ? scheduledActors.get(context.runId) : undefined
     if (!job) return operation()
     if (context.paneId !== job.pane) throw new Error('ACCOUNT_JOB_PANE_CHANGED')
+    if (!['dom','eval','wait','fill','type','click','cdp','navigate','back','forward','reload','key','scroll','screenshot','forms.list','forms.fill','script.install'].includes(method)) throw new Error('ACCOUNT_JOB_COMMAND_BLOCKED')
     job.guard()
     return remoteActor.run(job.actor, operation)
   }
@@ -4553,7 +4554,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       audio[paneId] = { playing: false, muted: true }
       publish()
       return pluginContext({ ...agentInfo(context), clientId: context.clientId, paneId })
-    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ scope: (context, method, args, signal, operation) => accountJobScope(context, () => pluginCommand.run({ ...context, signal }, () => {
+    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ scope: (context, method, args, signal, operation) => accountJobScope(context, method, () => pluginCommand.run({ ...context, signal }, () => {
       if (context.pacing !== 'plugin' || !context.paneId || !context.profileId || !['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp', 'navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot', 'forms.list', 'forms.save', 'forms.fill', 'forms.delete'].includes(method)) return operation()
       if (!agentAction(method, args) && (readsPage(method, args) || method === 'screenshot') && context.runId && websiteLocks.owns(context.profileId, context.url ?? '', context.runId)) return operation()
       return runAgentAction(context.paneId, method, args, async () => {
