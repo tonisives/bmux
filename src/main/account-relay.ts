@@ -16,7 +16,8 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
     try {
       let browsing = control ? await control.inventory() : undefined
       if (stopped || current !== socket || current.readyState !== WebSocket.OPEN) return
-      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), type: 'inventory', control: 1, name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model).map(pane => ({ ...pane, controlled: runtime.accounts.controlled(pane.key) })) })
+      let executions = await runtime.accounts.jobs.receipts()
+      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), executions, actions: runtime.accounts.actions(), type: 'inventory', control: 2, name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model).map(pane => ({ ...pane, controlled: runtime.accounts.controlled(pane.key) })) })
       if (Buffer.byteLength(message) <= 262144) socket.send(message)
     } catch { current.close() } finally { reporting = false }
   }
@@ -33,11 +34,21 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
         if (stopped || socket !== connection || connection.readyState !== WebSocket.OPEN) return
         let message = JSON.parse(raw.toString())
         if (message.type === 'ready') { backoff = 1000; await report(); return }
-        if (message.type === 'recorded' && control && Array.isArray(message.commands)) {
-          for (let command of message.commands.slice(0, 4)) {
-            let result = await control.apply(command)
+        if (message.type === 'recorded') {
+          for (let id of (Array.isArray(message.cancelJobs) ? message.cancelJobs.slice(0, 100) : [])) await runtime.accounts.jobs.cancel(String(id))
+          for (let command of (control && Array.isArray(message.commands) ? message.commands.slice(0, 4) : [])) {
+            let result = await control!.apply(command)
             if (!stopped && socket === connection && connection.readyState === WebSocket.OPEN) connection.send(JSON.stringify({ type: 'settings-result', ...result }))
           }
+          return
+        }
+        if (message.type === 'run') {
+          if (!Number.isFinite(message.expires) || message.expires <= Date.now() || message.expires > Date.now() + 60000) throw new Error('Invalid job delivery')
+          let valid = () => !stopped && socket === connection && connection.readyState === WebSocket.OPEN
+          let result
+          try { result = await runtime.accounts.jobs.accept(message.job, valid) }
+          catch (value) { let code = (value as Error).message; result = { id: message.job?.id, status: code === 'CONTROL_HELD' ? 'busy' : 'failed', error: /^[A-Z_]{1,80}$/.test(code) ? code : 'ACCOUNT_JOB_FAILED' } }
+          if (valid()) connection.send(JSON.stringify({ type: 'job-result', ...result }))
           return
         }
         if (message.type !== 'seal') return

@@ -436,6 +436,26 @@ export let createPlugins = (options: Options) => {
     if (sharedSettings && (!interactive || definition.manifest.category !== 'Social Media' || !action.configuration_save_command)) throw new Error('Shared social settings unavailable')
     return enqueue(definition, action, options.context(context), parameters, false, interactive, sharedSettings)
   }
+  let accountActions = (platform: string) => {
+    let definition = definitions.get(`bmux.${platform}`)
+    if (!definition || !settings[definition.manifest.id]?.enabled || definition.manifest.category !== 'Social Media') return []
+    return definition.manifest.actions.filter(action => ['simulate', 'publish-post', 'prepare-post', 'verify-post', 'observe'].includes(action.id)).map(action => ({ id: definition.manifest.id + '/' + action.id, title: action.title }))
+  }
+  let accountRun = async (platform: string, target: string, context: PluginContext, inputs: Record<string, unknown>, valid: () => void) => {
+    if (!accountActions(platform).some(action => action.id === target)) throw new Error('ACCOUNT_ACTION_UNAVAILABLE')
+    let definition = definitions.get(`bmux.${platform}`)!, action = definition.manifest.actions.find(action => target === definition.manifest.id + '/' + action.id)!
+    let parameters: Record<string, unknown> = Object.fromEntries(action.parameters.filter(field => field.default !== undefined).map(field => [field.name, field.default]))
+    if (action.configuration_command) {
+      let run: Run = { definition, action, context: options.context(context), parameters: {}, token: '', interactive: false, controller: new AbortController(), public: { id: randomUUID(), pluginId: definition.manifest.id, actionId: action.id, title: action.title, status: 'completed', hook: false } }
+      readConfiguration(run, await configuration(run, action.configuration_command))
+      Object.assign(parameters, run.savedValues)
+    }
+    if (Object.keys(inputs).some(key => !action.parameters.some(field => field.name === key && field.kind !== 'password'))) throw new Error('ACCOUNT_INPUT_INVALID')
+    Object.assign(parameters, inputs)
+    for (let field of action.parameters) { if (field.kind === 'password' && parameters[field.name] !== undefined) throw new Error('ACCOUNT_INPUT_INVALID'); validateParameter(field, parameters[field.name]) }
+    valid()
+    return runAction(target, context, Object.fromEntries(Object.entries(parameters).filter(([key]) => action.parameters.some(field => field.name === key))), false)
+  }
   let overlays = (paneId: string) => {
     let seen = new Set<string>()
     return [...runs.values()].reverse().flatMap(run => {
@@ -543,5 +563,5 @@ export let createPlugins = (options: Options) => {
       return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: fs.readFileSync(script, 'utf8') }
     } catch { return { id: definition.manifest.id, name: definition.manifest.name, contribution, source: '', error: 'Bookmark script unavailable' } }
   })
-  return { accountConfiguration, sessionManaged: (profileId: string, paneId?: string) => [...runs.values()].some(run => live(run) && !run.public.hook && !run.pending && run.action.pacing === 'plugin' && run.context.profileId === profileId && (!paneId || run.context.paneId === paneId)), stopBrowsing, browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
+  return { accountActions, accountRun, accountConfiguration, sessionManaged: (profileId: string, paneId?: string) => [...runs.values()].some(run => live(run) && !run.public.hook && !run.pending && run.action.pacing === 'plugin' && run.context.profileId === profileId && (!paneId || run.context.paneId === paneId)), stopBrowsing, browsingPane: (id: string) => [...runs.values()].some(run => live(run) && run.context.paneId === id && run.definition.manifest.category === 'Social Media' && !run.pending), ready, list, bookmarks, runs: publicRuns, overlay, overlays, copyOverlay, overlayInput, restartOverlay, configureOverlay, prompt, respond, reconcile, run: runAction, cancel, reload, hook, invalidate, close }
 }

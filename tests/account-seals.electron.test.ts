@@ -14,13 +14,18 @@ test('account seal rejects identity edits and preserves browser headers and view
   await fs.mkdir(output); await fs.writeFile(path.join(output, 'package.json'), '{"type":"module"}')
   await fs.symlink(path.join(process.cwd(), 'node_modules'), path.join(output, 'node_modules'))
   for (let name of ['preload','renderer','native']) await fs.symlink(path.join(process.cwd(), 'out', name), path.join(output, name))
+  await fs.symlink(path.join(process.cwd(), 'bin'), path.join(output, 'bin'))
   await build({ configFile: false, logLevel: 'error', plugins: [externalizeDepsPlugin(), pageVimPlugin()], build: { ssr: true, emptyOutDir: false, outDir: path.join(output, 'main'), rollupOptions: { input: 'tests/fixtures/remote-layout-main.ts', output: { format: 'es', entryFileNames: 'main.js' } } } })
   let headers: string[] = []
   let server = http.createServer((request, response) => { headers.push(request.headers['user-agent'] ?? ''); response.setHeader('Content-Type','text/html'); response.end('<!doctype html><title>Account seal fixture</title><h1 onclick="document.body.dataset.clicked=1">Account seal fixture</h1>') })
   await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve))
-  let url = `http://127.0.0.1:${(server.address() as {port:number}).port}/`, data = path.join(directory,'profile')
-  await fs.mkdir(data); await fs.writeFile(path.join(data,'config.yaml'),'browser:\n  autoUpdateFilters: false\n')
-  let launch = () => electron.launch({ args: [path.join(output,'main/main.js')], env: { ...process.env, BMUX_DATA_DIR:data, BMUX_CONFIG:path.join(data,'config.yaml') } })
+  let url = `http://www.tiktok.com:${(server.address() as {port:number}).port}/`, data = path.join(directory,'profile')
+  let plugin = path.join(data, 'plugins', 'fixture'), marker = path.join(data, 'job-starts')
+  await fs.mkdir(plugin, { recursive: true }); await fs.writeFile(path.join(data,'config.yaml'),'browser:\n  autoUpdateFilters: false\nplugins:\n  bmux.tiktok:\n    enabled: true\n')
+  await fs.writeFile(path.join(plugin, 'plugin.yaml'), JSON.stringify({ schema_version: 1, id: 'bmux.tiktok', name: 'Local account job fixture', version: '1', category: 'Social Media', actions: [{ id: 'publish-post', title: 'Publish fixture', command: [process.execPath, './run.mjs'], capabilities: ['browser.read','browser.write'], parameters: [{ name: 'hold', title: 'Hold', kind: 'boolean' }], timeout_seconds: 60 }] }))
+  await fs.writeFile(path.join(plugin, 'run.mjs'), `import {execFileSync} from 'node:child_process'; import fs from 'node:fs'; let host=(method,args={})=>JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8'})).result; let context=host('context'); host('click',{selector:'h1'}); fs.appendFileSync(${JSON.stringify(marker)},'started\\n'); if(context.parameters.hold)await new Promise(resolve=>setTimeout(resolve,30000));`)
+  // The social hostname resolves only to this disposable local fixture server.
+  let launch = () => electron.launch({ args: ['--no-proxy-server','--host-resolver-rules=MAP www.tiktok.com 127.0.0.1',path.join(output,'main/main.js')], env: { ...process.env, BMUX_DATA_DIR:data, BMUX_CONFIG:path.join(data,'config.yaml') } })
   let application = await launch(), stderr = ''
   let track = () => application.process().stderr?.on('data', value => { stderr += value.toString() })
   track()
@@ -52,6 +57,16 @@ test('account seal rejects identity edits and preserves browser headers and view
       runtime.remote.release(session,'fixture-owner')
     }, {session:client.sessionId,pane:client.paneId,url})
     await expect.poll(() => page.evaluate(() => document.body.dataset.clicked)).toBe('1')
+    let job = await application.evaluate(async (_electron, pane) => {
+      let runtime = (globalThis as any).remoteLayoutRuntime, seal = runtime.model.accountSeals[pane]
+      let job = { id: '30000000-0000-4000-8000-000000000001', account: seal.account, identity: seal.identity, action: 'bmux.tiktok/publish-post', inputs: { hold: true }, deadline: Date.now() + 60000 }
+      await runtime.accounts.jobs.accept(job, () => true); await runtime.accounts.jobs.accept(job, () => true)
+      try { runtime.remote.acquire(seal.identity.sessionId, 'competing-owner', true); throw new Error('Competing controller acquired job lease') } catch (error) { if ((error as Error).message !== 'CONTROL_HELD') throw error }
+      return job
+    }, client.paneId)
+    await expect.poll(async () => (await fs.readFile(marker, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).length).toBe(1)
+    await application.evaluate(async (_electron, id) => (globalThis as any).remoteLayoutRuntime.accounts.jobs.cancel(id), job.id)
+    expect((await fs.readFile(marker, 'utf8')).trim().split('\n')).toHaveLength(1)
 
     await closeTestApplication(application); await info.attach('sealed-state',{body:await fs.readFile(path.join(data,'state.json')),contentType:'application/json'}); application = await launch(); track()
     await expect.poll(() => application.context().pages().some(page => page.url()===url),{timeout:15000}).toBe(true)
@@ -59,5 +74,7 @@ test('account seal rejects identity edits and preserves browser headers and view
     await expect.poll(() => page.evaluate(() => ({width:innerWidth,height:innerHeight,userAgent:navigator.userAgent}))).toEqual({width:1200,height:800,userAgent})
     expect(headers.length).toBeGreaterThan(1); expect(new Set(headers)).toEqual(new Set([userAgent]))
     expect(await application.evaluate(() => Object.keys((globalThis as any).remoteLayoutRuntime.model.accountSeals).length)).toBe(1)
+    expect(await application.evaluate(async (_electron, job) => (await (globalThis as any).remoteLayoutRuntime.accounts.jobs.accept(job, () => true)).status, job)).toBe('cancelled')
+    expect((await fs.readFile(marker, 'utf8')).trim().split('\n')).toHaveLength(1)
   } finally { await info.attach('electron-stderr',{body:stderr,contentType:'text/plain'}); await info.attach('restored-state',{body:JSON.stringify(await application.evaluate(() => { let runtime = (globalThis as any).remoteLayoutRuntime; return runtime ? {model:runtime.model,crashes:runtime.state().crashes} : {missingRuntime:true} }).catch(() => ({}))),contentType:'application/json'}); await closeTestApplication(application); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(directory,{recursive:true,force:true}) }
 })

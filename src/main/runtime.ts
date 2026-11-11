@@ -41,6 +41,8 @@ import { createConfig, configPath, DEFAULT_MEMORY } from './config'
 import type { Shortcut } from '../shared/keyboard'
 import { readOnlyAction, DEFAULT_KEYBOARD, isModifierKeyBinding, matchesBinding, prefixAction, shortcutAction, shortcutWhen, shortcutMatchesContext } from '../shared/keyboard'
 import { createPlugins } from './plugins'
+import { createAccountJobs } from './account-jobs'
+import { accountFingerprint, accountPaneIdentity, lockedPaneInventory } from './locked-pane-inventory'
 import { createPluginBrowser } from './plugin-browser'
 import { createWebsiteLocks } from './website-locks'
 import { createVirtualMouse } from './virtual-mouse'
@@ -224,6 +226,14 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let pluginActor = new AsyncLocalStorage<boolean>()
   let pluginCommand = new AsyncLocalStorage<PluginContext & { signal?: AbortSignal }>(), websiteLocks = createWebsiteLocks()
   let remoteActor = new AsyncLocalStorage<{ owner: string; generation: number }>()
+  let scheduledActors = new Map<string, { actor: { owner: string; generation: number }; pane: string; guard: () => void }>()
+  let accountJobScope = <T>(context: PluginContext, operation: () => Promise<T>) => {
+    let job = context.runId ? scheduledActors.get(context.runId) : undefined
+    if (!job) return operation()
+    if (context.paneId !== job.pane) throw new Error('ACCOUNT_JOB_PANE_CHANGED')
+    job.guard()
+    return remoteActor.run(job.actor, operation)
+  }
   let humanInput = new AsyncLocalStorage<boolean>()
   let isAutomationCommand = (sourceClientId?: string) => !sourceClientId && !remoteActor.getStore() && !humanInput.getStore()
   let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait', 'client.tooltip'])
@@ -4543,7 +4553,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       audio[paneId] = { playing: false, muted: true }
       publish()
       return pluginContext({ ...agentInfo(context), clientId: context.clientId, paneId })
-    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ scope: (context, method, args, signal, operation) => pluginCommand.run({ ...context, signal }, () => {
+    }, show: clientId => { let chrome = clients.get(clientId)?.chrome.webContents; chrome?.focus(); chrome?.send('focus-control', 'plugin-dialog') }, browser: createPluginBrowser({ scope: (context, method, args, signal, operation) => accountJobScope(context, () => pluginCommand.run({ ...context, signal }, () => {
       if (context.pacing !== 'plugin' || !context.paneId || !context.profileId || !['dom', 'eval', 'wait', 'fill', 'type', 'click', 'cdp', 'navigate', 'back', 'forward', 'reload', 'key', 'scroll', 'screenshot', 'forms.list', 'forms.save', 'forms.fill', 'forms.delete'].includes(method)) return operation()
       if (!agentAction(method, args) && (readsPage(method, args) || method === 'screenshot') && context.runId && websiteLocks.owns(context.profileId, context.url ?? '', context.runId)) return operation()
       return runAgentAction(context.paneId, method, args, async () => {
@@ -4552,7 +4562,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         websiteLocks.claim(context.profileId!, [context.url ?? '', ...(target ? [target] : [])], context.runId!)
         return operation()
       }, context.runId)
-    }), activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method, context) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params, scrolling) => cdp(tab, method, params, undefined, false, true, scrolling), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
+    })), activity: (context, method) => context.paneId && !['navigate','back','forward','reload','key','scroll','screenshot'].includes(method) ? trackActivity(context.paneId, context.agentId ?? 'plugin', method, context) : undefined, context: pluginContext, read: readAutomationPage, action: runAgentAction, cdp: (tab, method, params, scrolling) => cdp(tab, method, params, undefined, false, true, scrolling), execute: command => pluginActor.run(true, () => execute(command)), before: async (context, method, args) => {
       await guardAutomation(context, automationTargetUrl(method, args), paceAutomationCommand(method, args), ['navigate', 'reload', 'hard-reload'].includes(method))
       if (context.paneId) tabs.get(context.paneId)?.inputLock?.showCommand(agentCommandLabel(method, args))
     } }), automation: { ...automation, acquire: args => { let lease = automation!.acquire(args); tabAutomation.set(args.tabId, lease.token); return lease }, release: token => { for (let [tabId, active] of tabAutomation) if (active === token) tabAutomation.delete(tabId); return automation!.release(token) } } })
@@ -4643,6 +4653,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     bookmarkPluginPages?.close()
     pageTools?.close()
     filters?.close()
+    void accountJobs.close().catch(() => undefined)
     plugins?.close()
     automation?.close()
     configuration?.close()
@@ -4821,7 +4832,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return remoteViewport(pane)
     },
   }
-  let accounts = { controlled: (pane: string) => !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
+  let accountJobs = createAccountJobs({ directory: dataDirectory, changed: publish, acquire: job => {
+    assertAccountSeals(model)
+    let seal = model.accountSeals?.[job.identity.paneId], identity = accountPaneIdentity(model, job.identity.paneId)
+    if (!seal || seal.account !== job.account || accountFingerprint(identity) !== accountFingerprint(job.identity)) throw new Error('ACCOUNT_IDENTITY_CHANGED')
+    let pane = lockedPaneInventory(model).find(pane => pane.key === job.identity.paneId)
+    if (!pane || !plugins?.accountActions(pane.platform).some(action => action.id === job.action)) throw new Error('ACCOUNT_ACTION_UNAVAILABLE')
+    let owner = 'account-job:' + job.id, session = job.identity.sessionId, lease = remote.acquire(session, owner, false), runId: string | undefined
+    let renew = () => { assertAccountSeals(model); if (accountFingerprint(accountPaneIdentity(model, job.identity.paneId)) !== accountFingerprint(job.identity)) throw new Error('ACCOUNT_IDENTITY_CHANGED'); controls.renew(session, owner, lease.generation) }
+    return { renew, release: () => { if (runId) scheduledActors.delete(runId); remote.release(session, owner) }, cancel: () => { if (runId) plugins?.cancel(runId) }, status: () => plugins?.runs().find(run => run.id === runId)?.status ?? 'failed', start: async guard => {
+      let live = await ensureLiveTab(job.identity.paneId); await live.ready; guard(); live.contents.setAudioMuted(true)
+      let run = await plugins!.accountRun(pane.platform, job.action, { paneId: pane.key }, job.inputs, guard)
+      runId = run.id; scheduledActors.set(run.id, { actor: { owner, generation: lease.generation }, pane: pane.key, guard })
+    } }
+  } })
+  let accounts = { jobs: accountJobs, actions: () => lockedPaneInventory(model).map(pane => ({ key: pane.key, actions: plugins?.accountActions(pane.platform) ?? [] })), controlled: (pane: string) => !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
     let { pane, session } = paneById(model, identity.paneId)
     controls.assert(session.id)
     let live = await ensureLiveTab(pane.id)
