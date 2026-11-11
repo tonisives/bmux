@@ -17,13 +17,13 @@ test('account seal rejects identity edits and preserves browser headers and view
   await fs.symlink(path.join(process.cwd(), 'bin'), path.join(output, 'bin'))
   await build({ configFile: false, logLevel: 'error', plugins: [externalizeDepsPlugin(), pageVimPlugin()], build: { ssr: true, emptyOutDir: false, outDir: path.join(output, 'main'), rollupOptions: { input: 'tests/fixtures/remote-layout-main.ts', output: { format: 'es', entryFileNames: 'main.js' } } } })
   let headers: string[] = []
-  let server = http.createServer((request, response) => { headers.push(request.headers['user-agent'] ?? ''); response.setHeader('Content-Type','text/html'); response.end('<!doctype html><title>Account seal fixture</title><h1 onclick="document.body.dataset.clicked=1">Account seal fixture</h1>') })
+  let server = http.createServer((request, response) => { headers.push(request.headers['user-agent'] ?? ''); response.setHeader('Content-Type','text/html'); response.end('<!doctype html><title>Account seal fixture</title><h1 onclick="document.body.dataset.clicked=Number(document.body.dataset.clicked||0)+1">Account seal fixture</h1>') })
   await new Promise<void>(resolve => server.listen(0,'127.0.0.1',resolve))
   let url = `http://www.tiktok.com:${(server.address() as {port:number}).port}/`, data = path.join(directory,'profile')
   let plugin = path.join(data, 'plugins', 'fixture'), marker = path.join(data, 'job-starts')
-  await fs.mkdir(plugin, { recursive: true }); await fs.writeFile(path.join(data,'config.yaml'), JSON.stringify({ browser: { autoUpdateFilters: false }, plugins: { 'bmux.tiktok': { enabled: true } } }))
+  await fs.mkdir(plugin, { recursive: true }); await fs.writeFile(path.join(data,'config.yaml'), JSON.stringify({ keyboard: {}, browser: { autoUpdateFilters: false }, plugins: { 'bmux.tiktok': { enabled: true } } }))
   await fs.writeFile(path.join(plugin, 'plugin.yaml'), JSON.stringify({ schema_version: 1, id: 'bmux.tiktok', name: 'Local account job fixture', version: '1', category: 'Social Media', actions: [{ id: 'publish-post', title: 'Publish fixture', command: [process.execPath, './run.mjs'], capabilities: ['browser.read','browser.write'], parameters: [{ name: 'hold', title: 'Hold', kind: 'boolean' }], timeout_seconds: 60 }] }))
-  await fs.writeFile(path.join(plugin, 'run.mjs'), `import {execFileSync} from 'node:child_process'; import fs from 'node:fs'; let host=(method,args={})=>JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8'})).result; let context=host('context'); host('click',{selector:'h1'}); fs.appendFileSync(${JSON.stringify(marker)},'started\\n'); if(context.parameters.hold)await new Promise(resolve=>setTimeout(resolve,30000));`)
+  await fs.writeFile(path.join(plugin, 'run.mjs'), `import {execFileSync} from 'node:child_process'; import fs from 'node:fs'; let host=(method,args={})=>JSON.parse(execFileSync(process.env.BMUX_CLI,['plugin','host',method,'--stdin'],{input:JSON.stringify(args),encoding:'utf8'})).result; let context=host('context'); host('click',{selector:'h1'}); fs.appendFileSync(${JSON.stringify(marker)},'started'+String.fromCharCode(10)); if(context.parameters.hold)await new Promise(resolve=>setTimeout(resolve,30000));`)
   // The social hostname resolves only to this disposable local fixture server.
   let launch = () => electron.launch({ args: ['--no-proxy-server','--host-resolver-rules=MAP www.tiktok.com 127.0.0.1',path.join(output,'main/main.js')], env: { ...process.env, BMUX_DATA_DIR:data, BMUX_CONFIG:path.join(data,'config.yaml') } })
   let application = await launch(), stderr = ''
@@ -33,6 +33,7 @@ test('account seal rejects identity edits and preserves browser headers and view
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let rpc = (method: string, args: Record<string,unknown>) => chrome.evaluate(({method,args}) => (window as any).bmux.command({method,args}), {method,args})
+    expect((await chrome.evaluate(() => (window as any).bmux.state())).configError).toBeNull()
     await expect.poll(async () => (await rpc('plugin.list', {})).find((plugin: any) => plugin.id === 'bmux.tiktok')?.enabled).toBe(true)
     let state = await chrome.evaluate(() => (window as any).bmux.state()), client = state.model.clients.find((item: any) => item.id === state.clientId)
     await rpc('navigate',{pane:client.paneId,url})
@@ -66,6 +67,7 @@ test('account seal rejects identity edits and preserves browser headers and view
       return job
     }, client.paneId)
     await expect.poll(async () => (await fs.readFile(marker, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).length).toBe(1)
+    await expect.poll(() => page.evaluate(() => document.body.dataset.clicked)).toBe('2')
     await application.evaluate(async (_electron, id) => (globalThis as any).remoteLayoutRuntime.accounts.jobs.cancel(id), job.id)
     expect((await fs.readFile(marker, 'utf8')).trim().split('\n')).toHaveLength(1)
 

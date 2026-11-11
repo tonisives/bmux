@@ -63,3 +63,12 @@ it('stops on deadline or explicit cancellation and refuses expired new work', as
   expect(f.guard).toThrow('ACCOUNT_EXECUTION_EXPIRED')
   expect((await f.host.accept(f.job, f.valid)).status).toBe('cancelled')
 })
+it('stops a running plugin at the fixed deadline without replaying it', async () => {
+  vi.useFakeTimers()
+  let f = await fixture(); await f.host.accept(f.job, f.valid)
+  await vi.advanceTimersByTimeAsync(60001)
+  expect((await f.host.receipts())[0]).toMatchObject({ status: 'interrupted', error: 'EXECUTION_DEADLINE' })
+  expect(f.handle.cancel).toHaveBeenCalledOnce()
+  expect((await f.host.accept(f.job, f.valid)).status).toBe('interrupted')
+  expect(f.handle.start).toHaveBeenCalledOnce()
+})
