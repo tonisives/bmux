@@ -47,6 +47,12 @@ it('rejects changed inputs for an existing job ID', async () => {
   await expect(f.host.accept({ ...f.job, inputs: { text: 'Changed' } }, f.valid)).rejects.toThrow('ACCOUNT_JOB_CHANGED')
   expect(f.handle.start).toHaveBeenCalledTimes(1)
 })
+it('persists cancellation when delivery was lost before a job started', async () => {
+  let f = await fixture()
+  expect((await f.host.cancel(f.job.id)).status).toBe('cancelled')
+  expect((await f.create().accept(f.job, f.valid)).status).toBe('cancelled')
+  expect(f.handle.start).not.toHaveBeenCalled()
+})
 it('cancels the plugin and releases control on disconnect', async () => {
   vi.useFakeTimers()
   let f = await fixture(); await f.host.accept(f.job, f.valid)

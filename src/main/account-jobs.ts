@@ -37,7 +37,7 @@ export let createAccountJobs = (options: Options) => {
     if (closed || !valid()) throw new Error('ACCOUNT_REQUEST_EXPIRED')
     if (!/^[a-f0-9-]{36}$/.test(job.id) || !/^[a-f0-9-]{36}$/.test(job.account) || !Number.isFinite(job.deadline) || !job.inputs || Array.isArray(job.inputs) || typeof job.inputs !== 'object' || JSON.stringify(job.inputs).length > 16000) throw new Error('ACCOUNT_JOB_INVALID')
     let fingerprint = accountFingerprint(job), existing = saved[job.id]
-    if (existing) { if (existing.fingerprint !== fingerprint) throw new Error('ACCOUNT_JOB_CHANGED'); return receipt(existing) }
+    if (existing) { if (existing.fingerprint !== 'cancelled' && existing.fingerprint !== fingerprint) throw new Error('ACCOUNT_JOB_CHANGED'); return receipt(existing) }
     if (job.deadline <= Date.now() || job.deadline > Date.now() + 180 * 60000) throw new Error('ACCOUNT_JOB_EXPIRED')
     if (Object.keys(saved).length >= 10000) throw new Error('ACCOUNT_JOURNAL_FULL')
     let handle = options.acquire(job)
@@ -49,7 +49,15 @@ export let createAccountJobs = (options: Options) => {
     options.changed()
     return receipt(saved[job.id])
   })
-  let cancel = (id: string) => serial(async () => { await finish(id, 'cancelled'); return saved[id] ? receipt(saved[id]) : undefined })
+  let cancel = (id: string) => serial(async () => {
+    if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error('ACCOUNT_JOB_INVALID')
+    if (!saved[id]) {
+      if (Object.keys(saved).length >= 10000) throw new Error('ACCOUNT_JOURNAL_FULL')
+      saved[id] = { id, status: 'cancelled', fingerprint: 'cancelled', deadline: Date.now() + 180 * 60000 }
+      await persist(); options.changed()
+    } else await finish(id, 'cancelled')
+    return receipt(saved[id])
+  })
   let tick = () => serial(async () => {
     for (let [id, run] of active) {
       let status = run.handle.status()
