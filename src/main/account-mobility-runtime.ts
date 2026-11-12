@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { writeAtomic } from './store'
 import { session as electronSession, WebContentsView } from 'electron'
 import type { WebContents } from 'electron'
 import type { AccountSeal, Model, ProfileProxy } from '../shared/types'
@@ -13,7 +16,7 @@ import type { ProxyCredentials } from './profile-proxy'
 
 let addresses: Record<string, string> = { tiktok: 'https://www.tiktok.com/', instagram: 'https://www.instagram.com/', youtube: 'https://www.youtube.com/', x: 'https://x.com/', reddit: 'https://www.reddit.com/', linkedin: 'https://www.linkedin.com/', facebook: 'https://www.facebook.com/', threads: 'https://www.threads.net/', bluesky: 'https://bsky.app/', mastodon: 'https://mastodon.social/' }
 type Options = {
-  model: Model; save: () => void
+  directory: string; model: Model; save: () => void
   acquire: (session: string, owner: string) => { renew: () => void; release: () => void }
   contents: (pane: string) => Promise<WebContents>; dispose: (pane: string) => void
   retire: (connection: string) => void
@@ -23,7 +26,8 @@ type Options = {
 }
 export let applyAccountMobility = (options: Options) => async (command: MobilityCommand, value: unknown, valid: () => boolean): Promise<Record<string, unknown>> => {
   let { model } = options, receipt = model.accountHandoffs?.[command.id + ':' + command.phase]
-  if (receipt) { options.save(); if (command.phase === 'export') { options.retire(String(command.identity.connectionId)); options.dispose(String(command.identity.paneId)) }; return receipt }
+  let capsuleFile = path.join(options.directory, 'account-transfers', command.id + '.json')
+  if (receipt) { options.save(); if (command.phase === 'export') { options.retire(String(command.identity.connectionId)); options.dispose(String(command.identity.paneId)); return { phase: 'export', capsule: fs.readFileSync(capsuleFile, 'utf8') } }; return receipt }
   let guard = () => { if (!valid()) throw new Error('ACCOUNT_REQUEST_EXPIRED') }
   let remember = (result: Record<string, unknown>) => { model.accountHandoffs = { ...model.accountHandoffs, [command.id + ':' + command.phase]: result }; options.save(); return result }
   if (command.phase === 'activate') {
@@ -57,11 +61,13 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       let capsule = encryptAccountTransfer({ account: command.account, seal, proxy: connection.proxy, credentials: connection.proxy.authenticated ? options.credentials.get(identity.connectionId) : undefined, profile: { name: profile.name, background: profile.background, device: profile.device }, pane: { url: pane.url, title: pane.title, zoom: pane.zoom, device: pane.device }, cookies, storage }, command.operation.targetKey, command.id + ':' + command.account)
       guard(); lease.renew()
       // The ciphertext and retirement marker share one durable model write.
+      writeAtomic(capsuleFile, capsule)
       model.accountRetired = { ...model.accountRetired, [identity.connectionId]: command.id }
       retired = true
       let browser = contents.session
       options.retire(identity.connectionId)
-      let result = remember({ phase: 'export', capsule })
+      remember({ phase: 'export' })
+      let result = { phase: 'export', capsule }
       options.dispose(identity.paneId)
       await browser.closeAllConnections()
       // Remove service workers from the retired partition so they cannot issue background requests.

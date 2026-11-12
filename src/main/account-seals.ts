@@ -46,7 +46,7 @@ export let assertAccountMutation = (model: Model, method: string, args: Record<s
   if (!seals.length) return
   let pane = args.pane ?? args.tab
   let affected = seals.filter(seal => args.target && [seal.identity.paneId, seal.identity.windowId, seal.identity.sessionId].includes(String(args.target)) || (pane ? seal.identity.paneId === pane : args.window ? seal.identity.windowId === args.window : args.session ? seal.identity.sessionId === args.session : args.profile ? seal.identity.profileId === args.profile || seal.identity.connectionId === args.profile : true))
-  if (affected.length && ['unlock-window', 'unlock-viewport', 'lock-viewport', 'kill-pane', 'kill-window', 'kill-session', 'duplicate-window', 'restore-layout', 'move-window', 'move-pane', 'join-pane', 'break-pane', 'swap-pane', 'pane.profile.set', 'pane.proxy.set', 'profile.device.set', 'profile.device.clear', 'profile.delete'].includes(method)) fail()
+  if (affected.length && ['unlock-window', 'unlock-viewport', 'lock-viewport', 'kill-pane', 'kill-window', 'kill-session', 'duplicate-window', 'restore-layout', 'move-window', 'move-pane', 'join-pane', 'break-pane', 'swap-pane', 'pane.profile.set', 'pane.proxy.set', 'profile.device.set', 'profile.device.clear', 'profile.delete', 'profile.proxy.set', 'profile.proxy.clear'].includes(method)) fail()
   // A connection's HTTP defaults are shared by every pane in its partition.
   if (['profile.device.set', 'profile.device.clear'].includes(method)) {
     let target = model.sessions.flatMap(session => session.windows.flatMap(window => window.panes)).find(item => item.id === pane)

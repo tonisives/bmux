@@ -4858,7 +4858,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       runId = run.id; scheduledActors.set(run.id, { actor: { owner, generation: lease.generation }, pane: pane.key, guard })
     } }
   } })
-  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ model, save: () => { writeModel(dataDirectory, model, bookmarkFile); save(); publish() }, hostProxy, credentials: proxyCredentials,
+  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ directory: dataDirectory, model, save: () => { writeModel(dataDirectory, model, bookmarkFile); save(); publish() }, hostProxy, credentials: proxyCredentials,
     acquire: (session, owner) => { let lease = remote.acquire(session, owner, false); return { renew: () => controls.renew(session, owner, lease.generation), release: () => remote.release(session, owner) } },
     contents: async pane => (await ensureLiveTab(pane)).contents, dispose: disposeTab,
     retire: connection => { let browser = electronSession.fromPartition('persist:' + connection); browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true })); void proxyRelays.close(connection) },
