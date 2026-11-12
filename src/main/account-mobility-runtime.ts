@@ -13,6 +13,7 @@ import { encryptAccountTransfer } from './account-mobility'
 import type { MobilityCommand } from './account-mobility'
 import { exportAccountStorage, importAccountStorage } from './account-storage'
 import type { ProxyCredentials } from './profile-proxy'
+import type { AccountConfiguration, AccountSettingsOperation } from './account-relay-control'
 
 let addresses: Record<string, string> = { tiktok: 'https://www.tiktok.com/', instagram: 'https://www.instagram.com/', youtube: 'https://www.youtube.com/', x: 'https://x.com/', reddit: 'https://www.reddit.com/', linkedin: 'https://www.linkedin.com/', facebook: 'https://www.facebook.com/', threads: 'https://www.threads.net/', bluesky: 'https://bsky.app/', mastodon: 'https://mastodon.social/' }
 type Options = {
@@ -23,6 +24,7 @@ type Options = {
   credentials: { get: (connection: string) => ProxyCredentials | undefined; set: (connection: string, credentials?: ProxyCredentials) => void }
   test: (proxy: ProfileProxy, credentials?: ProxyCredentials) => Promise<unknown>
   hostProxy?: ProfileProxy
+  configure: (platform: string, profile: string, operation?: AccountSettingsOperation) => Promise<AccountConfiguration | undefined>
 }
 export let applyAccountMobility = (options: Options) => async (command: MobilityCommand, value: unknown, valid: () => boolean): Promise<Record<string, unknown>> => {
   let { model } = options, receipt = model.accountHandoffs?.[command.id + ':' + command.phase]
@@ -58,7 +60,8 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       let profile = model.profiles.find(profile => profile.id === pane.profileId)!, connection = connectionProfile(model, identity.connectionId)
       if (!connection.proxy || options.hostProxy && accountFingerprint(options.hostProxy) !== accountFingerprint(connection.proxy)) throw new Error('ACCOUNT_PROXY_NOT_PORTABLE')
       if (!connection.proxy.route && (/^(localhost|127\.|0\.|\[?::1)/i.test(connection.proxy.host) || connection.proxy.host.endsWith('.local'))) throw new Error('ACCOUNT_PROXY_NOT_PORTABLE')
-      let capsule = encryptAccountTransfer({ account: command.account, seal, proxy: connection.proxy, credentials: connection.proxy.authenticated ? options.credentials.get(identity.connectionId) : undefined, profile: { name: profile.name, background: profile.background, device: profile.device }, pane: { url: pane.url, title: pane.title, zoom: pane.zoom, device: pane.device }, cookies, storage }, command.operation.targetKey, command.id + ':' + command.account)
+      let configuration = await options.configure(command.operation.platform, profile.id)
+      let capsule = encryptAccountTransfer({ account: command.account, seal, proxy: connection.proxy, credentials: connection.proxy.authenticated ? options.credentials.get(identity.connectionId) : undefined, profile: { name: profile.name, background: profile.background, device: profile.device }, pane: { url: pane.url, title: pane.title, zoom: pane.zoom, device: pane.device }, cookies, storage, configuration: configuration?.values }, command.operation.targetKey, command.id + ':' + command.account)
       guard(); lease.renew()
       // The ciphertext and retirement marker share one durable model write.
       writeAtomic(capsuleFile, capsule)
@@ -78,7 +81,7 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       lease.release()
     }
   }
-  type Transfer = { account: string; seal: AccountSeal; proxy: ProfileProxy; credentials?: ProxyCredentials; profile: Model['profiles'][number]; pane: Model['sessions'][number]['windows'][number]['panes'][number]; cookies: Electron.Cookie[]; storage: { origin: string } }
+  type Transfer = { account: string; seal: AccountSeal; proxy: ProfileProxy; credentials?: ProxyCredentials; configuration?: Record<string, unknown>; profile: Model['profiles'][number]; pane: Model['sessions'][number]['windows'][number]['panes'][number]; cookies: Electron.Cookie[]; storage: { origin: string } }
   let transfer = value as Transfer | undefined
   if (command.phase === 'import' && (!transfer || transfer.account !== command.account || transfer.seal.account !== command.account || transfer.seal.headersHash !== command.seal.headersHash || accountFingerprint(transfer.seal.identity) !== accountFingerprint(command.identity))) throw new Error('ACCOUNT_TRANSFER_CHANGED')
   let proxy = transfer?.proxy ?? includedProxy(String(command.operation.request.route))
@@ -127,6 +130,12 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       seal = sealAccount(candidate, command.account, identity, { ...headers, chromeVersion: process.versions.chrome! })
     }
     guard()
+    if (transfer?.configuration && Object.keys(transfer.configuration).length) {
+      let current = await options.configure(command.operation.platform, profileId)
+      if (!current) throw new Error('ACCOUNT_BROWSING_PLUGIN_REQUIRED')
+      await options.configure(command.operation.platform, profileId, { revision: current.revision, values: transfer.configuration })
+      guard()
+    }
     options.credentials.set(profileId, transfer?.credentials)
     model.profiles = candidate.profiles; model.sessions = candidate.sessions; model.accountSeals = candidate.accountSeals
     model.accountStaged = { ...model.accountStaged, [profileId]: command.id }

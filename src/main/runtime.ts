@@ -4859,6 +4859,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     } }
   } })
   let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ directory: dataDirectory, model, save: () => { writeModel(dataDirectory, model, bookmarkFile); save(); void scheduleVisuals(); publish() }, hostProxy, credentials: proxyCredentials,
+    configure: async (platform, profile, operation) => {
+      if (!plugins?.accountActions(platform).some(action => action.id === `bmux.${platform}/simulate`)) return undefined
+      return plugins.accountConfiguration(platform, profile, operation)
+    },
     acquire: (session, owner) => { let lease = remote.acquire(session, owner, false); return { renew: () => controls.renew(session, owner, lease.generation), release: () => remote.release(session, owner) } },
     contents: async pane => (await ensureLiveTab(pane)).contents, dispose: disposeTab,
     retire: connection => { let browser = electronSession.fromPartition('persist:' + connection); browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true })); void proxyRelays.close(connection) },
