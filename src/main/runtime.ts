@@ -169,6 +169,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let parameterFile = bookmarkParametersPath(configPath(dataDirectory))
   let model: Model = readModel(dataDirectory, bookmarkFile)
   assertAccountSeals(model)
+  let accountNetworkBlocks = new Set<Electron.Session>()
+  for (let connection of Object.keys(model.accountRetired ?? {})) {
+    let browser = electronSession.fromPartition('persist:' + connection)
+    accountNetworkBlocks.add(browser)
+    browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true }))
+  }
   let interactiveOnly = process.env.BMUX_INTERACTIVE_ONLY === 'true'
   if (interactiveOnly && (model.sessions.length !== 1 || model.sessions[0].windows.length !== 1 || model.sessions[0].windows[0].panes.length !== 1)) throw new Error('Included browser requires one session and one pane')
   let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
@@ -824,6 +830,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
     let session = configureSessionIdentity(profile.id, undefined, privateSessionId)
     if (configuredProfiles.has(key)) return session
+    if (profile.proxy || hostProxy) accountNetworkBlocks.add(session)
     configuredProfiles.add(key)
     // The sandboxed media decoder cannot always open file URLs outside temporary storage.
     session.protocol.handle('file', async request => {
@@ -854,6 +861,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       }
     })()
     let ready = privateSessionId ? networkReady.then(() => extensions.attachPrivate(key, session)) : Promise.all([networkReady, maintainCache(profileId, true)]).then(() => extensions.attach(profileId, session, model.profiles.find(owner => owner.connections?.some(connection => connection.id === profileId))?.id))
+    void networkReady.then(() => { if (!accountBlocked(profileId)) accountNetworkBlocks.delete(session) }).catch(() => undefined)
     profileNetworkReady.set(key, ready)
     void ready.catch(() => undefined)
     let ownerId = model.profiles.find(owner => owner.id === profileId || owner.connections?.some(connection => connection.id === profileId))!.id
@@ -4531,7 +4539,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (cachedIcon) favicons[pane.id] = cachedIcon
       if (shouldDeferStartupPane({ lazyRestore: configuration.memory.lazyRestore, backgroundStartup: background, backgroundProfile: resolve(model.profiles, pane.profileId, 'Profile').background, keepAlive: pane.keepAlive, deferBackground: process.env.BMUX_LAZY_RESTORE_BACKGROUND === '1' })) deferredTabs.add(pane.id)
     }
-    filters = createRequestFilters({ resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
+    filters = createRequestFilters({ blocked: session => accountNetworkBlocks.has(session), resources: path.join(app.getAppPath(), 'resources'), directory: path.join(dataDirectory, 'filters'), settings: browserSettings, changed: publish, context: contentsId => {
       let entry = [...tabs].find(([, live]) => live.contents.id === contentsId)
       if (!entry || entry[1].contents.isDestroyed()) return undefined
       let url = entry[1].pendingUrl ?? entry[1].contents.getURL()
@@ -4865,7 +4873,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     },
     acquire: (session, owner) => { let lease = remote.acquire(session, owner, false); return { renew: () => controls.renew(session, owner, lease.generation), release: () => remote.release(session, owner) } },
     contents: async pane => (await ensureLiveTab(pane)).contents, dispose: disposeTab,
-    retire: connection => { let browser = electronSession.fromPartition('persist:' + connection); browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true })); void proxyRelays.close(connection) },
+    retire: connection => { let browser = electronSession.fromPartition('persist:' + connection); accountNetworkBlocks.add(browser); browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true })); void proxyRelays.close(connection) },
     test: async (proxy, credentials) => { let probe = id('profile'); try { let relay = await proxyRelays.create(probe, proxy, credentials); return await testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/') } finally { await proxyRelays.close(probe) } },
   }))
   let accounts = { mobility, proxyStatus: (pane: string) => { let connection = paneConnectionId(paneById(model, pane).pane), profile = connectionProfile(model, connection); return { route: profile.proxy?.route, ...profileProxyTests[connection] } }, proxies: accountProxies, jobs: accountJobs, actions: () => lockedPaneInventory(model).map(pane => ({ key: pane.key, actions: plugins?.accountActions(pane.platform) ?? [] })), controlled: (pane: string) => accountBlocked(paneConnectionId(paneById(model, pane).pane)) || !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
