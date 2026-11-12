@@ -130,8 +130,11 @@ async function browseSurface(url, label, minScrolls = 2, maxScrolls = 4) {
 
 async function humanType(selector, value) {
   call('context', { refresh: true })
-  const focused = call('eval', { expression: `(() => { const input = document.querySelector(${JSON.stringify(selector)}); if (!input) return false; input.focus(); input.click(); if (input.value) { const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set; setter?.call(input, ''); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); } return document.activeElement === input })()` })
+  call('click', { selector })
+  const focused = call('eval', { expression: `document.activeElement === document.querySelector(${JSON.stringify(selector)})` })
   if (!focused) throw new Error('Could not focus the site search field')
+  for (const type of ['keyDown', 'keyUp']) call('cdp', { method: 'Input.dispatchKeyEvent', params: { type, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: process.platform === 'darwin' ? 4 : 2 } })
+  for (const type of ['keyDown', 'keyUp']) call('cdp', { method: 'Input.dispatchKeyEvent', params: { type, key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 } })
   await pause(between(400, 1100))
   for (const character of value) {
     call('cdp', { method: 'Input.insertText', params: { text: character } })
