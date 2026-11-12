@@ -6,6 +6,7 @@ import { createAccountRelayControl } from './account-relay-control'
 import type { AccountConfiguration, AccountSettingsOperation } from './account-relay-control'
 
 export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 'model' | 'accounts'>, origin: string, token: string, host: string, generation: string, directory?: string, configure?: (platform: string, profileId: string, operation?: AccountSettingsOperation) => Promise<AccountConfiguration>) => {
+  runtime.accounts.proxies.configure({ origin, token, host, generation })
   let stopped = false, socket: WebSocket | undefined, retry: ReturnType<typeof setTimeout> | undefined, backoff = 1000
   let control = directory && configure ? createAccountRelayControl(directory, () => lockedPaneInventory(runtime.model), configure) : undefined
   let reporting = false
@@ -17,7 +18,7 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
       let browsing = control ? await control.inventory() : undefined
       if (stopped || current !== socket || current.readyState !== WebSocket.OPEN) return
       let executions = await runtime.accounts.jobs.receipts()
-      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), executions, actions: runtime.accounts.actions(), type: 'inventory', control: 2, name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model).map(pane => ({ ...pane, controlled: runtime.accounts.controlled(pane.key) })) })
+      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), executions, actions: runtime.accounts.actions(), type: 'inventory', control: 3, transferKey: runtime.accounts.mobility.publicKey(), name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model).map(pane => ({ ...pane, controlled: runtime.accounts.controlled(pane.key) })) })
       if (Buffer.byteLength(message) <= 262144) socket.send(message)
     } catch { current.close() } finally { reporting = false }
   }
@@ -26,7 +27,7 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
     let url = new URL('/api/v1/relay', origin)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('host', host); url.searchParams.set('generation', generation)
-    socket = new WebSocket(url, { headers: { Authorization: `Bearer ${token}` }, maxPayload: 262144, handshakeTimeout: 10000 })
+    socket = new WebSocket(url, { headers: { Authorization: `Bearer ${token}` }, maxPayload: 8_000_000, handshakeTimeout: 10000 })
     socket.on('error', () => undefined)
     let connection = socket, queue = Promise.resolve()
     connection.on('message', raw => {
@@ -40,6 +41,14 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
             let result = await control!.apply(command)
             if (!stopped && socket === connection && connection.readyState === WebSocket.OPEN) connection.send(JSON.stringify({ type: 'settings-result', ...result }))
           }
+          return
+        }
+        if (message.type === 'mobility') {
+          let valid = () => !stopped && socket === connection && connection.readyState === WebSocket.OPEN && message.expires > Date.now()
+          let result: Record<string, unknown>
+          try { result = await runtime.accounts.mobility.apply(message, valid) }
+          catch (value) { let code = (value as Error).message; result = { error: /^[A-Z_]{1,80}$/.test(code) ? code : 'ACCOUNT_TRANSFER_FAILED', unstarted: !Object.values(runtime.model.accountRetired ?? {}).includes(message.id) && !Object.values(runtime.model.accountStaged ?? {}).includes(message.id) } }
+          if (!stopped && socket === connection && connection.readyState === WebSocket.OPEN) { connection.send(JSON.stringify({ type: 'mobility-result', id: message.id, ...result })); await report() }
           return
         }
         if (message.type === 'run') {
@@ -65,5 +74,5 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
   let timer = setInterval(report, 15000)
   timer.unref()
   connect()
-  return { close: () => { stopped = true; clearInterval(timer); clearTimeout(retry); socket?.close() } }
+  return { close: () => { stopped = true; runtime.accounts.proxies.disconnect(); clearInterval(timer); clearTimeout(retry); socket?.close() } }
 }

@@ -7,6 +7,7 @@ import { isIP } from 'node:net'
 import path from 'node:path'
 import { Server } from 'proxy-chain'
 import type { ProfileProxy, ProxyProtocol } from '../shared/types'
+import { includedProxy } from './account-proxies'
 
 export type ProxyCredentials = { username: string; password: string }
 type CredentialStoreOptions = { directory: string; available: () => boolean; encrypt: (text: string) => Buffer; decrypt: (data: Buffer) => string }
@@ -27,6 +28,11 @@ let mapping = (value: unknown): Record<string, unknown> => {
 
 export let parseProfileProxy = (raw: unknown): ProfileProxy => {
   let value = mapping(raw)
+  if (value.route !== undefined) {
+    let expected = includedProxy(String(value.route))
+    if (Object.keys(value).length !== Object.keys(expected).length || Object.entries(expected).some(([key, entry]) => value[key] !== entry)) throw new Error('Invalid included proxy')
+    return expected
+  }
   if (Object.keys(value).some(key => !['protocol', 'host', 'port', 'authenticated'].includes(key))) throw new Error('Unknown proxy setting')
   if (!['http', 'https', 'socks5'].includes(String(value.protocol))) throw new Error('Proxy protocol must be http, https, or socks5')
   if (typeof value.host !== 'string') throw new Error('Proxy host is required')
@@ -75,9 +81,10 @@ let upstreamUrl = (proxy: ProfileProxy, credentials?: ProxyCredentials) => {
   return `${protocol}://${authentication}${proxyHost(proxy.host)}:${proxy.port}`
 }
 
-export let createProfileProxyRelays = (credentials: ReturnType<typeof createProxyCredentialStore>) => {
+export let createProfileProxyRelays = (credentials: ReturnType<typeof createProxyCredentialStore>, resolve: (proxy: ProfileProxy) => Promise<ProfileProxy> = async proxy => proxy) => {
   let relays = new Map<string, Relay>()
   let create = async (profileId: string, proxy: ProfileProxy, replacement?: ProxyCredentials) => {
+    proxy = await resolve(proxy)
     let upstreamCredentials = proxy.authenticated ? replacement ?? credentials.get(profileId) : undefined
     if (proxy.authenticated && !upstreamCredentials) throw new Error('Proxy credentials are required')
     let username = randomBytes(18).toString('hex'), password = randomBytes(24).toString('hex')

@@ -1,3 +1,6 @@
+import { createAccountProxies } from './account-proxies'
+import { createAccountMobility } from './account-mobility'
+import { applyAccountMobility } from './account-mobility-runtime'
 import { assertAccountSeals, assertAccountMutation, assertAccountCDP, sealAccount } from './account-seals'
 import { createAgentStatePublisher } from './agent-state-publisher'
 import { createSocialHooks } from './social-hooks'
@@ -214,6 +217,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (changed) void scheduleVisuals()
   }
+  let accountBlocked = (connection: string) => !!model.accountRetired?.[connection] || !!model.accountStaged?.[connection]
   let managedConnection = (pane: Model['sessions'][number]['windows'][number]['panes'][number]) => Object.values(model.accountSeals ?? {}).some(seal => seal.identity.connectionId === paneConnectionId(pane))
   let managedSession = (sessionId: string) => model.sessions.some(session => session.id === sessionId && session.windows.some(window => window.panes.some(managedConnection)))
   let reclaimDesktopControl = (sessionId: string) => {
@@ -259,13 +263,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let panes = sessions.flatMap(session => session.windows.flatMap(window => window.panes)).filter(pane => typeof paneId !== 'string' || pane.id === paneId)
       if (panes.some(managedConnection) && !actor) throw new Error('ACCOUNT_CONTROL_REQUIRED')
     }
-    for (let session of sessions) controls.assert(session.id, actor?.owner, actor?.generation)
+    for (let session of sessions) {
+      if ((typeof paneId === 'string' || args.session || args.window || affectedProfile) && session.windows.some(window => window.panes.some(pane => (typeof paneId !== 'string' || pane.id === paneId) && accountBlocked(paneConnectionId(pane))))) throw new Error('ACCOUNT_HOST_INACTIVE')
+      controls.assert(session.id, actor?.owner, actor?.generation)
+    }
   }
   let crashRecovery = startNavigationCrashRecovery(dataDirectory, model)
   let startupNotice = crashRecovery.startupNotice
   let credentialEncryption = process.env.BMUX_HOST_CREDENTIAL_KEY_FILE ? hostCredentialEncryption(process.env.BMUX_HOST_CREDENTIAL_KEY_FILE) : { available:() => safeStorage.isEncryptionAvailable(), encrypt:(text: string) => safeStorage.encryptString(text), decrypt:(data: Buffer) => safeStorage.decryptString(data) }
   let proxyCredentials = createProxyCredentialStore({ directory: path.join(dataDirectory, 'proxy-credentials'), ...credentialEncryption })
-  let proxyRelays = createProfileProxyRelays(proxyCredentials)
+  let accountProxies = createAccountProxies()
+  let proxyRelays = createProfileProxyRelays(proxyCredentials, accountProxies.resolve)
   let profileNetworkReady = new Map<string, Promise<void>>()
   let blockedProfileNetworks = new Map<string, { wait: Promise<void>; continue: () => void }>()
   let appliedProfileProxies = new Set<string>()
@@ -811,6 +819,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     await guardedLoad(live, url)
   })
   let browserSession = (profileId: string, privateSessionId?: string) => {
+    if (accountBlocked(profileId)) throw new Error('ACCOUNT_HOST_INACTIVE')
     let profile = connectionProfile(model, profileId)
     let key = privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
     let session = configureSessionIdentity(profile.id, undefined, privateSessionId)
@@ -1826,7 +1835,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
   let ensureLiveTab = async (tabId: string, load = true) => {
     assertAgentTarget(tabId)
-    let { tab } = tabById(model, tabId)
+    let { tab, pane } = tabById(model, tabId)
+    if (accountBlocked(paneConnectionId(pane))) throw new Error('ACCOUNT_HOST_INACTIVE')
     await idleRelease.get(tabId)
     assertAgentTarget(tabId)
     deferredTabs.delete(tabId)
@@ -2225,7 +2235,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (remote?.view) remote.view.preview = !remoteMedia.has(pane.id)
       if (tabs.has(pane.id) && !remoteMedia.has(pane.id)) disposeTab(pane.id)
     }
-    for (let tabId of liveIds) if ((!tabById(model, tabId).session.remote || remoteMedia.has(tabId)) && !tabs.has(tabId) && (!deferredTabs.has(tabId) || selected.has(tabId)) && (!idleUnloaded.has(tabId) || visibleSelected.has(tabId))) { deferredTabs.delete(tabId); idleUnloaded.delete(tabId); createLiveTab(tabId) }
+    for (let tabId of liveIds) if (!accountBlocked(paneConnectionId(tabById(model, tabId).pane)) && (!tabById(model, tabId).session.remote || remoteMedia.has(tabId)) && !tabs.has(tabId) && (!deferredTabs.has(tabId) || selected.has(tabId)) && (!idleUnloaded.has(tabId) || visibleSelected.has(tabId))) { deferredTabs.delete(tabId); idleUnloaded.delete(tabId); createLiveTab(tabId) }
     for (let tabId of previouslyVisibleTabs) if (liveIds.has(tabId) && !visibleSelected.has(tabId)) { lastTabUse.set(tabId, Date.now()); lastPaneVisit.set(tabId, Date.now()) }
     for (let tabId of visibleSelected) { lastTabUse.set(tabId, Date.now()); lastPaneVisit.set(tabId, Date.now()) }
     previouslyVisibleTabs = visibleSelected
@@ -4645,6 +4655,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     clearInterval(previewTimer)
     previewRefresh.close()
     app.off('login', proxyLogin)
+    accountProxies.close()
     void proxyRelays.closeAll()
     clickMode.cancel()
     crashRecovery.close()
@@ -4836,7 +4847,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let accountJobs = createAccountJobs({ directory: dataDirectory, changed: publish, acquire: job => {
     assertAccountSeals(model)
     let seal = model.accountSeals?.[job.identity.paneId], identity = accountPaneIdentity(model, job.identity.paneId)
-    if (!seal || seal.account !== job.account || accountFingerprint(identity) !== accountFingerprint(job.identity)) throw new Error('ACCOUNT_IDENTITY_CHANGED')
+    if (accountBlocked(job.identity.connectionId) || !seal || seal.account !== job.account || accountFingerprint(identity) !== accountFingerprint(job.identity)) throw new Error('ACCOUNT_IDENTITY_CHANGED')
     let pane = lockedPaneInventory(model).find(pane => pane.key === job.identity.paneId)
     if (!pane || !plugins?.accountActions(pane.platform).some(action => action.id === job.action)) throw new Error('ACCOUNT_ACTION_UNAVAILABLE')
     let owner = 'account-job:' + job.id, session = job.identity.sessionId, lease = remote.acquire(session, owner, false), runId: string | undefined
@@ -4847,7 +4858,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       runId = run.id; scheduledActors.set(run.id, { actor: { owner, generation: lease.generation }, pane: pane.key, guard })
     } }
   } })
-  let accounts = { jobs: accountJobs, actions: () => lockedPaneInventory(model).map(pane => ({ key: pane.key, actions: plugins?.accountActions(pane.platform) ?? [] })), controlled: (pane: string) => !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
+  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ model, save: () => { writeModel(dataDirectory, model, bookmarkFile); save(); publish() }, hostProxy, credentials: proxyCredentials,
+    acquire: (session, owner) => { let lease = remote.acquire(session, owner, false); return { renew: () => controls.renew(session, owner, lease.generation), release: () => remote.release(session, owner) } },
+    contents: async pane => (await ensureLiveTab(pane)).contents, dispose: disposeTab,
+    retire: connection => { let browser = electronSession.fromPartition('persist:' + connection); browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true })); void proxyRelays.close(connection) },
+    test: async (proxy, credentials) => { let probe = id('profile'); try { let relay = await proxyRelays.create(probe, proxy, credentials); return await testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/') } finally { await proxyRelays.close(probe) } },
+  }))
+  let accounts = { mobility, proxies: accountProxies, jobs: accountJobs, actions: () => lockedPaneInventory(model).map(pane => ({ key: pane.key, actions: plugins?.accountActions(pane.platform) ?? [] })), controlled: (pane: string) => accountBlocked(paneConnectionId(paneById(model, pane).pane)) || !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
     let { pane, session } = paneById(model, identity.paneId)
     controls.assert(session.id)
     let live = await ensureLiveTab(pane.id)
