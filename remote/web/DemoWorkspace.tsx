@@ -16,19 +16,18 @@ export let demoHosts: Host[] = ['Research node', 'Collection node'].map((name, i
 }))
 
 export let DemoWorkspace = ({ buy, close }: { buy: () => void; close?: () => void }) => {
-  let [selected, setSelected] = useState('demo-node-1:quotes')
+  let [selected, setSelected] = useState('demo-node-1:quotes'), [browsers, setBrowsers] = useState(false)
   let page = pages.find(page => selected.endsWith(':' + page.id)) ?? pages[0]
-  return <div className={`${styles.workspace} ${styles.workspaceActive}`}>
+  return <div className={`${styles.workspace} ${styles.workspaceActive} ${styles.demoWorkspace} ${browsers ? styles.demoBrowsing : ''}`}>
     <aside className={styles.library} aria-label="Demo sessions">
       <div className={styles.sectionHeading}><h1>Demo</h1><span>2 nodes · 4 browsers</span></div>
       <div className={styles.libraryActions}>{close && <button onClick={close}>Your sessions</button>}</div>
-      <div className={styles.sessions}><SessionTree hosts={demoHosts} selected={selected} pane={page.id} select={(host, session) => setSelected(`${host.id}:${session.id}`)} details={host => setSelected(`${host.id}:${host.sessions[0].id}`)} color={id => id.endsWith('1') ? '#34b3a0' : '#e5a450'} /></div>
-      <div className={styles.demoOffer}><p>Connect your own browsers.</p><button className={styles.primaryButton} onClick={buy}>Get relay · $10/month</button></div>
+      <div className={styles.sessions}><SessionTree hosts={demoHosts} selected={selected} pane={page.id} select={(host, session) => { setSelected(`${host.id}:${session.id}`); setBrowsers(false) }} details={host => setSelected(`${host.id}:${host.sessions[0].id}`)} color={id => id.endsWith('1') ? '#34b3a0' : '#e5a450'} /></div>
     </aside>
     <section className={styles.viewer} aria-label="Demo browser">
-      <div className={styles.viewerToolbar}><span className={styles.demoAddress}>{page.url}</span><span className={styles.status}>Watching demo</span></div>
+      <div className={styles.viewerToolbar}><button className={styles.demoBack} onClick={() => setBrowsers(true)}>Browsers</button><span className={styles.demoAddress}>{page.url}</span><span className={styles.status}>Watching demo</span></div>
       <div className={styles.demoPage} role="document" aria-label={page.title + ' demo browser'}><article><small>BMUX DEMO / {page.title}</small><h2>{page.heading}</h2><p>{page.description}</p><table><tbody>{page.rows.map((row, index) => <tr key={index}>{row.map((cell, index) => <td key={index}>{cell}</td>)}</tr>)}</tbody></table></article></div>
-      <p className={styles.demoCaption}>Static demo · Select any browser to observe its page.</p>
+      <div className={styles.demoOffer}><p>Static demo · 2 nodes, 4 browsers</p><button className={styles.primaryButton} onClick={buy}>Get relay · $10/month</button></div>
     </section>
   </div>
 }
