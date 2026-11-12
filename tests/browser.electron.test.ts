@@ -1968,10 +1968,8 @@ test('configured Vim page keys scroll, reload, and open find outside text fields
   let wheelPosition = await scroll()
   await press('j')
   await expect.poll(scroll).toBe(wheelPosition + 100)
-  await page.evaluate(async () => {
-    scrollTo(0, 0)
-    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-  })
+  // Reset through the keyboard motion controller so it cancels the prior animation.
+  await press('g'); await press('g')
   await expect.poll(scroll).toBe(0)
   await press('j')
   await expect.poll(scroll).toBe(100)

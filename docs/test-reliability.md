@@ -3,8 +3,10 @@
 The full Reddit integration Check exposed two existing fixture races. The local
 site safety fixture now waits for its isolated control server, verifies its
 process ID, and uses `--no-start` for every CLI request. The Vim page-key fixture
-waits for rendered frames and verifies the scroll reset before sending its next
-key. Repeat both cases in focused CI; keep the exact scroll and safety assertions.
+resets through its configured `gg` action and verifies position zero before the
+next key. A direct page scroll could be overwritten by the preceding keyboard
+animation, even after two rendered frames. Repeat both cases in focused CI;
+keep the exact scroll and safety assertions.
 
 # November 10 release fixture readiness
 
