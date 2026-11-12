@@ -23,3 +23,14 @@ actions:
     timeout_seconds: 1800
     parameters:
       - { name: urls, title: JSON array of X profile URLs, kind: text, required: true }
+  - id: search
+    group: Research
+    title: Search X posts
+    description: Search one latest query with paced reading. Observed posts use the configured social hook.
+    command: [node, ./social.mjs, x, search]
+    capabilities: [browser.read, browser.write, browser.cdp]
+    timeout_seconds: 480
+    parameters:
+      - { name: query, title: Search query, kind: text, required: true }
+      - { name: expected_account_url, title: Expected account URL, kind: text, required: true }
+      - { name: result_limit, title: Result limit, kind: text, required: false }

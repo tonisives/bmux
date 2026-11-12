@@ -439,7 +439,7 @@ export let createPlugins = (options: Options) => {
   let accountActions = (platform: string) => {
     let definition = definitions.get(`bmux.${platform}`)
     if (!definition || !settings[definition.manifest.id]?.enabled || definition.manifest.category !== 'Social Media') return []
-    return definition.manifest.actions.filter(action => ['simulate', 'publish-post', 'prepare-post', 'verify-post', 'observe'].includes(action.id)).map(action => ({ id: definition.manifest.id + '/' + action.id, title: action.title }))
+    return definition.manifest.actions.filter(action => ['simulate', 'search', 'publish-post', 'prepare-post', 'verify-post', 'observe'].includes(action.id)).map(action => ({ id: definition.manifest.id + '/' + action.id, title: action.title }))
   }
   let accountRun = async (platform: string, target: string, context: PluginContext, inputs: Record<string, unknown>, valid: () => void) => {
     if (!accountActions(platform).some(action => action.id === target)) throw new Error('ACCOUNT_ACTION_UNAVAILABLE')
