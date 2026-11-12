@@ -874,12 +874,18 @@ test('files and local sites bypass paused website automation and never show anti
     let state = await chrome.evaluate(() => (window as any).bmux.state())
     let client = state.model.clients.find((item: { id: string }) => item.id === state.clientId)
     let cli = async (args: string[]) => {
-      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+      let result = await promisify(execFile)(process.execPath, [path.resolve('bin/bmux.mjs'), ...args, '--no-start'], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         if (error.stdout) return { stdout: error.stdout }
         throw error
       })
       return JSON.parse(result.stdout)
     }
+    await waitForControlStatus(async (...args) => {
+      let response = await cli(args)
+      expect(response.ok).toBe(true)
+      return response.result
+    })
+    expect(await cli(['diagnostics'])).toMatchObject({ ok: true, result: { pid: application.process().pid } })
     let alerts = chrome.getByLabel('Notifications').locator('[data-agent-alert="true"]')
     await expect(alerts).toHaveCount(0)
     for (let url of [pathToFileURL(file).href, `http://127.0.0.1:${port}/`, `http://localhost:${port}/`]) {
