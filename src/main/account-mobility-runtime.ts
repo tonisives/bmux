@@ -118,7 +118,11 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       browser.protocol.handle(scheme, request => new URL(request.url).origin === origin ? new Response('<!doctype html><title>Account transfer</title>', { headers: { 'Content-Type': 'text/html' } }) : Response.error())
       try { await contents.loadURL(origin); await contents.executeJavaScriptInIsolatedWorld(998, [{ code: importAccountStorage(transfer.storage) }]) }
       finally { browser.protocol.unhandle(scheme) }
-    } else await contents.loadURL('about:blank')
+    } else {
+      // Client hints are available in a secure origin; this document never uses the network.
+      browser.protocol.handle('https', () => new Response('<!doctype html><title>Account setup</title>', { headers: { 'Content-Type': 'text/html' } }))
+      try { await contents.loadURL('https://account.bmux.invalid/') } finally { browser.protocol.unhandle('https') }
+    }
     guard()
     let profile = { id: profileId, name: transfer?.profile.name ?? command.operation.persona, background: true, proxy, ...(transfer?.profile.device ? { device: transfer.profile.device } : {}) }
     let pane = { ...(transfer?.pane ?? { url: addresses[command.operation.platform], title: command.operation.label || command.operation.platform, zoom: 1 }), id: paneId, profileId }

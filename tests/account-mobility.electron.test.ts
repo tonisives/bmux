@@ -43,6 +43,7 @@ test('account migration restores login storage once and keeps the retired source
       runtime.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'fixture' })
       let command = { id: '10000000-0000-4000-8000-000000000001', account: '20000000-0000-4000-8000-000000000001', phase: 'provision', identity: null, seal: null, operation: { request: { route: 'us-west', width: 1200, height: 800 }, targetKey: runtime.accounts.mobility.publicKey(), platform: 'tiktok', persona: 'Fixture', label: 'Fixture' }, expires: Date.now() + 30000 }
       let receipt = await runtime.accounts.mobility.apply(command, () => true)
+      if (!runtime.model.accountSeals[receipt.identity.paneId].userAgentMetadata) throw new Error('Client hints were not sealed')
       await runtime.accounts.mobility.apply(command, () => true)
       if (Object.values(runtime.model.accountSeals).length !== 1) throw new Error('Duplicate provision')
       await runtime.accounts.mobility.apply({ ...command, phase: 'activate' }, () => true)
