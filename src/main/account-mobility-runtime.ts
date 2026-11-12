@@ -24,6 +24,7 @@ type Options = {
   credentials: { get: (connection: string) => ProxyCredentials | undefined; set: (connection: string, credentials?: ProxyCredentials) => void }
   test: (proxy: ProfileProxy, credentials?: ProxyCredentials) => Promise<unknown>
   hostProxy?: ProfileProxy
+  interactiveOnly?: boolean
   configure: (platform: string, profile: string, operation?: AccountSettingsOperation) => Promise<AccountConfiguration | undefined>
 }
 export let applyAccountMobility = (options: Options) => async (command: MobilityCommand, value: unknown, valid: () => boolean): Promise<Record<string, unknown>> => {
@@ -85,6 +86,7 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       lease.release()
     }
   }
+  if (options.interactiveOnly) throw new Error('ACCOUNT_HOST_MODE_UNSUPPORTED')
   type Transfer = { account: string; seal: AccountSeal; proxy: ProfileProxy; credentials?: ProxyCredentials; configuration?: Record<string, unknown>; profile: Model['profiles'][number]; pane: Model['sessions'][number]['windows'][number]['panes'][number]; cookies: Electron.Cookie[]; storage: { origin: string } }
   let transfer = value as Transfer | undefined
   if (command.phase === 'import' && (!transfer || transfer.account !== command.account || transfer.seal.account !== command.account || transfer.seal.headersHash !== command.seal.headersHash || accountFingerprint(transfer.seal.identity) !== accountFingerprint(command.identity))) throw new Error('ACCOUNT_TRANSFER_CHANGED')
