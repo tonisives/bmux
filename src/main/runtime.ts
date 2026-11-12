@@ -4858,13 +4858,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       runId = run.id; scheduledActors.set(run.id, { actor: { owner, generation: lease.generation }, pane: pane.key, guard })
     } }
   } })
-  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ directory: dataDirectory, model, save: () => { writeModel(dataDirectory, model, bookmarkFile); save(); publish() }, hostProxy, credentials: proxyCredentials,
+  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ directory: dataDirectory, model, save: () => { writeModel(dataDirectory, model, bookmarkFile); save(); void scheduleVisuals(); publish() }, hostProxy, credentials: proxyCredentials,
     acquire: (session, owner) => { let lease = remote.acquire(session, owner, false); return { renew: () => controls.renew(session, owner, lease.generation), release: () => remote.release(session, owner) } },
     contents: async pane => (await ensureLiveTab(pane)).contents, dispose: disposeTab,
     retire: connection => { let browser = electronSession.fromPartition('persist:' + connection); browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true })); void proxyRelays.close(connection) },
     test: async (proxy, credentials) => { let probe = id('profile'); try { let relay = await proxyRelays.create(probe, proxy, credentials); return await testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/') } finally { await proxyRelays.close(probe) } },
   }))
-  let accounts = { mobility, proxies: accountProxies, jobs: accountJobs, actions: () => lockedPaneInventory(model).map(pane => ({ key: pane.key, actions: plugins?.accountActions(pane.platform) ?? [] })), controlled: (pane: string) => accountBlocked(paneConnectionId(paneById(model, pane).pane)) || !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
+  let accounts = { mobility, proxyStatus: (pane: string) => { let connection = paneConnectionId(paneById(model, pane).pane), profile = connectionProfile(model, connection); return { route: profile.proxy?.route, ...profileProxyTests[connection] } }, proxies: accountProxies, jobs: accountJobs, actions: () => lockedPaneInventory(model).map(pane => ({ key: pane.key, actions: plugins?.accountActions(pane.platform) ?? [] })), controlled: (pane: string) => accountBlocked(paneConnectionId(paneById(model, pane).pane)) || !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
     let { pane, session } = paneById(model, identity.paneId)
     controls.assert(session.id)
     let live = await ensureLiveTab(pane.id)
