@@ -40,7 +40,8 @@ test('offline filter fallback, custom exceptions, and profile isolation use one 
   let directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bmux-filters-'))
   let settings = { ...structuredClone(DEFAULT_BROWSER), autoUpdateFilters: false, rules: ['||ads.example.test^', '@@||allowed.ads.example.test^'] }
   fs.writeFileSync(path.join(directory, 'adblock.bin.gz'), 'invalid cache')
-  let filters = createRequestFilters({ resources: path.resolve('resources'), directory, settings: () => settings, changed: () => undefined, context: () => ({ tabId: 'tab', url: 'https://page.example.test/' }) })
+  let blocked = false
+  let filters = createRequestFilters({ blocked: () => blocked, resources: path.resolve('resources'), directory, settings: () => settings, changed: () => undefined, context: () => ({ tabId: 'tab', url: 'https://page.example.test/' }) })
   try {
     expect(filters.status().network).toBeGreaterThan(10000)
     expect(filters.match({ url: 'https://ads.example.test/script.js', resourceType: 'script', referrer: 'https://page.example.test/' })).toBe(true)
@@ -54,6 +55,12 @@ test('offline filter fallback, custom exceptions, and profile isolation use one 
     expect(JSON.stringify(filters.counts('tab'))).not.toContain('private')
     settings.profiles.profile_default = { adblock: false, sites: {} }
     listener({ url: 'https://ads.example.test/script.js', referrer: '', resourceType: 'script', webContentsId: 1 }, (value: any) => response = value)
+    expect(response.cancel).not.toBe(true)
+    blocked = true
+    listener({ url: 'https://page.example.test/', referrer: '', resourceType: 'mainFrame', webContentsId: 0 }, (value: any) => response = value)
+    expect(response.cancel).toBe(true)
+    blocked = false
+    listener({ url: 'https://page.example.test/', referrer: '', resourceType: 'mainFrame', webContentsId: 0 }, (value: any) => response = value)
     expect(response.cancel).not.toBe(true)
   } finally { filters.close(); fs.rmSync(directory, { recursive: true, force: true }) }
 })

@@ -4866,7 +4866,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       runId = run.id; scheduledActors.set(run.id, { actor: { owner, generation: lease.generation }, pane: pane.key, guard })
     } }
   } })
-  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ directory: dataDirectory, model, save: () => { writeModel(dataDirectory, model, bookmarkFile); save(); void scheduleVisuals(); publish() }, hostProxy, credentials: proxyCredentials,
+  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ directory: dataDirectory, model, save: () => { writeModel(dataDirectory, model, bookmarkFile); if (process.platform !== 'win32') { let descriptor = fsSync.openSync(dataDirectory, 'r'); try { fsSync.fsyncSync(descriptor) } finally { fsSync.closeSync(descriptor) } }; save(); void scheduleVisuals(); publish() }, hostProxy, credentials: proxyCredentials,
     configure: async (platform, profile, operation) => {
       if (!plugins?.accountActions(platform).some(action => action.id === `bmux.${platform}/simulate`)) return undefined
       return plugins.accountConfiguration(platform, profile, operation)

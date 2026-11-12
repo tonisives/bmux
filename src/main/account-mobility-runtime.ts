@@ -65,6 +65,10 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       guard(); lease.renew()
       // The ciphertext and retirement marker share one durable model write.
       writeAtomic(capsuleFile, capsule)
+      if (process.platform !== 'win32') {
+        let descriptor = fs.openSync(path.dirname(capsuleFile), 'r')
+        try { fs.fsyncSync(descriptor) } finally { fs.closeSync(descriptor) }
+      }
       model.accountRetired = { ...model.accountRetired, [identity.connectionId]: command.id }
       retired = true
       let browser = contents.session
