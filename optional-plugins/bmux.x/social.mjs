@@ -148,7 +148,13 @@ async function search(query, resultLimit, warmupOnly = false) {
   const expected = call('context').parameters?.expected_account_url
   if (isX && expected) {
     const handle = new URL(expected).pathname.toLowerCase()
-    const actual = call('eval', { expression: `document.querySelector('a[data-testid="AppTabBar_Profile_Link"],a[aria-label="Profile"]')?.getAttribute('href')?.toLowerCase()` })
+    let actual, until = now() + 15000
+    do {
+      call('context', { refresh: true })
+      actual = call('eval', { expression: `document.querySelector('a[data-testid="AppTabBar_Profile_Link"],a[aria-label="Profile"]')?.getAttribute('href')?.toLowerCase()` })
+      if (actual) break
+      await pause(500)
+    } while (now() < until)
     if (actual !== handle) throw new Error('Signed in X account does not match the scheduled account')
   }
   const selector = isX ? 'input[data-testid="SearchBox_Search_Input"], input[aria-label="Search query"]' : 'input[placeholder*="Search" i]'
