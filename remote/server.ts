@@ -6,6 +6,7 @@ import { Pool } from 'pg'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { notifyDisconnected } from './peer-disconnect'
+import { googleAccessIdentity } from './google-auth'
 import { createStreamLeases } from './stream-leases'
 import type { RemoteMachine } from '../src/shared/remote-sessions'
 import { createMobileAuth, type LoginContext } from './mobile-auth'
@@ -116,16 +117,8 @@ let server = http.createServer((request, response) => {
         reauthenticated = await mobileAuth.googleReauthentication(request,payload)
         if (payload.email_verified === true && typeof payload.sub === 'string' && typeof payload.email === 'string') { owner = payload.sub; email = payload.email; name = typeof payload.name === 'string' ? payload.name : '' }
       } else if (typeof accessToken === 'string' && accessToken.length <= 4096) {
-        let verified = await fetch('https://oauth2.googleapis.com/tokeninfo', { method: 'POST', body: new URLSearchParams({ access_token: accessToken }), signal: AbortSignal.timeout(10000) })
-        if (!verified.ok) throw new Error('Invalid login')
-        let info = await verified.json() as { audience?: string; issued_to?: string; user_id?: string; verified_email?: boolean | string; expires_in?: number | string; scope?: string }
-        let scopes = info.scope?.split(' ') ?? []
-        if (info.audience === audience && info.issued_to === audience && (info.verified_email === true || info.verified_email === 'true') && Number(info.expires_in) > 0 && (scopes.includes('email') || scopes.includes('https://www.googleapis.com/auth/userinfo.email')) && typeof info.user_id === 'string') {
-          let response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10000) })
-          if (!response.ok) throw new Error('Invalid login')
-          let user = await response.json() as { sub?: string; email?: string; email_verified?: boolean; name?: string }
-          if (user.sub === info.user_id && user.email_verified === true && typeof user.email === 'string') { owner = user.sub; email = user.email; name = user.name ?? '' }
-        }
+        let identity = await googleAccessIdentity(accessToken, audience)
+        owner = identity.owner; email = identity.email; name = identity.name
       }
       if (!owner || !email) throw new Error('Invalid login')
       await pool.query('INSERT INTO bmux_accounts(owner,email,name) VALUES($1,$2,$3) ON CONFLICT(owner) DO UPDATE SET email=excluded.email,name=excluded.name,updated_at=now()', [owner,email,name])

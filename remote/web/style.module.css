@@ -96,3 +96,22 @@
   .serviceView details, .usage { padding: 14px; }
   :global(table) { font-size: 12px; }
 }
+
+.demoButton { margin-left: auto; padding: 8px 12px; border: 1px solid #333; border-radius: 8px; background: #181818; font-size: 14px; font-weight: 600; }
+.demoButton:hover { background: #272727; }
+.demoButton:active, .demoOffer button:active { transform: scale(.98); }
+.demoSignIn { padding: 12px 24px; display: flex; justify-content: flex-end; border-bottom: 1px solid #2a2a2a; }
+.demoOffer { margin-top: auto; padding: 24px 12px 12px; }
+.demoOffer p { color: #a3a3a3; text-wrap: pretty; }
+.demoOffer button { width: 100%; padding: 8px 12px; font-size: 16px; font-weight: 600; }
+.demoAddress { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: #a3a3a3; }
+.demoPage { flex: 1; min-height: 0; width: 100%; overflow: auto; background: #f4f1e9; color: #26382e; font-size: 16px; line-height: 24px; }
+.demoPage article { max-width: 760px; margin: auto; padding: 48px 24px; }
+.demoPage small { color: #617164; font-size: 12px; }
+.demoPage h2 { margin: 24px 0 16px; font-size: 36px; line-height: 40px; font-weight: 600; text-wrap: balance; }
+.demoPage p { max-width: 520px; text-wrap: pretty; }
+.demoPage table { margin-top: 32px; }
+.demoPage td { padding: 16px 8px; border-color: #cad0c4; white-space: normal; }
+.demoPage td:last-child { text-align: right; color: #52664f; }
+.demoCaption { margin: 0; padding: 12px 16px; border-top: 1px solid #2a2a2a; color: #a3a3a3; font-size: 12px; }
+@media (max-width: 700px) { .workspaceActive:has(.demoPage) { grid-template-columns: minmax(160px, 38%) minmax(0, 1fr); } .workspaceActive:has(.demoPage) .library { display: flex; padding: 12px 4px; } .demoOffer { padding: 16px 4px; } .demoOffer button { white-space: normal; } .demoSignIn { padding: 8px 12px; } }
