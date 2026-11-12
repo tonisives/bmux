@@ -12,7 +12,7 @@ let pages = [
 export let demoHosts: Host[] = ['Research node', 'Collection node'].map((name, index) => ({
   id: `demo-node-${index + 1}`, generation: 'static-demo', service: 'Demo', permission: 'watch', owner: false,
   key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, machine: { name, platform: 'linux', arch: 'x64', version: 'Demo' },
-  sessions: pages.slice(index * 2, index * 2 + 2).map(page => ({ id: page.id, name: page.title, panes: [{ id: page.id, title: page.title }] })),
+  sessions: pages.slice(index * 2, index * 2 + 2).map(page => ({ id: page.id, name: ({ quotes: 'Reading list', research: 'Source review', catalog: 'Catalog', results: 'Export' } as Record<string, string>)[page.id], panes: [{ id: page.id, title: page.title }] })),
 }))
 
 export let DemoWorkspace = ({ buy, close }: { buy: () => void; close?: () => void }) => {

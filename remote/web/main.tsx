@@ -100,7 +100,7 @@ let App = () => {
       void api('/api/config').then(config => {
         if (cancelled) return
         let google = (window as any).google
-        googleClient.current = google.accounts.oauth2.initTokenClient({ client_id: config.googleClientId, scope: 'openid email', callback: (response: { access_token?: string; error?: string }) => {
+        googleClient.current = google.accounts.oauth2.initTokenClient({ client_id: config.googleClientId, scope: 'openid email', error_callback: () => { setAuth('signed-out'); report(new Error('Google sign-in closed. Try again.')) }, callback: (response: { access_token?: string; error?: string }) => {
           if (!response.access_token) { if (response.error) report(new Error('Google sign-in failed')); return }
           setAuth('connecting')
           void api('/api/login', { accessToken: response.access_token }).then(() => { localStorage.setItem('bmux-known-account', '1'); setKnownAccount(true); return connect() }).catch(error => { setAuth('signed-out'); report(error) })

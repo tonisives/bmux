@@ -34,7 +34,7 @@ export let api = async (endpoint: string, value?: unknown) => {
   let response = await fetch(endpoint, { credentials: 'same-origin', ...(value === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) }) })
   if (!response.ok) {
     let result = await response.json().catch(() => ({}))
-    throw new Error(response.status === 401 ? 'Sign in to continue' : result.error ?? 'Request failed')
+    throw new Error(response.status === 401 ? endpoint === '/api/login' ? 'Google sign-in failed. Try again.' : 'Sign in to continue' : result.error ?? 'Request failed')
   }
   return response.json()
 }
