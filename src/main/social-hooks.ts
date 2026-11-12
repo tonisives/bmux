@@ -5,6 +5,7 @@ import type { WebContents } from 'electron'
 import { emptySocialHook } from '../shared/social-hooks'
 import type { SocialHookConfig, SocialHookReceipt } from '../shared/social-hooks'
 import { socialXSource } from './social-x-source'
+import { socialRedditSource } from './social-reddit-source'
 
 type Post = Record<string, unknown>
 type Job = { id: string; plugin: string; profile: string; posts: Post[]; attempts: number; due: number; destination: string; failed?: boolean }
@@ -77,7 +78,7 @@ export let createSocialHooks = (options: Options) => {
           continue
         }
         try {
-          let extract = site === 'x' ? socialXSource : '('+extractPosts.toString()+')()'
+          let extract = site === 'x' ? socialXSource : site === 'reddit' ? socialRedditSource : '('+extractPosts.toString()+')()'
           let code = `(() => {
             if (!globalThis.__bmuxSocialPosts) {
               let queue = [], seen = new Map(), timer;
