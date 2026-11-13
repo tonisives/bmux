@@ -76,6 +76,17 @@ it('renews TURN credentials on a running host without interrupting its live stre
   expect(peer.close).not.toHaveBeenCalled()
 })
 
+it('preserves the account relay on credential renewal and closes it on a real disconnect', () => {
+  let { socket, runtime } = setup(undefined, false)
+  socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
+  expect(sockets).toHaveLength(2)
+  socket.emit('message', JSON.stringify({ type: 'ready', iceServers: [] }))
+  expect(sockets).toHaveLength(2)
+  expect(runtime.accounts.proxies.disconnect).not.toHaveBeenCalled()
+  socket.emit('close', '')
+  expect(runtime.accounts.proxies.disconnect).toHaveBeenCalledOnce()
+})
+
 it('requires a central permit before capture and closes the stream when its permit is revoked', async () => {
   let { socket, capture, resolveCapture, peer, offers } = setup('managed',true,true)
   expect(capture).not.toHaveBeenCalled()
