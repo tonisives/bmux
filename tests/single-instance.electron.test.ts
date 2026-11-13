@@ -41,11 +41,12 @@ await import(${JSON.stringify(pathToFileURL(path.resolve('out/main/index.js')).h
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let command = (method: string) => chrome.evaluate(method => (window as any).bmux.command({ method }), method)
-    await expect.poll(() => application!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => !window.isDestroyed()).length)).toBe(1)
-    await application.evaluate(({ app, BrowserWindow }) => {
-      let window = BrowserWindow.getAllWindows().find(window => !window.isDestroyed())!
+    let primaryWindow = () => application!.evaluate(({ BaseWindow }, url) => BaseWindow.getAllWindows().find(window => window.contentView.children.some(view => 'webContents' in view && (view as Electron.WebContentsView).webContents.getURL() === url))?.id, chrome.url())
+    await expect.poll(primaryWindow).toBeTruthy()
+    await application.evaluate(({ app, BaseWindow }, id) => {
+      let window = BaseWindow.fromId(id!)!
       window.show(); app.focus({ steal: true }); window.focus()
-    })
+    }, await primaryWindow())
     await expect.poll(async () => (await command('diagnostics')).windows.map((window: any) => ({ visible: window.visible, focused: window.focused }))).toEqual([{ visible: true, focused: true }])
     let before = await command('diagnostics')
     let readClaims = async () => (await fs.readFile(claims, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
