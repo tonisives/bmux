@@ -13,7 +13,7 @@
 .sectionHeading a { flex:1; color:#ededed; text-decoration:none; font-size:16px; line-height:24px; font-weight:600; padding:12px 4px; border-radius:4px; }
 .sectionHeading a:hover,.toggle:hover,.childLink:hover { background:#181818; }
 .navigation .sectionHeading .toggle { display:grid; place-items:center; flex:0 0 24px; height:32px; min-height:32px; border-radius:4px; border:0; padding:4px; background:none; color:#a3a3a3; cursor:pointer; }
-.sectionContent { padding:0 4px 8px; min-width:0; min-height:0; overflow:auto; }
+.sectionContent { padding:0 0 8px; min-width:0; min-height:0; overflow:auto; }
 .childLink { display:block; color:#bdbdbd; padding:8px 24px; font-size:14px; text-decoration:none; border-radius:4px; }
 .header :focus-visible,.navigation :focus-visible { outline:2px solid #bdbdbd; outline-offset:-2px; }
 .signIn:active,.profile:active { transform:scale(.98); }
