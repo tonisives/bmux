@@ -18,7 +18,7 @@ test('remote web Account preserves Apple linking and the responsive session work
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-auth-web-'))
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let providers = { appleEnabled: true, appleLinked: false }
-  let signedIn = true, logoutFailed = false, logoutRequests = 0, connectRequests = 0
+  let pro = true, signedIn = true, logoutFailed = false, logoutRequests = 0, connectRequests = 0
   let used = Date.now() - 120000
   let researchPages = [{ id: 'research-page', title: 'Example page', lastActivityAt: used }, { id: 'second-page', title: 'Comparison', lastActivityAt: used }, { id: 'notes-page', title: 'Notes', lastActivityAt: used }]
   let hosts = [{ id: 'fixture-host', service: 'Development machine', generation: 'fixture-runtime', permission: 'watch', machine: { name: 'Personal Mac', platform: 'darwin', arch: 'arm64', version: '0.1.10', revision: 'fixture' }, key: { kty: 'OKP', crv: 'Ed25519', x: 'a'.repeat(43) }, sessions: [
@@ -52,7 +52,7 @@ test('remote web Account preserves Apple linking and the responsive session work
         if (route === '/api/connect') connectRequests++
         if (route === '/api/services' && request.method === 'POST') { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ service: 'self-hosted-fixture', key: 'c'.repeat(64) })); return }
         let result = route === '/api/auth/providers' ? providers
-          : route === '/api/me' ? { owner: 'fixture-owner', entitlement: { canStream: true } }
+          : route === '/api/me' ? { owner: 'fixture-owner', pro, entitlement: { canStream: true } }
           : route === '/api/connect' ? { ticket: 'fixture-ticket', iceServers: [] }
           : route === '/api/config' ? { googleClientId: 'fixture' }
           : route === '/api/billing/status' ? { enabled: false, relay: { active: false, monthlyCents: 1000, currency: 'usd', maxStreams: 2, cancelRequested: false, status: 'inactive' } }
@@ -200,9 +200,19 @@ test('remote web Account preserves Apple linking and the responsive session work
     await page.getByRole('button', { name: 'Account', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Account', level: 2, exact: true })).toBeVisible()
     await expect(page.getByText('Account ID:', { exact: false })).toBeVisible()
-    await page.getByRole('button', { name: 'Demo', exact: true }).click()
-    await page.getByRole('button', { name: 'Get relay · $10/month', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Account', level: 2, exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Demo', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Sessions', exact: true }).click()
+    await expect(page.getByRole('link', { name: 'Accounts', exact: true })).toHaveAttribute('href', '/accounts')
+    await expect(page.getByText('Demo', { exact: true })).toHaveCount(0)
+    pro = false
+    await page.reload()
+    await expect(page.getByRole('complementary', { name: 'Demo sessions', exact: true })).toContainText('2 nodes · 4 browsers')
+    await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Accounts', exact: true })).toHaveAttribute('href', '/accounts')
+    pro = true
+    await page.reload()
+    await expect(page.getByRole('complementary', { name: 'Sessions', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Account', exact: true }).click()
     logoutFailed = true
     let previousDeviceKey = await page.evaluate(() => localStorage.getItem('bmux-device-key'))
     expect(previousDeviceKey).not.toBeNull()
@@ -216,6 +226,7 @@ test('remote web Account preserves Apple linking and the responsive session work
     await page.getByRole('button', { name: 'Sign out', exact: true }).click()
     await expect(page).toHaveURL(`${origin}/`)
     await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toBeEnabled()
+    await expect(page.locator('main > header').getByRole('button', { name: 'Sign in with Google', exact: true })).toBeEnabled()
     let demo = page.getByRole('complementary', { name: 'Demo sessions', exact: true })
     await expect(demo).toContainText('2 nodes · 4 browsers')
     await expect(demo.getByRole('group', { name: /^Sessions on / })).toHaveCount(2)

@@ -1,0 +1,21 @@
+.header { display:flex; align-items:center; flex:0 0 56px; gap:12px; min-height:56px; padding:0 20px; border-bottom:1px solid #2a2a2a; background:#0a0a0a; color:#ededed; }
+.brand { display:inline-flex; align-items:center; gap:8px; padding:0; border:0; background:none; color:inherit; font:600 20px/28px system-ui,sans-serif; letter-spacing:-.04em; text-decoration:none; cursor:pointer; }
+.label,.demo { font-size:12px; color:#a3a3a3; }
+.demo { border:1px solid #333; border-radius:4px; padding:2px 8px; }
+.actions { display:flex; align-items:center; gap:12px; margin-left:auto; }
+.signIn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:36px; padding:8px 12px; border:1px solid #3a3a3a; border-radius:8px; background:#181818; color:#ededed; font:600 14px/20px system-ui,sans-serif; cursor:pointer; }
+.signIn:hover,.profile:hover { background:#272727; }
+.signIn:disabled { opacity:.5; cursor:default; }
+.profile { display:grid; place-items:center; width:36px; height:36px; border:1px solid #333; border-radius:9999px; background:#181818; color:inherit; }
+.navigation { display:flex; flex-direction:column; gap:12px; min-height:0; overflow:auto; }
+.section { flex:0 0 auto; min-width:0; }
+.section:first-child { flex:0 1 auto; min-height:0; }
+.sectionHeading { display:flex; align-items:center; min-height:48px; gap:4px; }
+.sectionHeading a { flex:1; color:#ededed; text-decoration:none; font-size:16px; line-height:24px; font-weight:600; padding:12px 4px; border-radius:4px; }
+.sectionHeading a:hover,.toggle:hover,.childLink:hover { background:#181818; }
+.navigation .sectionHeading .toggle { display:grid; place-items:center; flex:0 0 24px; height:32px; min-height:32px; border-radius:4px; border:0; padding:4px; background:none; color:#a3a3a3; cursor:pointer; }
+.sectionContent { padding:0 4px 8px; min-width:0; }
+.childLink { display:block; color:#bdbdbd; padding:8px 24px; font-size:14px; text-decoration:none; border-radius:4px; }
+.header :focus-visible,.navigation :focus-visible { outline:2px solid #bdbdbd; outline-offset:-2px; }
+.signIn:active,.profile:active { transform:scale(.98); }
+@media(max-width:767px) { .header { padding:0 12px; gap:8px; } .label { display:none; } .signIn { padding:8px; font-size:12px; } }

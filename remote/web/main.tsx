@@ -10,6 +10,8 @@ import { remoteMachineName } from '../../src/shared/remote-tree'
 import type { RemoteSession } from '../../src/shared/remote-sessions'
 import { SessionTree } from './SessionTree'
 import { DemoWorkspace } from './DemoWorkspace'
+import { WorkspaceHeader, WorkspaceNavigation } from './WorkspaceChrome'
+import { useGoogleLogin } from './useGoogleLogin'
 import type { RemoteResumeAcknowledgement } from '../../src/shared/remote-attention'
 let visitBilling = (url: string) => { let target = new URL(url); if (target.protocol !== 'https:' || !['checkout.stripe.com','billing.stripe.com'].includes(target.hostname)) throw new Error('Invalid checkout URL'); location.assign(target.href) }
 
@@ -40,7 +42,6 @@ let Icon = ({ name }: { name: IconName }) => {
   }
   return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
-let GoogleIcon = () => <svg width="19" height="19" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.25 5.48-4.75 7.18l7.73 6C44.43 38.03 46.98 31.87 46.98 24.55z"/><path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.2A23.9 23.9 0 0 0 0 24c0 3.86.92 7.5 2.53 10.79l8-6.2z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.92-5.8l-7.73-6c-2.14 1.44-4.88 2.3-8.19 2.3-6.26 0-11.57-4.22-13.47-9.91l-8 6.2C6.51 42.62 14.62 48 24 48z"/></svg>
 let App = () => {
   let [viewer, setViewer] = useState<Viewer>(), [hosts, setHosts] = useState<Host[]>([]), [state, setState] = useState<State>()
   let [error, setError] = useState(''), [address, setAddress] = useState(''), [text, setText] = useState(''), [watching, setWatching] = useState(false)
@@ -55,15 +56,14 @@ let App = () => {
   let [rent, setRent] = useState(new URLSearchParams(location.search).get('view') === 'boxes')
   let [auth, setAuth] = useState<'checking' | 'signed-out' | 'connecting' | 'ready'>('checking')
   let [knownAccount, setKnownAccount] = useState(() => localStorage.getItem('bmux-known-account') === '1')
-  let [googleReady, setGoogleReady] = useState(false)
+  let [pro, setPro] = useState<boolean>()
   let [hostsLoaded, setHostsLoaded] = useState(false)
-  let [demo, setDemo] = useState(false)
   let [machineId, setMachineId] = useState<string>()
   let machine = hosts.find(host => host.id === machineId), machineColors = useRemoteMachineColors(hosts)
   let [resuming,setResuming]=useState(false)
   let listed = hosts.flatMap(host => host.sessions.flatMap(session => session.panes.length ? [{ host, session, pane: session.panes[0] }] : []))
   let selected = listed.find(item => `${item.host.id}:${item.session.id}` === selectedId)
-  let video = useRef<HTMLVideoElement>(null), googleClient = useRef<{ requestAccessToken: () => void } | undefined>(undefined), inputDialog = useRef<HTMLDialogElement>(null), inputField = useRef<HTMLInputElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
+  let video = useRef<HTMLVideoElement>(null), inputDialog = useRef<HTMLDialogElement>(null), inputField = useRef<HTMLInputElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
   let [inputMode, setInputMode] = useState<'address' | 'text'>('text')
   let viewport = state && state.viewports[state.pane]
   let session = state?.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
@@ -81,10 +81,10 @@ let App = () => {
     setAuth('connecting'); setHostsLoaded(false)
     active.current?.close(); active.current = undefined; setViewer(undefined); setHosts([]); setState(undefined); setSelectedId(''); setError('')
     if (video.current) video.current.srcObject = null
-    let next = await createViewer({ hosts: nextHosts => { setHosts(nextHosts); setHostsLoaded(true); if (!nextHosts.length) setDemo(true) }, stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } }, state: setState, error: setError, disconnected: () => { if (video.current) video.current.srcObject = null; setState(undefined); setSelectedId(''); setHosts([]); setHostsLoaded(false); setViewer(undefined); setAuth('connecting'); setError('Connection lost. Trying again.'); reconnectTimer.current = setTimeout(() => { void connect().catch(report) }, 2000) } })
+    let next = await createViewer({ hosts: nextHosts => { setHosts(nextHosts); setHostsLoaded(true) }, stream: stream => { if (video.current) { video.current.srcObject = stream; void video.current.play().catch(() => undefined) } }, state: setState, error: setError, disconnected: () => { if (video.current) video.current.srcObject = null; setState(undefined); setSelectedId(''); setHosts([]); setHostsLoaded(false); setViewer(undefined); setAuth('connecting'); setError('Connection lost. Trying again.'); reconnectTimer.current = setTimeout(() => { void connect().catch(report) }, 2000) } })
     active.current = next; setViewer(next); setAuth('ready')
     let [account, listed, access, counts] = await Promise.all([api('/api/me'), api('/api/services'), api('/api/grants'), api('/api/usage')])
-    setOwner(account.owner); setServices(listed); setGrants(access); setUsage(counts)
+    setPro(account.pro === true); setOwner(account.owner); setServices(listed); setGrants(access); setUsage(counts)
     setProviders(await api('/api/auth/providers'))
   }
   useEffect(() => {
@@ -94,22 +94,7 @@ let App = () => {
       if (error instanceof Error && error.message === 'Sign in to continue') { localStorage.removeItem('bmux-known-account'); setKnownAccount(false); setAuth('signed-out') }
       else report(error)
     })
-    let script = document.createElement('script'); script.src = 'https://accounts.google.com/gsi/client'; script.async = true
-    script.nonce = document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? ''
-    script.onload = () => {
-      void api('/api/config').then(config => {
-        if (cancelled) return
-        let google = (window as any).google
-        googleClient.current = google.accounts.oauth2.initTokenClient({ client_id: config.googleClientId, scope: 'openid email', error_callback: () => { setAuth('signed-out'); report(new Error('Google sign-in closed. Try again.')) }, callback: (response: { access_token?: string; error?: string }) => {
-          if (!response.access_token) { if (response.error) report(new Error('Google sign-in failed')); return }
-          setAuth('connecting')
-          void api('/api/login', { accessToken: response.access_token }).then(() => { localStorage.setItem('bmux-known-account', '1'); setKnownAccount(true); return connect() }).catch(error => { setAuth('signed-out'); report(error) })
-        } })
-        setGoogleReady(true)
-      }).catch(report)
-    }
-    document.head.append(script)
-    return () => { cancelled = true; clearTimeout(reconnectTimer.current); active.current?.close(); script.remove() }
+    return () => { cancelled = true; clearTimeout(reconnectTimer.current); active.current?.close() }
   }, [])
   useEffect(() => {
     if (!viewer || !controlling || !session || !lease) return
@@ -189,21 +174,21 @@ let App = () => {
   let enter = () => command('key', { key: 'Enter' })
   let sendText = (event: FormEvent) => { event.preventDefault(); if (controlling && text) { viewer?.send({ type: 'text', generation: lease?.generation, text }); setText('') } inputDialog.current?.close() }
   let openInput = (mode: 'address' | 'text') => { setInputMode(mode); inputDialog.current?.showModal(); inputField.current?.focus() }
-  let showSessions = () => { setDemo(false); inputDialog.current?.close(); leave(); setMachineId(undefined); setView('sessions') }
+  let showSessions = () => { inputDialog.current?.close(); leave(); setMachineId(undefined); setView('sessions') }
   let selectTree = (host: Host, session: RemoteSession, pane?: string) => watch(host, session, true, pane)
   let closeMachine = () => { setMachineId(undefined); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-machine-details="${CSS.escape(machineId ?? '')}"]`)?.focus({ preventScroll: true })) }
   let connectRelay = () => { leave(); setRent(false); setView('service') }
   let addBox = () => { leave(); setRent(true); setView('service') }
-  let signIn = () => googleClient.current?.requestAccessToken()
-  let buyRelay = () => { setDemo(false); connectRelay(); if (!viewer) signIn() }
+  let { ready: googleReady, signIn } = useGoogleLogin(async () => { localStorage.setItem('bmux-known-account', '1'); setKnownAccount(true); setAuth('connecting'); await connect() }, error => { setAuth('signed-out'); report(error) })
+  let buyRelay = () => { connectRelay(); if (!viewer) signIn() }
   return <main className={styles.main}>
-    <header className={styles.header}><button className={styles.brand} onClick={showSessions} aria-label="BMUX home"><img src="https://cdn.digthree.tonis.dev/bmux/website-ca1a3c8712d7/icon-512.png" alt="" width="28" height="28" />bmux</button><span className={styles.headerLabel}>Remote</span><button className={styles.demoButton} onClick={() => { leave(); setDemo(true); setView('sessions') }}>Demo</button>{(viewer || knownAccount) && <button className={styles.avatar} onClick={() => { if (!viewer) return; if (selected) leave(); setRent(false); setView(view === 'service' && !rent ? 'sessions' : 'service') }} aria-label="Account" title="Account" disabled={!viewer} aria-busy={auth !== 'ready'}><Icon name="user" />{auth !== 'ready' && <span className={styles.avatarSpinner} />}</button>}</header>
+    <WorkspaceHeader demo={auth === 'signed-out' || pro === false} checking={auth === 'checking' || auth === 'connecting'} home={showSessions} signIn={auth === 'signed-out' ? signIn : undefined} ready={googleReady} account={(viewer || knownAccount) ? <button className={styles.avatar} onClick={() => { if (!viewer) return; if (selected) leave(); setRent(false); setView(view === 'service' && !rent ? 'sessions' : 'service') }} aria-label="Account" title="Account" disabled={!viewer} aria-busy={auth !== 'ready'}><Icon name="user" />{auth !== 'ready' && <span className={styles.avatarSpinner} />}</button> : undefined} />
     {error && <p role="status" className={styles.error}>{error}</p>}
-    {!viewer && auth === 'signed-out' && <div className={styles.demoSignIn}><button className={styles.googleButton} onClick={signIn} disabled={!googleReady}><GoogleIcon />Sign in with Google</button></div>}
-    {((!viewer && auth === 'signed-out') || (viewer && demo && view === 'sessions')) && <DemoWorkspace buy={buyRelay} close={viewer ? showSessions : undefined} />}
+
+    {((!viewer && auth === 'signed-out') || (viewer && pro === false && view === 'sessions')) && <DemoWorkspace buy={buyRelay} />}
     {!viewer && auth !== 'signed-out' && <section className={styles.signIn}><p role="status" className={styles.loadingMessage}>{auth === 'connecting' ? 'Connecting…' : 'Signing in…'}</p></section>}
-    {view === 'sessions' && viewer && !demo && <div className={`${styles.workspace} ${selected || machine ? styles.workspaceActive : ''}`}><aside className={styles.library} aria-label="Sessions"><div className={styles.sectionHeading}><h1>Sessions</h1><span>{hostsLoaded ? listed.length : '…'}</span></div><div className={styles.libraryActions}><button onClick={connectRelay}>Relay</button><button onClick={addBox}>Add box</button></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
-      <div className={styles.sessions}><SessionTree hosts={hosts} selected={selectedId} pane={state?.pane} select={selectTree} details={host => setMachineId(host.id)} color={machineColors.color} /></div>
+    {view === 'sessions' && viewer && pro === true && <div className={`${styles.workspace} ${selected || machine ? styles.workspaceActive : ''}`}><aside className={styles.library} aria-label="Sessions"><WorkspaceNavigation active="nodes" nodes={<><div className={styles.sectionHeading}><h1>Sessions</h1><span>{hostsLoaded ? listed.length : '…'}</span></div><div className={styles.libraryActions}><button onClick={connectRelay}>Relay</button><button onClick={addBox}>Add box</button></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
+      <div className={styles.sessions}><SessionTree hosts={hosts} selected={selectedId} pane={state?.pane} select={selectTree} details={host => setMachineId(host.id)} color={machineColors.color} /></div></>} />
     </aside>
     {machine && <section className={styles.machineDetails} aria-label="Remote machine details"><RemoteMachineDetails host={machine} name={remoteMachineName(machine, hosts)} color={machineColors.color(machine.id)} changeColor={color => machineColors.save(machine.id, color)} back={{ label: 'Back to preview', run: closeMachine }} /></section>}
     {selected ? <section className={styles.viewer} aria-label="Session viewer" hidden={!!machine}>

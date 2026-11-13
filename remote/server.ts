@@ -133,7 +133,7 @@ let server = http.createServer((request, response) => {
       let auth = authentication ?? await mobileAuth.authenticate(request), owner = auth.owner
       if (auth.nativeSession && !['/api/me','/api/hosts','/api/connect','/api/streams','/api/streams/disconnect'].includes(url.pathname)) throw new Error('Native operation unavailable')
       if (url.pathname === '/api/hooks' || url.pathname.startsWith('/api/hooks/')) { json(200,await activityHooks.api(owner,request.method ?? 'GET',url.pathname,['POST','PATCH'].includes(request.method ?? '') ? await body(request) : {})); return }
-      if (request.method === 'GET' && url.pathname === '/api/me') { let user = (await pool.query('SELECT email,name FROM bmux_accounts WHERE owner=$1', [owner])).rows[0]; json(200, { owner, ...user, entitlement:await leases.status(owner) }); return }
+      if (request.method === 'GET' && url.pathname === '/api/me') { let user = (await pool.query('SELECT email,name FROM bmux_accounts WHERE owner=$1', [owner])).rows[0]; json(200, { owner, ...user, pro: !!(await pool.query('SELECT 1 FROM bmux_entitlements WHERE owner=$1 AND expires>now()', [owner])).rowCount, entitlement:await leases.status(owner) }); return }
       if (request.method === 'GET' && url.pathname === '/api/streams') { json(200, (await leases.list(owner)).map(view => ({...view,session:peers.get(view.host)?.sessions?.find(session=>session.panes.some(pane=>pane.id===view.pane))?.id}))); return }
       if (request.method === 'POST' && url.pathname === '/api/streams/disconnect') {
         let { connection } = await body(request)

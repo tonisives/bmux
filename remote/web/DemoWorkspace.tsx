@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { SessionTree } from './SessionTree'
+import { WorkspaceNavigation } from './WorkspaceChrome'
 import type { Host } from './client'
 import styles from './style.module.css'
 
@@ -15,15 +16,14 @@ export let demoHosts: Host[] = ['Research node', 'Collection node'].map((name, i
   sessions: pages.slice(index * 2, index * 2 + 2).map(page => ({ id: page.id, name: ({ quotes: 'Reading list', research: 'Source review', catalog: 'Catalog', results: 'Export' } as Record<string, string>)[page.id], panes: [{ id: page.id, title: page.title }] })),
 }))
 
-export let DemoWorkspace = ({ buy, close }: { buy: () => void; close?: () => void }) => {
+export let DemoWorkspace = ({ buy }: { buy: () => void }) => {
   let [selected, setSelected] = useState('demo-node-1:quotes'), [browsers, setBrowsers] = useState(false)
   let page = pages.find(page => selected.endsWith(':' + page.id)) ?? pages[0]
   return <div className={`${styles.workspace} ${styles.workspaceActive} ${styles.demoWorkspace} ${browsers ? styles.demoBrowsing : ''}`}>
-    <aside className={styles.library} aria-label="Demo sessions">
+    <aside className={styles.library} aria-label="Demo sessions"><WorkspaceNavigation active="nodes" nodes={<>
       <div className={styles.sectionHeading}><h1>Demo</h1><span>2 nodes · 4 browsers</span></div>
-      <div className={styles.libraryActions}>{close && <button onClick={close}>Your sessions</button>}</div>
       <div className={styles.sessions}><SessionTree hosts={demoHosts} selected={selected} pane={page.id} select={(host, session) => { setSelected(`${host.id}:${session.id}`); setBrowsers(false) }} details={host => setSelected(`${host.id}:${host.sessions[0].id}`)} color={id => id.endsWith('1') ? '#34b3a0' : '#e5a450'} /></div>
-    </aside>
+    </>} /></aside>
     <section className={styles.viewer} aria-label="Demo browser">
       <div className={styles.viewerToolbar}><button className={styles.demoBack} onClick={() => setBrowsers(true)}>Browsers</button><span className={styles.demoAddress}>{page.url}</span><span className={styles.status}>Watching demo</span></div>
       <div className={styles.demoPage} role="document" aria-label={page.title + ' demo browser'}><article><small>BMUX DEMO / {page.title}</small><h2>{page.heading}</h2><p>{page.description}</p><table><tbody>{page.rows.map((row, index) => <tr key={index}>{row.map((cell, index) => <td key={index}>{cell}</td>)}</tr>)}</tbody></table></article></div>

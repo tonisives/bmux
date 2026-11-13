@@ -28,6 +28,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let fixtureUrl = `http://127.0.0.1:${(fixture.address() as { port: number }).port}`
   await pool.query(await fs.readFile('remote/schema.sql', 'utf8'))
   await pool.query('INSERT INTO bmux_services (id,owner,token_hash) VALUES ($1,$2,$3)', [service, owner, digest(token)])
+  await pool.query("INSERT INTO bmux_entitlements VALUES($1,now()+interval '1 hour',2,'manual')", [owner])
   await pool.query("INSERT INTO bmux_logins VALUES ($1,$2,now()+interval '1 hour')", [digest(cookie),owner])
   await fs.writeFile(path.join(directory,'remote.json'),JSON.stringify({url:origin,token}),{mode:0o600})
   let savedModel = initialModel(), previousUse = Date.now() - 86400000
@@ -652,7 +653,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
     await new Promise<void>(resolve=>{fixture.close(()=>resolve());fixture.closeAllConnections()})
-    await pool.query('DELETE FROM bmux_stream_leases WHERE owner=$1',[owner]); await pool.query('DELETE FROM bmux_attention WHERE service=$1',[service]); await pool.query('DELETE FROM bmux_host_presence WHERE service=$1',[service])
+    await pool.query('DELETE FROM bmux_entitlements WHERE owner=$1',[owner]); await pool.query('DELETE FROM bmux_stream_leases WHERE owner=$1',[owner]); await pool.query('DELETE FROM bmux_attention WHERE service=$1',[service]); await pool.query('DELETE FROM bmux_host_presence WHERE service=$1',[service])
     await pool.query('DELETE FROM bmux_usage WHERE service=$1',[service]); await pool.query('DELETE FROM bmux_services WHERE id=$1',[service]); await pool.query('DELETE FROM bmux_devices WHERE owner=$1',[owner]); await pool.query('DELETE FROM bmux_logins WHERE owner=$1',[owner]); await pool.end()
     await fs.rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100})
   }
