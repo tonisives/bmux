@@ -19,4 +19,4 @@
 .signIn:active,.profile:active { transform:scale(.98); }
 @media(max-width:767px) { .header { padding:0 12px; gap:8px; } .label { display:none; } .signIn { padding:8px; font-size:12px; } }
 
-@media(max-width:767px) { .navigation { flex:none; max-height:45dvh; } .sectionContent { max-height:28dvh; } }
+@media(max-width:767px) { .navigation { flex:none; max-height:45dvh; } .section[data-active=true] { flex:0 1 auto; } .sectionContent { max-height:28dvh; } }

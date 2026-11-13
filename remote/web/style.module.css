@@ -118,8 +118,8 @@
 .demoBack:hover { background: #272727; }
 @media (max-width: 767px) {
   .demoWorkspace { grid-template-columns: minmax(0, 1fr); }
-  .demoWorkspace .library { display: none; }
-  .demoBrowsing .library { overflow: hidden; display: flex; }
+  .demoWorkspace .library { display: flex; }
+  .demoBrowsing .library [data-workspace-content] { display: block; }
   .demoBrowsing .viewer { display: none; }
   .demoBack { display: inline-block; }
   .demoSignIn { padding: 8px 12px; }
