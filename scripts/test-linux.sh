@@ -35,7 +35,7 @@ docker run --name "$browser" --network "container:${database}" --shm-size="${BMU
   -e BMUX_TEST_WINDOW_MANAGER="${BMUX_TEST_WINDOW_MANAGER:-openbox}" \
   -e BMUX_DISK_SHARED_MEMORY="${BMUX_TEST_DISK_SHARED_MEMORY:-0}" \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
-  "$image" node_modules/.bin/playwright test tests/remote-host.electron.test.ts tests/remote-capture.electron.test.ts tests/remote-layout.electron.test.ts tests/remote-workspace.electron.test.ts tests/host-proxy.electron.test.ts tests/startup-restore.electron.test.ts --output=/tmp/results "$@"
+  "$image" node_modules/.bin/playwright test tests/remote-host.electron.test.ts tests/remote-capture.electron.test.ts tests/remote-layout.electron.test.ts tests/remote-workspace.electron.test.ts tests/host-proxy.electron.test.ts tests/startup-restore.electron.test.ts tests/remote-scroll.electron.test.ts --output=/tmp/results "$@"
 docker run --rm --network "container:${database}" --entrypoint node \
   -e BMUX_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
   "$image" tests/remote-service.integration.mjs

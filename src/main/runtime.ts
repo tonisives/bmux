@@ -1037,6 +1037,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return smoothAgentScroll((method, params) => {
         if (live.contents.isDestroyed() || documents.get(tabId) !== document) throw new Error('Document changed')
         checkControl('cdp', { tab: tabId })
+        if (process.platform === 'linux' && !sessionId && !live.parent.isVisible() && method === 'Input.dispatchMouseEvent' && !params.modifiers) {
+          // Hidden Linux widgets delay CDP wheel acknowledgements. Native input
+          // retains the shared curve. Capture also wakes the hidden compositor.
+          live.contents.sendInputEvent({ type: 'mouseWheel', x: Math.round(Number(params.x)), y: Math.round(Number(params.y)), deltaX: -Number(params.deltaX), deltaY: -Number(params.deltaY), hasPreciseScrollingDeltas: true, canScroll: true })
+          return capturePageFrame(live.contents).then(() => ({}))
+        }
         return debuggerApi.sendCommand(method, params, sessionId)
       }, params, settings, inputScale, { signal: pluginCommand.getStore()?.signal, wheelScale: live.contents.getZoomFactor() })
     }
