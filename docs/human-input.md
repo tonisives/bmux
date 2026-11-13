@@ -1,10 +1,10 @@
 # Human input integrations
 
-Local tools that edit on a person's behalf, such as Ovim, can use `--human`:
+Local tools that edit on a person's behalf, such as Ovim, can use `--no-lock`:
 
 ```sh
-bmux --human eval -t %3 'document.activeElement.focus()'
-bmux --human type -t %3 --text 'Updated draft'
+bmux --no-lock eval -t %3 'document.activeElement.focus()'
+bmux --no-lock type -t %3 --text 'Updated draft'
 ```
 
 This mode skips automation delays, reading overlays, command labels, simulated

@@ -70,7 +70,7 @@ test('human input updates immediately without agent feedback, identity, locks or
     await human('cdp', { method: 'Input.insertText', params: { text: 'x' } })
     expect(Date.now() - started).toBeLessThan(8000)
     expect(await page.evaluate(() => (window as any).trustedInput)).toBe(true)
-    let { stdout } = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), '--human', 'eval', '-t', pane, 'document.title'], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'inherited', BMUX_AGENT_DATA: 'invalid', TMUX: '/missing/tmux', CODEX_THREAD_ID: 'inherited-thread' }, timeout: 8000 })
+    let { stdout } = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), '--no-lock', 'eval', '-t', pane, 'document.title'], { env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_AGENT_ID: 'inherited', BMUX_AGENT_DATA: 'invalid', TMUX: '/missing/tmux', CODEX_THREAD_ID: 'inherited-thread' }, timeout: 8000 })
     expect(JSON.parse(stdout)).toEqual({ ok: true, result: 'Human editor' })
     expect(await page.evaluate(() => (window as any).humanOverlays)).toEqual([])
     let after = await state()

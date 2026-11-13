@@ -74,7 +74,7 @@ Automation: automation status | automation safety | automation acquire -t PANE -
             remote attention-wait -t PANE --episode STABLE_ID [--timeout 300000]
             remote attention-verify -t PANE --episode STABLE_ID --attempt ID --outcome verified|verification-failed
             Set BMUX_AUTOMATION_LEASE for subsequent browser commands.
-            Agent identity is optional. Use --human for immediate user-driven input without agent pacing or feedback.
+            Agent identity is optional. Use --no-lock for immediate input without pane locks, agent pacing or feedback.
             Add --agent-name NAME, --agent-purpose REASON, --agent-context PLATFORM, --agent-type TYPE and --agent-data JSON for agent details.
             agent context prints verified tmux context for the calling agent.
 Extensions: extension list|load PATH|enable ID|disable ID|open ID|options ID|remove ID --profile PROFILE
@@ -102,8 +102,8 @@ let parse = () => {
   for (let index = 0; index < argv.length; index++) {
     if (argv[index] === '--') break
     let flag = argv[index].split('=')[0], key = flags[flag]
-    if (flag === '--human') {
-      if (argv[index] !== '--human') throw new Error('Use --human without a value')
+    if (flag === '--no-lock') {
+      if (argv[index] !== '--no-lock') throw new Error('Use --no-lock without a value')
       human = true; argv.splice(index, 1); index--
     } else if (key) {
       let inline = argv[index].includes('='), value = inline ? argv[index].slice(flag.length + 1) : argv[index + 1]

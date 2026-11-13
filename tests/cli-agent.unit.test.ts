@@ -53,11 +53,11 @@ test('movement aliases retain their client, target and agent', () => withControl
   for (let command of ['switchc', 'switch-client']) expect(await invoke([command, '-c', 'client', '-Zt%3', '--agent-id', '%42'])).toEqual({ method: 'command-line', args: { client: 'client', line: `\"${command}\" \"-c\" \"client\" \"-Zt%3\"`, agentId: '%42' } })
 }))
 
-test('human input removes inherited agent data and preserves literal flags', () => withControlServer(async (invoke) => {
-  expect(await invoke(['--human', 'eval', '-t', '%3', 'document.title'], '%42', { BMUX_AGENT_DATA: 'invalid JSON', TMUX: '/missing/tmux', CODEX_THREAD_ID: 'inherited-thread' })).toEqual({ method: 'eval', args: { pane: '%3', expression: 'document.title' }, inputSource: 'human' })
-  expect(await invoke(['rpc', 'type', '{"pane":"%3","text":"hello","agentId":"raw-agent","_automationLease":"stale"}', '--human'], '%42')).toEqual({ method: 'type', args: { pane: '%3', text: 'hello' }, inputSource: 'human' })
-  expect(await invoke(['type', '-t', '%3', '--text', '--human'])).toEqual({ method: 'type', args: { pane: '%3', text: '--human' } })
-  expect(await invoke(['eval', '-t', '%3', '--', '--human'])).toEqual({ method: 'eval', args: { pane: '%3', expression: '--human' } })
+test('--no-lock removes inherited agent data and preserves literal flags', () => withControlServer(async (invoke) => {
+  expect(await invoke(['--no-lock', 'eval', '-t', '%3', 'document.title'], '%42', { BMUX_AGENT_DATA: 'invalid JSON', TMUX: '/missing/tmux', CODEX_THREAD_ID: 'inherited-thread' })).toEqual({ method: 'eval', args: { pane: '%3', expression: 'document.title' }, inputSource: 'human' })
+  expect(await invoke(['rpc', 'type', '{"pane":"%3","text":"hello","agentId":"raw-agent","_automationLease":"stale"}', '--no-lock'], '%42')).toEqual({ method: 'type', args: { pane: '%3', text: 'hello' }, inputSource: 'human' })
+  expect(await invoke(['type', '-t', '%3', '--text', '--no-lock'])).toEqual({ method: 'type', args: { pane: '%3', text: '--no-lock' } })
+  expect(await invoke(['eval', '-t', '%3', '--', '--no-lock'])).toEqual({ method: 'eval', args: { pane: '%3', expression: '--no-lock' } })
 }))
 
 test('explicit and RPC identifiers override inherited identifiers', () => withControlServer(async (invoke) => {
