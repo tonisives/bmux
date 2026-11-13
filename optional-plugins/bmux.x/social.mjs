@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { typeSearchQuery } from './search-input.mjs'
 
 const site = process.argv[2]
 const mode = process.argv[3]
@@ -129,18 +130,7 @@ async function browseSurface(url, label, minScrolls = 2, maxScrolls = 4) {
 }
 
 async function humanType(selector, value) {
-  call('context', { refresh: true })
-  call('click', { selector })
-  const focused = call('eval', { expression: `document.activeElement === document.querySelector(${JSON.stringify(selector)})` })
-  if (!focused) throw new Error('Could not focus the site search field')
-  for (const type of ['keyDown', 'keyUp']) call('cdp', { method: 'Input.dispatchKeyEvent', params: { type, key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: process.platform === 'darwin' ? 4 : 2 } })
-  for (const type of ['keyDown', 'keyUp']) call('cdp', { method: 'Input.dispatchKeyEvent', params: { type, key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 } })
-  await pause(between(400, 1100))
-  for (const character of value) {
-    call('cdp', { method: 'Input.insertText', params: { text: character } })
-    await pause(between(45, 170))
-  }
-  await pause(between(1200, 2600))
+  await typeSearchQuery(call, pause, between, selector, value)
 }
 
 async function search(query, resultLimit, warmupOnly = false) {
