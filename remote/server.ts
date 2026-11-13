@@ -212,7 +212,7 @@ let server = http.createServer((request, response) => {
       json(404, { error: 'Not found' }); return
     }
     if (request.method !== 'GET') { json(404, { error: 'Not found' }); return }
-    let filename = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
+    let filename = ['/', '/nodes'].includes(url.pathname) ? 'index.html' : url.pathname.slice(1)
     if (!/^(index\.html|assets\/[A-Za-z0-9_.-]+)$/.test(filename)) { json(404, { error: 'Not found' }); return }
     let file = await fs.readFile(path.join(import.meta.dirname, 'dist', filename))
     let nonce = randomBytes(18).toString('base64')

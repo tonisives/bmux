@@ -20,7 +20,7 @@ export let DemoWorkspace = ({ buy }: { buy: () => void }) => {
   let [selected, setSelected] = useState('demo-node-1:quotes'), [browsers, setBrowsers] = useState(false)
   let page = pages.find(page => selected.endsWith(':' + page.id)) ?? pages[0]
   return <div className={`${styles.workspace} ${styles.workspaceActive} ${styles.demoWorkspace} ${browsers ? styles.demoBrowsing : ''}`}>
-    <aside className={styles.library} aria-label="Demo sessions"><WorkspaceNavigation active="nodes" nodes={<>
+    <aside className={styles.library} aria-label="Demo sessions"><WorkspaceNavigation active="nodes" onActive={() => setBrowsers(true)} nodes={<>
       <div className={styles.sectionHeading}><h1>Demo</h1><span>2 nodes · 4 browsers</span></div>
       <div className={styles.sessions}><SessionTree hosts={demoHosts} selected={selected} pane={page.id} select={(host, session) => { setSelected(`${host.id}:${session.id}`); setBrowsers(false) }} details={host => setSelected(`${host.id}:${host.sessions[0].id}`)} color={id => id.endsWith('1') ? '#34b3a0' : '#e5a450'} /></div>
     </>} /></aside>

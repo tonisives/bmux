@@ -26,7 +26,7 @@
 .googleButton:hover { background: #252525; }
 .error { flex: 0 0 auto; padding: 12px 20px; margin: 0; border-bottom: 1px solid #444; background: #202020; color: #ededed; overflow-wrap: anywhere; }
 .workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: clamp(280px, 28vw, 340px) minmax(0, 1fr); }
-.library { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px 12px 12px; border-right: 1px solid #2a2a2a; }
+.library { overflow: hidden; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px 12px 12px; border-right: 1px solid #2a2a2a; }
 .sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #a3a3a3; }
 .sectionHeading h1 { margin: 0; color: #ededed; font-size: 15px; font-weight: 600; }
 .sectionHeading button { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: #d4d4d4; font: inherit; }
@@ -35,8 +35,8 @@
 .libraryActions button { padding: 6px 12px; border: 1px solid #333; border-radius: 8px; background: #161616; color: #d4d4d4; }
 .libraryActions button:hover { background: #252525; }
 .library > p { margin: 12px 10px; color: #a3a3a3; }
-.sessions { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: auto; }
-.machineDetails { min-width: 0; min-height: 0; padding: 24px; overflow: auto; }
+.sessions { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: visible; }
+.machineDetails { min-width: 0; min-height: 0; padding: 24px; overflow: visible; }
 .machineDetails button { border-radius: 8px; }
 .machineDetails dl > div { display: flex; gap: 12px; }
 .machineDetails dt { color: #999; }
@@ -81,9 +81,10 @@
 .usage h3 span { color: #a3a3a3; font-size: 11px; }
 .tableScroll { overflow-x: auto; }
 @media (max-width: 767px) {
-  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .library { border-right: 0; }
-  .emptyViewer, .workspaceActive .library { display: none; }
+  .emptyViewer { display: none; }
+  .workspaceActive .library [data-workspace-content] { display: none; }
   .iconButton.mobileBack { display: inline-grid; }
   .header { padding-inline: 16px; }
 }
@@ -118,7 +119,7 @@
 @media (max-width: 767px) {
   .demoWorkspace { grid-template-columns: minmax(0, 1fr); }
   .demoWorkspace .library { display: none; }
-  .demoBrowsing .library { display: flex; }
+  .demoBrowsing .library { overflow: hidden; display: flex; }
   .demoBrowsing .viewer { display: none; }
   .demoBack { display: inline-block; }
   .demoSignIn { padding: 8px 12px; }

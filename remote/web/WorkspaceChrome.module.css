@@ -7,14 +7,16 @@
 .signIn:hover,.profile:hover { background:#272727; }
 .signIn:disabled { opacity:.5; cursor:default; }
 .profile { display:grid; place-items:center; width:36px; height:36px; border:1px solid #333; border-radius:9999px; background:#181818; color:inherit; }
-.navigation { flex:1; display:flex; flex-direction:column; gap:12px; min-height:0; overflow:auto; }
-.section { display:flex; flex-direction:column; flex:0 1 auto; min-width:0; min-height:0; }
-.sectionHeading { flex-shrink:0; display:flex; align-items:center; min-height:48px; gap:4px; }
-.sectionHeading a { flex:1; color:#ededed; text-decoration:none; font-size:16px; line-height:24px; font-weight:600; padding:12px 4px; border-radius:4px; }
-.sectionHeading a:hover,.toggle:hover,.childLink:hover { background:#181818; }
-.navigation .sectionHeading .toggle { display:grid; place-items:center; flex:0 0 24px; height:32px; min-height:32px; border-radius:4px; border:0; padding:4px; background:none; color:#a3a3a3; cursor:pointer; }
-.sectionContent { padding:0 0 8px; min-width:0; min-height:0; overflow:auto; }
-.childLink { display:block; color:#bdbdbd; padding:8px 24px; font-size:14px; text-decoration:none; border-radius:4px; }
+.navigation { flex:1; display:flex; flex-direction:column; gap:12px; min-width:0; min-height:0; overflow:hidden; }
+.section { display:flex; flex-direction:column; flex:0 0 auto; min-width:0; min-height:0; }
+.section[data-active=true] { flex:1; }
+.navigation .switchView { display:flex; align-items:center; flex:0 0 48px; width:100%; gap:8px; padding:12px 8px; border:1px solid transparent; border-radius:8px; background:transparent; color:#ededed; font:600 16px/24px system-ui,sans-serif; text-align:left; cursor:pointer; }
+.navigation .switchView:hover { background:#181818; }
+.navigation .switchView[aria-expanded=true] { background:#181818; border-color:#333; }
+.switchView svg { flex-shrink:0; color:#a3a3a3; }
+.sectionContent { padding:12px 0 8px; min-width:0; min-height:0; overflow:auto; scrollbar-gutter:stable; }
 .header :focus-visible,.navigation :focus-visible { outline:2px solid #bdbdbd; outline-offset:-2px; }
 .signIn:active,.profile:active { transform:scale(.98); }
 @media(max-width:767px) { .header { padding:0 12px; gap:8px; } .label { display:none; } .signIn { padding:8px; font-size:12px; } }
+
+@media(max-width:767px) { .navigation { flex:none; max-height:45dvh; } .sectionContent { max-height:28dvh; } }
