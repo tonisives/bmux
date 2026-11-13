@@ -179,7 +179,7 @@ let App = () => {
   let closeMachine = () => { setMachineId(undefined); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-machine-details="${CSS.escape(machineId ?? '')}"]`)?.focus({ preventScroll: true })) }
   let connectRelay = () => { leave(); setRent(false); setView('service') }
   let addBox = () => { leave(); setRent(true); setView('service') }
-  let { ready: googleReady, signIn } = useGoogleLogin(async () => { localStorage.setItem('bmux-known-account', '1'); setKnownAccount(true); setAuth('connecting'); await connect() }, error => { setAuth('signed-out'); report(error) })
+  let { ready: googleReady, signIn } = useGoogleLogin(async () => { localStorage.setItem('bmux-known-account', '1'); setKnownAccount(true); setAuth('connecting'); await connect().catch(report) }, error => { if (auth === 'signed-out') report(error) })
   let buyRelay = () => { connectRelay(); if (!viewer) signIn() }
   return <main className={styles.main}>
     <WorkspaceHeader demo={auth === 'signed-out' || pro === false} checking={auth === 'checking' || auth === 'connecting'} home={showSessions} signIn={auth === 'signed-out' ? signIn : undefined} ready={googleReady} account={(viewer || knownAccount) ? <button className={styles.avatar} onClick={() => { if (!viewer) return; if (selected) leave(); setRent(false); setView(view === 'service' && !rent ? 'sessions' : 'service') }} aria-label="Account" title="Account" disabled={!viewer} aria-busy={auth !== 'ready'}><Icon name="user" />{auth !== 'ready' && <span className={styles.avatarSpinner} />}</button> : undefined} />
