@@ -230,14 +230,14 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       }, { id: viewerWindowId, width, height })
       await expect.poll(() => viewer.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width, height })
     }
-    await expect(viewer.getByRole('button',{name:'Account'})).toBeVisible()
+    await expect(viewer.getByRole('button',{name:'Account',exact:true})).toBeVisible()
     let finishAccountCheck: (() => void) | undefined
     let accountCheck = new Promise<void>(resolve => { finishAccountCheck = resolve })
     let finishRoutedCheck: (() => void) | undefined
     let routedCheck = new Promise<void>(resolve => { finishRoutedCheck = resolve })
     await viewer.route('**/api/me', async route => { await accountCheck; await route.continue(); finishRoutedCheck?.() })
     await viewer.reload({waitUntil:'domcontentloaded'})
-    await expect(viewer.getByRole('button',{name:'Account'})).toHaveAttribute('aria-busy','true')
+    await expect(viewer.getByRole('button',{name:'Account',exact:true})).toHaveAttribute('aria-busy','true')
     await expect(viewer.getByRole('button',{name:'Sign in with Google',exact:true})).toHaveCount(0)
     finishAccountCheck?.()
     await routedCheck
@@ -256,9 +256,9 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(key.x)))].map(value=>value.toString(16).padStart(2,'0')).join('')
     })
     await expect(viewer.getByRole('button',{name:'Reconnect'})).toHaveCount(0)
-    await expect(viewer.getByRole('heading',{name:'Account'})).toHaveCount(0)
-    await viewer.getByRole('button',{name:'Account'}).click()
-    await expect(viewer.getByRole('heading',{name:'Account'})).toBeVisible()
+    await expect(viewer.getByRole('heading',{name:'Account',exact:true})).toHaveCount(0)
+    await viewer.getByRole('button',{name:'Account',exact:true}).click()
+    await expect(viewer.getByRole('heading',{name:'Account',exact:true})).toBeVisible()
     await expect(viewer.getByText('Account ID:')).toBeVisible()
     await expect(viewer.getByRole('heading',{name:/Usage/})).toBeVisible()
     await viewer.getByRole('button',{name:'Sessions'}).click()
@@ -608,7 +608,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await application!.evaluate(async ({session},origin)=>session.defaultSession.cookies.remove(origin,'bmux_session'),origin)
       await viewer.reload()
       await expect(viewer.getByRole('button',{name:'Sign in with Google',exact:true})).toBeVisible()
-      await expect(viewer.getByRole('button',{name:'Account'})).toHaveCount(0)
+      await expect(viewer.getByRole('button',{name:'Account',exact:true})).toHaveCount(0)
       await expect(viewer.getByRole('complementary', { name: 'Sessions', exact: true })).toHaveCount(0)
     },{timeout:30000})
     failed = false
