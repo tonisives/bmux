@@ -41,6 +41,7 @@ await import(${JSON.stringify(pathToFileURL(path.resolve('out/main/index.js')).h
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let command = (method: string) => chrome.evaluate(method => (window as any).bmux.command({ method }), method)
+    await expect.poll(() => application!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(window => !window.isDestroyed()).length)).toBe(1)
     await application.evaluate(({ app, BrowserWindow }) => {
       let window = BrowserWindow.getAllWindows().find(window => !window.isDestroyed())!
       window.show(); app.focus({ steal: true }); window.focus()
