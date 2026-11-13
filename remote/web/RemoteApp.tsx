@@ -188,7 +188,7 @@ export let RemoteApp = () => {
     {error && <p role="status" className={styles.error}>{error}</p>}
 
     {((!viewer && auth === 'signed-out') || (viewer && pro === false && view === 'sessions')) && <DemoWorkspace buy={buyRelay} />}
-    {!viewer && auth !== 'signed-out' && <section className={styles.signIn}><p role="status" className={styles.loadingMessage}>{auth === 'connecting' ? 'Connecting…' : 'Signing in…'}</p></section>}
+    {!viewer && auth !== 'signed-out' && <div className={styles.workspace}><aside className={styles.library} aria-label="Workspace navigation"><WorkspaceNavigation active="nodes" onActive={showSessions} /></aside><section className={styles.signIn}><p role="status" className={styles.loadingMessage}>{auth === 'connecting' ? 'Connecting…' : 'Signing in…'}</p></section></div>}
     {view === 'sessions' && viewer && pro === true && <div className={`${styles.workspace} ${selected || machine ? styles.workspaceActive : ''}`}><aside className={styles.library} aria-label="Sessions"><WorkspaceNavigation active="nodes" onActive={showSessions} nodes={<><div className={styles.sectionHeading}><h1>Sessions</h1><span>{hostsLoaded ? listed.length : '…'}</span></div><div className={styles.libraryActions}><button onClick={connectRelay}>Relay</button><button onClick={addBox}>Add box</button></div>{hostsLoaded && listed.length === 0 && <p>No sessions available</p>}
       <div className={styles.sessions}><SessionTree hosts={hosts} selected={selectedId} pane={state?.pane} select={selectTree} details={host => setMachineId(host.id)} color={machineColors.color} /></div></>} />
     </aside>
