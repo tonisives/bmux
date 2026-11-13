@@ -21,3 +21,20 @@ export async function typeSearchQuery(call, pause, between, selector, value) {
   if (!exact) throw new Error('The site search query changed before submission')
   await pause(between(1200, 2600))
 }
+
+export async function collectSearchResults(scroll, read, count, limit) {
+  const found = new Map()
+  const collect = () => {
+    for (const item of read() || []) if (item?.url && !found.has(item.url)) found.set(item.url, item)
+  }
+  collect()
+  for (let index = 0; index < count && found.size < limit; index++) {
+    try { await scroll() }
+    catch (error) {
+      if (!found.size || !/^Scroll (?:\S+ timed out after \d+ms|exceeded its \d+ms deadline)$/.test(String(error?.message))) throw error
+      return { results: [...found.values()].slice(0, limit), partial: true, warning: String(error.message) }
+    }
+    collect()
+  }
+  return { results: [...found.values()].slice(0, limit), partial: false }
+}

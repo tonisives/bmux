@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { typeSearchQuery } from './search-input.mjs'
+import { collectSearchResults, typeSearchQuery } from './search-input.mjs'
 
 const site = process.argv[2]
 const mode = process.argv[3]
@@ -98,32 +98,20 @@ async function navigate(url) {
 
 function progress(percent, message) { call('progress', { percent, message }) }
 
-async function wheel(direction = 1, small = false, smooth = false) {
+async function wheel(direction = 1, small = false) {
   const amount = between(small ? 120 : 360, small ? 260 : 760) * direction
   call('context', { refresh: true })
   const x = between(420, 850), y = between(320, 650)
-  if (smooth) {
-    const steps = between(7, 12)
-    let remaining = amount
-    for (let step = 0; step < steps; step++) {
-      const deltaY = step === steps - 1 ? remaining : Math.trunc(amount / steps)
-      remaining -= deltaY
-      call('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x, y, deltaX: 0, deltaY } })
-      await pause(between(45, 110))
-    }
-  } else {
-    call('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x, y, deltaX: 0, deltaY: amount } })
-  }
+  call('cdp', { method: 'Input.dispatchMouseEvent', params: { type: 'mouseWheel', x, y, deltaX: 0, deltaY: amount } })
   await pause(between(2400, 6200))
 }
 
 async function browseSurface(url, label, minScrolls = 2, maxScrolls = 4) {
   await navigate(url)
   const count = between(minScrolls, maxScrolls)
-  const smoothIndex = between(0, Math.max(0, count - 1))
   for (let index = 0; index < count; index++) {
-    await wheel(1, false, index === smoothIndex)
-    if (index > 0 && Math.random() < 0.28) await wheel(-1, true, Math.random() < 0.5)
+    await wheel()
+    if (index > 0 && Math.random() < 0.28) await wheel(-1, true)
   }
   await pause(between(5000, 12000))
   return { surface: label, scrolls: count }
@@ -155,14 +143,18 @@ async function search(query, resultLimit, warmupOnly = false) {
     : `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(query)}&origin=SWITCH_SEARCH_VERTICAL`
   await navigate(resultsUrl)
   const scrollCount = between(3, 5)
-  const smoothIndex = between(0, scrollCount - 1)
-  for (let index = 0; index < scrollCount; index++) await wheel(1, false, index === smoothIndex)
-  if (warmupOnly) return []
+  if (warmupOnly) {
+    for (let index = 0; index < scrollCount; index++) await wheel()
+    return { results: [], partial: false }
+  }
   call('context', { refresh: true })
   const expression = isX
     ? String.raw`(() => [...document.querySelectorAll('article:not(article article)')].map(card => { const text = card.querySelector('[data-testid="tweetText"]')?.innerText?.trim() || [...card.querySelectorAll('[dir="auto"]')].filter(el => el.closest('article') === card).map(el => el.innerText).join(' ').trim(); const url = card.querySelector('time')?.closest('a')?.href || [...card.querySelectorAll('a[href]')].find(a => a.closest('article') === card && /status/.test(a.href))?.href || ''; const author = card.querySelector('[data-testid="User-Name"]')?.innerText?.split('\n')[0] || ''; return text && /\/status\//.test(url) ? { author, url, text: text.slice(0, 3000) } : null }).filter(Boolean).slice(0, ${resultLimit}))()`
     : `(() => { const selectors = 'article, [data-urn], [data-chameleon-result-urn], .feed-shared-update-v2, [data-view-name="search-entity-result-universal-template"], .search-results-container li, main li'; const cards = [...document.querySelectorAll(selectors)]; for (const button of document.querySelectorAll('button')) { const label = button.getAttribute('aria-label') || button.innerText || ''; if (!/^(react )?like(?:\\s|$)/i.test(label.trim())) continue; const card = button.closest('[data-urn], [data-chameleon-result-urn], article, li'); if (card) cards.push(card); } const seen = new Set(); const output = []; for (const card of cards) { const text = card.innerText?.trim() || ''; if (text.length < 40) continue; const links = [...card.querySelectorAll('a[href]')]; const link = links.find(item => /\\/(posts|feed\\/update)\\//.test(item.href)) || links.find(item => /activity[-/:]/.test(item.href)); const urn = card.getAttribute('data-urn') || card.getAttribute('data-chameleon-result-urn') || card.closest('[data-urn], [data-chameleon-result-urn]')?.getAttribute('data-urn') || card.closest('[data-chameleon-result-urn]')?.getAttribute('data-chameleon-result-urn'); const url = link?.href?.split('?')[0] || (urn?.includes('urn:li:activity:') ? 'https://www.linkedin.com/feed/update/' + urn + '/' : ''); if (!url || seen.has(url)) continue; seen.add(url); const author = card.querySelector('.update-components-actor__name, [data-view-name="feed-actor-image"] + *, [data-view-name="search-result-lockup-title"]')?.innerText?.trim().split('\\n')[0] || ''; output.push({ author, url, text: text.slice(0, 4000) }); if (output.length >= ${resultLimit}) break; } if (!output.length) { const text = document.querySelector('main')?.innerText?.trim() || ''; if (text.length > 80) output.push({ author: '', url: location.href, text: text.slice(0, 8000) }); } return output })()`
-  return call('eval', { expression }) || []
+  return collectSearchResults(() => wheel(), () => {
+    call('context', { refresh: true })
+    return call('eval', { expression }) || []
+  }, scrollCount, resultLimit)
 }
 
 async function maybeLike(query, siteState) {
@@ -251,7 +243,7 @@ async function main() {
     warmupActivities = await warmup(siteState, query)
   }
   progress(55, `Searching ${site === 'linkedin' ? 'LinkedIn posts' : 'X posts'}`)
-  const results = await search(query, resultLimit)
+  const { results, partial, warning } = await search(query, resultLimit)
   siteState.focused++
   siteState.recentQueries = [query, ...siteState.recentQueries.filter(item => item !== query)].slice(0, 8)
   const like = null // Browsing personas own social interactions.
@@ -264,7 +256,7 @@ async function main() {
   }
   saveState(state)
   call('result', {
-    site, query, results, resultCount: results.length, warmup: warmupActivities, cooldown, like,
+    site, query, results, resultCount: results.length, partial, ...(warning ? { warning } : {}), warmup: warmupActivities, cooldown, like,
     pacing: { focused: siteState.focused, ambient: siteState.ambient, ratio: Number((siteState.focused / Math.max(1, siteState.ambient)).toFixed(2)), nextLikeEligibleAt: new Date(siteState.nextLikeAfter).toISOString() },
     humanInteraction: humanStatus(siteState)
   })
