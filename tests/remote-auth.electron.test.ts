@@ -206,11 +206,13 @@ test('remote web Account preserves Apple linking and the responsive session work
     await expect(page.getByText('Demo', { exact: true })).toHaveCount(0)
     pro = false
     await page.reload()
+    await page.getByRole('button', { name: 'Sessions', exact: true }).click()
     await expect(page.getByRole('complementary', { name: 'Demo sessions', exact: true })).toContainText('2 nodes · 4 browsers')
     await expect(page.getByRole('button', { name: 'Sign in with Google', exact: true })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Accounts', exact: true })).toHaveAttribute('href', '/accounts')
     pro = true
     await page.reload()
+    await page.getByRole('button', { name: 'Sessions', exact: true }).click()
     await expect(page.getByRole('complementary', { name: 'Sessions', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Account', exact: true }).click()
     logoutFailed = true
