@@ -3363,7 +3363,7 @@ let FingerprintSettings = ({ profile, paneCount }: { profile: Profile; paneCount
   let clearCache = () => void run('profile.cache.clear', { profile: profile.id })
   let cache = state.profileCaches[profile.id], proxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
   return <div role="tabpanel" aria-label="Fingerprint settings"><FingerprintTabs panelId={panelId} label="Fingerprint sections" value={tab} change={setTab} tabs={[["profiles", "Profiles"], ["device", "Device"], ["connection", "Connection"], ["viewport", "Viewport"], ["cache", "HTTP cache"]]} />
-    <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${tab}`} aria-label={{ profiles: 'Fingerprint profiles', device: 'Device settings', connection: 'Connection settings', viewport: 'Viewport settings', cache: 'HTTP cache settings' }[tab]}>
+    <div id={panelId} role="tabpanel" aria-label={{ profiles: 'Fingerprint profiles', device: 'Device settings', connection: 'Connection settings', viewport: 'Viewport settings', cache: 'HTTP cache settings' }[tab]}>
       {tab === 'profiles' && <FingerprintProfiles />}
       {tab === 'device' && pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}
       {tab === 'connection' && <div className={css.profileSections}><ProfileSection title="Current pane connection"><p>{proxy ? `${proxy.protocol}://${proxy.host}:${proxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
@@ -3431,9 +3431,10 @@ let ProfileSelectActions = () => {
 }
 
 let ProfileInfo = () => {
-  let { state } = useUI()
+  let { state, run } = useUI()
   let { session, pane, profile } = selection(state)
   let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => profile && (state.automationSafety?.error || automationProfilePauses(state, profile.id).length) ? 'anti-bot' : 'overview', false)
+  useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
   let canChangeProfile = !!session && !session.private
