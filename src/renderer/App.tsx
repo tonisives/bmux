@@ -3288,7 +3288,8 @@ let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
 
 let FingerprintTabs = ({ tabs, value, change, label, panelId }: { tabs: [string, string][]; value: string; change: (id: string) => void; label: string; panelId: string }) => {
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
-    let index = tabs.findIndex(([id]) => id === value)
+    let current = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="tab"]')?.dataset.tab ?? value
+    let index = tabs.findIndex(([id]) => id === current)
     let next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1
     if (next < 0) return
     event.preventDefault(); change(tabs[next][0]); (event.currentTarget.children[next] as HTMLElement)?.focus()
