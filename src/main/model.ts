@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import type { Client, Layout, Model, Pane, Profile, WorkspaceSession, InternalWindow } from '../shared/types'
 import { parseProfileProxy } from './profile-proxy'
 import { parseDevicePersona } from './device-persona'
+import { parseFingerprint } from '../shared/fingerprint'
 
 export let id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`
 export let nextPaneId = (model: Model, reserved: Iterable<string> = []) => {
@@ -228,6 +229,11 @@ export let validateModel = (value: unknown): Model => {
   let model = value && (value as { version?: number }).version === 1 ? upgradeModel(value as LegacyModel) : value as Model
   if (!model || model.version !== 2 || !Array.isArray(model.profiles) || !Array.isArray(model.sessions) || !Array.isArray(model.clients) || !Array.isArray(model.layouts)) throw new Error('Invalid or unsupported state file')
   let ids = new Set<string>()
+  if (model.fingerprints !== undefined) {
+    if (!Array.isArray(model.fingerprints) || model.fingerprints.length > 100) throw new Error('Invalid fingerprint profiles')
+    model.fingerprints = model.fingerprints.map(item => { let value = parseFingerprint(item); if (value.proxy) value.proxy = parseProfileProxy(value.proxy); return value })
+    if (new Set(model.fingerprints.map(item => item.id)).size !== model.fingerprints.length) throw new Error('Duplicate fingerprint profile')
+  }
   let checkId = (value: string) => {
     if (typeof value !== 'string' || !value || ids.has(value)) throw new Error('Invalid or duplicate ID in state file')
     ids.add(value)

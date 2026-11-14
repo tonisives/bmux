@@ -1,4 +1,5 @@
 import type { PluginOverlayState } from './plugin-overlay'
+import type { FingerprintProfile } from './fingerprint'
 import type { BuildInfo } from './build-info'
 import type { AgentInfo, AgentSettings } from './agent-info'
 import type { RemoteView } from './remote'
@@ -34,7 +35,7 @@ export type WorkspaceSession = { createdAt?: number; remote?: { clientId: string
 export type Client = { readOnly?: boolean; ignoreSize?: boolean; keyTable?: string; id: string; sessionId: string; sessionHistory?: string[]; windowId: string; windowHistory?: string[]; windowZooms?: Record<string, string>; paneId: string | null; zoomedPaneId?: string | null; width: number; height: number }
 export type SavedLayout = { name: string; window: InternalWindow }
 export type AccountSeal = { account: string; identity: { sessionId: string; windowId: string; paneId: string; profileId: string; connectionId: string; viewport: ViewportSize; locked: true; network: string; settingsHash: string }; userAgent: string; chromeVersion: string; locale?: string; platform?: string; userAgentMetadata?: Record<string, unknown>; device?: DevicePersona; sealedAt: string; headersHash: string }
-export type Model = { accountRetired?: Record<string, string>; accountStaged?: Record<string, string>; accountHandoffs?: Record<string, Record<string, unknown>>; accountSeals?: Record<string, AccountSeal>; recentViewports?: (ViewportSize & { zoom: number })[]; version: 2; profiles: Profile[]; sessions: WorkspaceSession[]; clients: Client[]; lastFocusedClientId?: string; layouts: SavedLayout[]; closedSessionProfiles?: Record<string, string>; newSessionProfileId?: string; remoteOperations?: { owner: string; request: string; hash: string; at: number; result: unknown }[] }
+export type Model = { fingerprints?: FingerprintProfile[]; accountRetired?: Record<string, string>; accountStaged?: Record<string, string>; accountHandoffs?: Record<string, Record<string, unknown>>; accountSeals?: Record<string, AccountSeal>; recentViewports?: (ViewportSize & { zoom: number })[]; version: 2; profiles: Profile[]; sessions: WorkspaceSession[]; clients: Client[]; lastFocusedClientId?: string; layouts: SavedLayout[]; closedSessionProfiles?: Record<string, string>; newSessionProfileId?: string; remoteOperations?: { owner: string; request: string; hash: string; at: number; result: unknown }[] }
 export type Permission = { id: string; profileId: string; origin: string; permission: string; paneId: string }
 export type Download = { id: string; profileId: string; name: string; path: string; state: string; received: number; total: number; paused: boolean; canResume: boolean; active: boolean }
 export type ProfileCacheState = { bytes: number; limit: number; checkedAt: number }

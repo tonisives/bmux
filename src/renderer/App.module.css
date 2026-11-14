@@ -746,3 +746,16 @@
 .pluginPlayback svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .pluginPlaybackMenu { position: absolute; bottom: 100%; left: 0; right: 0; display: flex; flex-direction: column; padding: 8px; border: 1px solid #363c45; background: #191d23; z-index: 2; }
 .pluginPlaybackMenu button { text-align: left; padding: 8px; }
+
+.fingerprintSummary { display: grid; gap: 12px; margin: 0; }
+.fingerprintSummary > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; }
+.fingerprintSummary dt { color: var(--muted); }
+.fingerprintSummary dd { margin: 0; overflow-wrap: anywhere; }
+.fingerprintSave { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+.fingerprintSave label { display: grid; gap: 4px; flex: 1; min-width: 160px; }
+.fingerprintSave select, .fingerprintSharing textarea { padding: 8px 12px; border: 1px solid #505a66; border-radius: 8px; background: #181818; color: inherit; font: inherit; }
+.fingerprintSharing { margin-top: 16px; }
+.fingerprintSharing summary { cursor: pointer; }
+.fingerprintSharing label { display: grid; gap: 8px; margin: 16px 0; }
+.fingerprintSharing textarea { width: 100%; resize: vertical; }
+@media (max-width: 650px) { .fingerprintSummary > div { grid-template-columns: 1fr; gap: 4px; } }

@@ -675,7 +675,7 @@ test('default anti-bot protection blocks warnings across CLI and plugins, with a
     await expect(antiBot.getByRole('heading')).toHaveText(['Enable Bot protection', 'Limits', 'Excluded websites'])
     await expect(antiBot).not.toContainText('Enter or leave')
     await expect(antiBot.getByRole('region', { name: 'Limits', exact: true })).not.toContainText('all profiles')
-    await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(5)
+    await expect(panel.locator('[data-profile-tab-icon]')).toHaveCount(4)
     await summary.getByRole('button', { name: 'Show all' }).click()
     await expect(excludedHost()).toBeVisible()
     let editorBounds = (await exclusions.getByRole('textbox', { name: 'Website', exact: true }).boundingBox())!

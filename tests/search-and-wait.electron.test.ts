@@ -2201,6 +2201,7 @@ test('new sessions use the saved preference and loaded panes keep their profile 
   await chrome.getByRole('button', { name: 'Profile settings', exact: true }).click()
   let panel = chrome.getByRole('dialog', { name: 'Profile' })
   await expect(panel.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+  await panel.getByRole('tab', { name: 'Fingerprint', exact: true }).click()
   await expect(panel.getByRole('tab', { name: 'Device' })).toBeVisible()
   await expect(panel.getByRole('tab', { name: 'Connection' })).toBeVisible()
   await expect(panel).not.toContainText('Sessions organize windows')

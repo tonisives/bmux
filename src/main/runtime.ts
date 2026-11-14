@@ -1,3 +1,4 @@
+import { parseFingerprint, sameFingerprintProxy } from '../shared/fingerprint'
 import { createAccountProxies } from './account-proxies'
 import { createAccountMobility } from './account-mobility'
 import { applyAccountMobility } from './account-mobility-runtime'
@@ -95,7 +96,7 @@ import { assertFrameCapture, capturePageFrame, frameCaptureError } from './frame
 import { fitPluginOverlay, pluginOverlayHeight } from '../shared/plugin-overlay'
 import type { PluginOverlayBounds, PluginOverlayContent } from '../shared/plugin-overlay'
 import { captureViewportScreenshot } from './viewport-screenshot'
-import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona } from './device-persona'
+import { deviceUserAgent, deviceUserAgentMetadata, deviceViewport, fittedDeviceBounds, parseDevicePersona, deviceLabel } from './device-persona'
 import { dockPane, forgetPlacement, layoutPaneIds, liftPane, raisePane, rememberPlacement } from './floating'
 import { clampFloat, FLOAT_CONTENT_INSET, FLOAT_CONTENT_VERTICAL_INSET, FLOAT_HEADER, FLOAT_RADIUS } from '../shared/floating'
 import { contextLinkExpression, resolvedContextLink } from './context-link'
@@ -3540,6 +3541,46 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       changed(); await visualQueue
       return { profiles: imported.profiles, bookmarks: imported.profiles.reduce((sum, profile) => sum + profile.bookmarks, 0) }
     }
+    if (method === 'fingerprint.list') return model.fingerprints ?? []
+    if (method === 'fingerprint.save' || method === 'fingerprint.import') {
+      let value
+      if (method === 'fingerprint.import') value = parseFingerprint(args.fingerprint)
+      else {
+        let { pane, window } = paneById(model, required(args, 'pane'))
+        value = parseFingerprint({ version: 1, id: args.id ?? id('fingerprint'), name: required(args, 'name'), device: pane.device, proxy: hostProxy ?? connectionProfile(model, paneConnectionId(pane)).proxy, viewport: window.lockedViewports?.[pane.id] })
+      }
+      if (value.proxy) value.proxy = parseProfileProxy(value.proxy)
+      let existing = model.fingerprints ?? []
+      if (!existing.some(item => item.id === value.id) && existing.length >= 100) throw new Error('Fingerprint profile limit reached')
+      model.fingerprints = [...existing.filter(item => item.id !== value.id), value]
+      save(); return value
+    }
+    if (method === 'fingerprint.export') return parseFingerprint(resolve(model.fingerprints ?? [], args.fingerprint, 'Fingerprint'))
+    if (method === 'fingerprint.delete') {
+      let value = resolve(model.fingerprints ?? [], args.fingerprint, 'Fingerprint')
+      model.fingerprints = model.fingerprints!.filter(item => item.id !== value.id)
+      save(); return { deleted: value.id }
+    }
+    if (method === 'fingerprint.apply') {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let value = parseFingerprint(resolve(model.fingerprints ?? [], args.fingerprint, 'Fingerprint'))
+      let { pane, window } = paneById(model, required(args, 'pane'))
+      assertAccountMutation(model, 'profile.device.set', { pane: pane.id })
+      if (hostProxy && !sameFingerprintProxy(hostProxy, value.proxy)) throw new Error('Host proxy is required')
+      let profile = resolve(model.profiles, pane.profileId, 'Profile')
+      let credentials = value.proxy?.authenticated ? model.profiles.flatMap(item => item.connections ?? [{ id: item.id, proxy: item.proxy }]).filter(item => sameFingerprintProxy(item.proxy, value.proxy)).map(item => proxyCredentials.get(item.id)).find(Boolean) : undefined
+      if (value.proxy?.authenticated && !credentials && !hostProxy) throw new Error('Save credentials for this proxy in Connection first')
+      let connectionId = hostProxy ? paneConnectionId(pane) : saveConnection(profile, value.proxy, credentials, paneConnectionId(pane))
+      disposeTab(pane.id)
+      pane.connectionId = connectionId
+      if (value.device) pane.device = value.device
+      else delete pane.device
+      if (value.viewport) { window.lockedViewports ??= {}; window.lockedViewports[pane.id] = { ...value.viewport } }
+      else if (window.lockedViewports) { delete window.lockedViewports[pane.id]; if (!Object.keys(window.lockedViewports).length) delete window.lockedViewports }
+      remoteSizes.delete(pane.id); viewportPanModes.delete(pane.id)
+      previewCache.remove(pane.id)
+      changed(); await visualQueue; return pane
+    }
     if (method === 'profile.list') return model.profiles
     if (method === 'profile.create') {
       let name = required(args, 'name')
@@ -4882,7 +4923,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     retire: connection => { let browser = electronSession.fromPartition('persist:' + connection); accountNetworkBlocks.add(browser); browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true })); void proxyRelays.close(connection) },
     test: async (proxy, credentials) => { let probe = id('profile'); try { let relay = await proxyRelays.create(probe, proxy, credentials); return await testProxyRelay(relay, process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/') } finally { await proxyRelays.close(probe) } },
   }))
-  let accounts = { mobility: { ...mobility, publicKey: () => interactiveOnly ? undefined : mobility.publicKey() }, proxyStatus: (pane: string) => { let connection = paneConnectionId(paneById(model, pane).pane), profile = connectionProfile(model, connection); return { route: profile.proxy?.route, ...profileProxyTests[connection] } }, proxies: accountProxies, jobs: accountJobs, actions: () => lockedPaneInventory(model).map(pane => ({ key: pane.key, actions: plugins?.accountActions(pane.platform) ?? [] })), controlled: (pane: string) => accountBlocked(paneConnectionId(paneById(model, pane).pane)) || !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
+  let accounts = { mobility: { ...mobility, publicKey: () => interactiveOnly ? undefined : mobility.publicKey() }, deviceStatus: (id: string) => { let { pane } = paneById(model, id), device = pane.device; return device ? { kind: 'mobile' as const, name: deviceLabel(device), platform: device.platform, locale: device.locale, timezone: device.timezone, deviceScaleFactor: device.deviceScaleFactor } : { kind: 'desktop' as const, name: 'Desktop', platform: process.platform, locale: app.getLocale(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } }, proxyStatus: (pane: string) => { let connection = paneConnectionId(paneById(model, pane).pane), proxy = hostProxy ?? connectionProfile(model, connection).proxy; return { ...(proxy ? { protocol: proxy.protocol, host: proxy.host, port: proxy.port, route: proxy.route } : {}), ...profileProxyTests[connection] } }, proxies: accountProxies, jobs: accountJobs, actions: () => lockedPaneInventory(model).map(pane => ({ key: pane.key, actions: plugins?.accountActions(pane.platform) ?? [] })), controlled: (pane: string) => accountBlocked(paneConnectionId(paneById(model, pane).pane)) || !!controls.get(paneById(model, pane).session.id), seal: async (account: string, identity: Parameters<typeof sealAccount>[2], valid = () => true) => {
     let { pane, session } = paneById(model, identity.paneId)
     controls.assert(session.id)
     let live = await ensureLiveTab(pane.id)

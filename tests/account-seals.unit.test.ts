@@ -33,7 +33,7 @@ describe('permanent account identities', () => {
     expect(seal).toThrow('IDENTITY_CHANGED')
     expect(model.accountSeals).toBeUndefined()
   })
-  it.each(['unlock-window', 'unlock-viewport', 'lock-viewport', 'kill-pane', 'kill-window', 'kill-session', 'duplicate-window', 'restore-layout', 'move-window', 'move-pane', 'join-pane', 'break-pane', 'swap-pane', 'pane.profile.set', 'pane.proxy.set', 'profile.device.set', 'profile.device.clear', 'profile.delete'])('rejects %s before any mutation', method => {
+  it.each(['unlock-window', 'unlock-viewport', 'lock-viewport', 'kill-pane', 'kill-window', 'kill-session', 'duplicate-window', 'restore-layout', 'move-window', 'move-pane', 'join-pane', 'break-pane', 'swap-pane', 'pane.profile.set', 'pane.proxy.set', 'fingerprint.apply', 'profile.device.set', 'profile.device.clear', 'profile.delete'])('rejects %s before any mutation', method => {
     let { model, pane, seal } = fixture(); seal()
     let before = JSON.stringify(model)
     expect(() => assertAccountMutation(model, method, { pane: pane.id })).toThrow('SEALED')

@@ -33,7 +33,8 @@ import { agentIdentifier, agentResumeCommand } from '../shared/agent-info'
 import { connectionProfile, defaultConnectionId, paneConnectionId, savedProxyProfiles, uniqueProxyProfiles } from '../shared/profile-connections'
 import { deviceFrameScreen, deviceScreenShape } from '../shared/device-frame'
 import { permissionPaneLabel } from '../shared/permission-source'
-import { parseDevicePersona } from '../shared/device-persona'
+import { parseDevicePersona, deviceLabel } from '../shared/device-persona'
+import type { FingerprintProfile } from '../shared/fingerprint'
 import { DeviceEmulationDetails } from './DeviceEmulationDetails'
 import { automationJobId, automationSessionMinutes, automationWebsiteHost, automationExclusionActive, automationProfileLimits, automationSiteExclusion, automationSiteEnabled, automationSafetyEnabled, automationWarningEnabled, DEFAULT_AUTOMATION } from '../shared/automation'
 import type { AutomationActor, AutomationSiteExclusion, AutomationSafetyLimitKey, AutomationSafetyState, AutomationWarning } from '../shared/automation'
@@ -1457,7 +1458,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     if (event.key !== 'Tab' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
     let target = event.target as HTMLElement
     if (target.closest('form[aria-label="Cursor and timing"]') && !target.closest('[role="tablist"]')) return
-    let group = target.closest('[role="tablist"]') ?? target.closest(`.${css.pluginDetails}`)?.querySelector('[role="tablist"]') ?? ref.current?.querySelector('[role="tablist"][aria-label="Bot sections"]') ?? ref.current
+    let group = target.closest('[role="tablist"]') ?? target.closest(`.${css.pluginDetails}`)?.querySelector('[role="tablist"]') ?? ref.current?.querySelector('[role="tablist"][aria-label="Fingerprint sections"]') ?? ref.current?.querySelector('[role="tablist"][aria-label="Bot sections"]') ?? ref.current
     let tabs = [...(group?.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)') ?? [])].filter(tab => tab.getClientRects().length)
     if (tabs.length < 2) return
     let selected = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true')
@@ -3274,16 +3275,102 @@ let ProfilePaneSettings = () => {
   </ProfileSection></div>
 }
 
-type ProfileTab = 'overview' | 'pane' | 'device' | 'connection' | 'anti-bot'
+type ProfileTab = 'overview' | 'pane' | 'fingerprint' | 'anti-bot'
 let ProfileTabIcon = ({ tab }: { tab: ProfileTab }) => {
   let paths: Record<ProfileTab, string> = {
     overview: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
     pane: 'M3 4h18v16H3zM3 8h18',
-    device: 'M7 2h10v20H7zM10 18h4',
-    connection: 'M8 2v5M16 2v5M6 7h12v3a6 6 0 0 1-12 0zM12 16v6',
+    fingerprint: 'M8 14v-3a4 4 0 0 1 8 0v3M5 14v-3a7 7 0 0 1 14 0v2M11 21a16 16 0 0 0 1-10M15 21a20 20 0 0 0 1-5M5 17l-1 3M8 17l-1 5M19 16l-1 5',
     'anti-bot': 'M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6zM8 12l3 3 5-6',
   }
   return <svg className={css.profileTabIcon} data-profile-tab-icon={tab} viewBox="0 0 24 24" aria-hidden="true"><path d={paths[tab]} /></svg>
+}
+
+let FingerprintTabs = ({ tabs, value, change, label, panelId }: { tabs: [string, string][]; value: string; change: (id: string) => void; label: string; panelId: string }) => {
+  let keys = (event: KeyboardEvent<HTMLDivElement>) => {
+    let index = tabs.findIndex(([id]) => id === value)
+    let next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1
+    if (next < 0) return
+    event.preventDefault(); change(tabs[next][0]); (event.currentTarget.children[next] as HTMLElement)?.focus()
+  }
+  let choose = (event: MouseEvent<HTMLButtonElement>) => change(event.currentTarget.dataset.tab!)
+  return <div className={css.panelTabs} role="tablist" aria-label={label} onKeyDown={keys}>{tabs.map(([id, name]) => <button key={id} id={`${panelId}-${id}`} type="button" role="tab" aria-controls={panelId} aria-selected={value === id} tabIndex={value === id ? 0 : -1} data-tab={id} onClick={choose}>{name}</button>)}</div>
+}
+
+let FingerprintSelect = ({ profiles, selected, change }: { profiles: FingerprintProfile[]; selected: string; change: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select value={selected} onChange={change}><option value="">Choose a profile</option>{profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+
+let FingerprintProfiles = () => {
+  let { state, run } = useUI(), { pane, window } = selection(state)
+  let [name, setName] = useState(''), [selected, setSelected] = useState(''), [input, setInput] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('')
+  let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
+  let changeSelected = (event: ChangeEvent<HTMLSelectElement>) => setSelected(event.target.value)
+  let changeInput = (event: ChangeEvent<HTMLTextAreaElement>) => setInput(event.target.value)
+  let profiles = state.model.fingerprints ?? [], saved = profiles.find(item => item.id === selected)
+  if (!pane) return <p>No pane is selected.</p>
+  let proxy = connectionProfile(state.model, paneConnectionId(pane)).proxy, viewport = window?.lockedViewports?.[pane.id]
+  let action = async (method: string, args: Record<string, unknown>, success: string) => {
+    setBusy(true); setMessage('')
+    try { let result = await run(method, args); if (result) setMessage(success); return result } finally { setBusy(false) }
+  }
+  let save = async (event: FormEvent) => { event.preventDefault(); let value = await action('fingerprint.save', { pane: pane.id, name }, 'Profile saved') as FingerprintProfile | undefined; if (value) { setSelected(value.id); setName('') } }
+  let apply = () => void action('fingerprint.apply', { pane: pane.id, fingerprint: selected }, 'Profile applied')
+  let copy = async () => { let value = await action('fingerprint.export', { fingerprint: selected }, ''); if (value) { await bridge.clipboard(JSON.stringify(value, null, 2)); setMessage('Profile copied') } }
+  let remove = async () => { if (await action('fingerprint.delete', { fingerprint: selected }, 'Profile deleted')) setSelected('') }
+  let importProfile = async () => {
+    let fingerprint: unknown
+    try { fingerprint = JSON.parse(input) } catch { setMessage('Enter a valid profile JSON'); return }
+    let value = await action('fingerprint.import', { fingerprint }, 'Profile imported') as FingerprintProfile | undefined
+    if (value) { setSelected(value.id); setInput('') }
+  }
+  return <div className={css.profileSections}>
+    <ProfileSection title="Current fingerprint"><dl className={css.fingerprintSummary}><div><dt>Proxy</dt><dd>{proxy ? `${proxy.protocol}://${proxy.host}:${proxy.port}` : 'System connection'}</dd></div><div><dt>Device</dt><dd>{pane.device ? deviceLabel(pane.device) : 'Desktop'}</dd></div><div><dt>Lock viewport</dt><dd>{viewport ? `${viewport.width} × ${viewport.height}` : 'Off'}</dd></div></dl><form className={css.fingerprintSave} onSubmit={save}><label>Profile name<input className={css.pluginInput} value={name} onChange={changeName} maxLength={120} required /></label><button type="submit" disabled={busy || !name.trim()}>Save current</button></form></ProfileSection>
+    <ProfileSection title="Saved fingerprints">{profiles.length ? <div className={css.fingerprintSave}><label>Fingerprint profile<FingerprintSelect profiles={profiles} selected={selected} change={changeSelected} /></label><button type="button" onClick={apply} disabled={busy || !saved}>Apply to pane</button></div> : <p>No saved fingerprints.</p>}
+      <details className={css.fingerprintSharing}><summary>Share profiles</summary><p>Copy a profile to another bmux host. Configure proxy credentials on that host.</p>{saved && <div className={css.profileProxyActions}><button type="button" onClick={copy} disabled={busy}>Copy profile JSON</button><button type="button" onClick={remove} disabled={busy}>Delete profile</button></div>}<label>Profile JSON<textarea value={input} onChange={changeInput} rows={5} spellCheck={false} /></label><button type="button" onClick={importProfile} disabled={busy || !input.trim()}>Import profile</button></details>
+      {message && <p role="status">{message}</p>}
+    </ProfileSection>
+  </div>
+}
+
+let FingerprintViewport = () => {
+  let { state, run } = useUI(), { pane, window } = selection(state)
+  let size = pane && window?.lockedViewports?.[pane.id]
+  let [width, setWidth] = useState(String(size?.width ?? 1280)), [height, setHeight] = useState(String(size?.height ?? 800)), [busy, setBusy] = useState(false)
+  let form = useRef<HTMLFormElement>(null)
+  useEffect(() => { setWidth(String(size?.width ?? 1280)); setHeight(String(size?.height ?? 800)) }, [size?.width, size?.height, pane?.id])
+  if (!pane || !window) return <p>No pane is selected.</p>
+  let change = async (enabled: boolean) => {
+    if (enabled && !form.current?.reportValidity()) return
+    setBusy(true)
+    try { await run(enabled ? 'lock-viewport' : 'unlock-viewport', { window: window.id, ...(enabled ? { width: Number(width), height: Number(height) } : {}) }) } finally { setBusy(false) }
+  }
+  let submit = (event: FormEvent) => { event.preventDefault(); void change(true) }
+  let toggle = (event: ChangeEvent<HTMLInputElement>) => void change(event.target.checked)
+  let changeWidth = (event: ChangeEvent<HTMLInputElement>) => setWidth(event.target.value)
+  let changeHeight = (event: ChangeEvent<HTMLInputElement>) => setHeight(event.target.value)
+  let sealed = window.panes.some(item => state.model.accountSeals?.[item.id])
+  return <div className={css.profileSections}><form className={css.profileSection} ref={form} onSubmit={submit}><h2>Lock viewport</h2>
+    <label className={css.profileControl}><span>Lock viewport<small>Keep the page size fixed in this window.</small></span><input className={css.proxyToggle} type="checkbox" role="switch" checked={!!size} onChange={toggle} disabled={busy || sealed} /></label>
+    <div className={css.profileDeviceGrid}><label>Width<input className={css.pluginInput} type="number" min={1} max={16384} value={width} onChange={changeWidth} required disabled={sealed} /></label><label>Height<input className={css.pluginInput} type="number" min={1} max={16384} value={height} onChange={changeHeight} required disabled={sealed} /></label></div>
+    <button type="submit" disabled={busy || sealed}>Apply viewport</button>{sealed && <p>Account identity sealed</p>}
+  </form></div>
+}
+
+let FingerprintSettings = ({ profile, paneCount }: { profile: Profile; paneCount: number }) => {
+  let { state, run } = useUI(), { pane, session } = selection(state)
+  let [tab, setTab] = useSettingsState(`fingerprint:${profile.id}:tab`, 'profiles')
+  useEffect(() => { if (tab === 'cache') void run('profile.cache.status', { profile: profile.id }) }, [profile.id, tab, run])
+  let panelId = useId()
+  let clearCache = () => void run('profile.cache.clear', { profile: profile.id })
+  let cache = state.profileCaches[profile.id], proxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
+  return <div role="tabpanel" aria-label="Fingerprint settings"><FingerprintTabs panelId={panelId} label="Fingerprint sections" value={tab} change={setTab} tabs={[["profiles", "Profiles"], ["device", "Device"], ["connection", "Connection"], ["viewport", "Viewport"], ["cache", "HTTP cache"]]} />
+    <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-${tab}`} aria-label={{ profiles: 'Fingerprint profiles', device: 'Device settings', connection: 'Connection settings', viewport: 'Viewport settings', cache: 'HTTP cache settings' }[tab]}>
+      {tab === 'profiles' && <FingerprintProfiles />}
+      {tab === 'device' && pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}
+      {tab === 'connection' && <div className={css.profileSections}><ProfileSection title="Current pane connection"><p>{proxy ? `${proxy.protocol}://${proxy.host}:${proxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+      {tab === 'viewport' && <FingerprintViewport />}
+      {tab === 'cache' && <div className={css.profileSections}><ProfileSection title="HTTP cache"><p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p><button type="button" onClick={clearCache}>Clear HTTP cache</button></ProfileSection></div>}
+    </div>
+  </div>
 }
 
 let SettingsIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.88 10.44 21.88 13.56 19.29 13.75 18.39 15.92 20.09 17.88 17.88 20.09 15.92 18.39 13.75 19.29 13.56 21.88 10.44 21.88 10.25 19.29 8.08 18.39 6.12 20.09 3.91 17.88 5.61 15.92 4.71 13.75 2.12 13.56 2.12 10.44 4.71 10.25 5.61 8.08 3.91 6.12 6.12 3.91 8.08 5.61 10.25 4.71 10.44 2.12 13.56 2.12 13.75 4.71 15.92 5.61 17.88 3.91 20.09 6.12 18.39 8.08 19.29 10.25Z" /><circle cx="12" cy="12" r="3.25" /></svg>
@@ -3344,29 +3431,19 @@ let ProfileSelectActions = () => {
 }
 
 let ProfileInfo = () => {
-  let { state, run } = useUI()
+  let { state } = useUI()
   let { session, pane, profile } = selection(state)
   let [tab, setTab] = useSettingsState<ProfileTab>(`profile:${profile?.id}:tab`, () => profile && (state.automationSafety?.error || automationProfilePauses(state, profile.id).length) ? 'anti-bot' : 'overview', false)
-  useEffect(() => { if (profile) void run('profile.cache.status', { profile: profile.id }) }, [profile?.id, run])
   if (!profile) return <p>No profile is selected.</p>
   let paneCount = state.model.sessions.flatMap(item => item.windows.flatMap(item => item.panes)).filter(item => item.profileId === profile.id).length
-  let cache = state.profileCaches[profile.id]
-  let clearCache = () => { void run('profile.cache.clear', { profile: profile.id }) }
-  let currentProxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
   let canChangeProfile = !!session && !session.private
-  let overview = () => setTab('overview'), paneTab = () => setTab('pane'), device = () => setTab('device'), connection = () => setTab('connection'), antiBot = () => setTab('anti-bot')
-  let overviewContent = <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="Profiles"><ProfileSelectActions /></ProfileSection>}
-    <ProfileSection title="HTTP cache">
-      <p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p>
-      <div className={css.profileProxyActions}><button type="button" onClick={clearCache}>Clear HTTP cache</button></div>
-    </ProfileSection></div>
+  let changeTab = (event: MouseEvent<HTMLButtonElement>) => setTab(event.currentTarget.dataset.tab as ProfileTab)
   return <section className={css.profileInfo} aria-label={`${profile.name} profile details`}>
     <div className={css.profileHeading}><ProfileAvatar id={profile.id} name={profile.name} /><ProfileNameEditor key={profile.id} /></div>
-    <div className={css.panelTabs} role="tablist" aria-label="Profile settings"><button type="button" role="tab" aria-selected={tab === 'overview'} onClick={overview}><ProfileTabIcon tab="overview" />Overview</button><button type="button" role="tab" aria-selected={tab === 'pane'} onClick={paneTab}><ProfileTabIcon tab="pane" />Pane</button><button type="button" role="tab" aria-selected={tab === 'device'} onClick={device}><ProfileTabIcon tab="device" />Device</button><button type="button" role="tab" aria-selected={tab === 'connection'} onClick={connection}><ProfileTabIcon tab="connection" />Connection</button><button type="button" role="tab" aria-selected={tab === 'anti-bot'} onClick={antiBot}><ProfileTabIcon tab="anti-bot" />Bot</button></div>
-    {tab === 'overview' && overviewContent}
+    <div className={css.panelTabs} role="tablist" aria-label="Profile settings">{([['overview', 'Overview'], ['pane', 'Pane'], ['fingerprint', 'Fingerprint'], ['anti-bot', 'Bot']] as [ProfileTab, string][]).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} data-tab={id} onClick={changeTab}><ProfileTabIcon tab={id} />{label}</button>)}</div>
+    {tab === 'overview' && <div className={css.profileSections} role="tabpanel" aria-label="Profile overview">{canChangeProfile && <ProfileSection title="Profiles"><ProfileSelectActions /></ProfileSection>}</div>}
     {tab === 'pane' && <ProfilePaneSettings key={pane?.id} />}
-    {tab === 'device' && <div role="tabpanel" aria-label="Device settings">{pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}</div>}
-    {tab === 'connection' && <div className={css.profileSections} role="tabpanel" aria-label="Connection settings"><ProfileSection title="Current pane connection"><p>{currentProxy ? `${currentProxy.protocol}://${currentProxy.host}:${currentProxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
+    {tab === 'fingerprint' && <FingerprintSettings key={profile.id} profile={profile} paneCount={paneCount} />}
     {tab === 'anti-bot' && <ProfileBotSettings key={profile.id} profile={profile} pane={pane} />}
   </section>
 }
