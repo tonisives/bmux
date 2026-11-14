@@ -3301,7 +3301,7 @@ let FingerprintTabs = ({ tabs, value, change, label, panelId }: { tabs: [string,
 let FingerprintSelect = ({ profiles, selected, change }: { profiles: FingerprintProfile[]; selected: string; change: (event: ChangeEvent<HTMLSelectElement>) => void }) => <select value={selected} onChange={change}><option value="">Choose a profile</option>{profiles.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
 
 let FingerprintProfiles = () => {
-  let { state, run } = useUI(), { pane, window } = selection(state)
+  let { state, run, settingsMemory } = useUI(), { pane, window } = selection(state)
   let [name, setName] = useState(''), [selected, setSelected] = useState(''), [input, setInput] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('')
   let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
   let changeSelected = (event: ChangeEvent<HTMLSelectElement>) => setSelected(event.target.value)
@@ -3314,7 +3314,9 @@ let FingerprintProfiles = () => {
     try { let result = await run(method, args); if (result) setMessage(success); return result } finally { setBusy(false) }
   }
   let save = async (event: FormEvent) => { event.preventDefault(); let value = await action('fingerprint.save', { pane: pane.id, name }, 'Profile saved') as FingerprintProfile | undefined; if (value) { setSelected(value.id); setName('') } }
-  let apply = () => void action('fingerprint.apply', { pane: pane.id, fingerprint: selected }, 'Profile applied')
+  let apply = async () => {
+    if (await action('fingerprint.apply', { pane: pane.id, fingerprint: selected }, 'Profile applied')) for (let key of settingsMemory.keys()) if (key.startsWith(`device:${pane.id}:`)) settingsMemory.delete(key)
+  }
   let copy = async () => { let value = await action('fingerprint.export', { fingerprint: selected }, ''); if (value) { await bridge.clipboard(JSON.stringify(value, null, 2)); setMessage('Profile copied') } }
   let remove = async () => { if (await action('fingerprint.delete', { fingerprint: selected }, 'Profile deleted')) setSelected('') }
   let importProfile = async () => {

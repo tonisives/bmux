@@ -1867,6 +1867,11 @@ test('switchc selects panes across sessions, preserves zoom with -Z and supports
 
 
 test('fingerprint profiles restore device and viewport and import across profiles', async () => {
+  let initial = await state(), initialClient = initial.model.clients.find((item: any) => item.id === initial.clientId)!
+  let source = await rpc('profile.create', { name: 'Fingerprint source' }) as any
+  let created = await rpc('new-window', { session: initialClient.sessionId, client: initialClient.id, profile: source.id, url }) as any
+  await rpc('select-window', { client: initialClient.id, window: created.id })
+  await rpc('select-pane', { client: initialClient.id, pane: created.panes[0].id })
   let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)!
   let window = current.model.sessions.flatMap((item: any) => item.windows).find((item: any) => item.id === client.windowId)!
   let pane = window.panes.find((item: any) => item.id === client.paneId)!, profile = current.model.profiles.find((item: any) => item.id === pane.profileId)!
@@ -1903,6 +1908,9 @@ test('fingerprint profiles restore device and viewport and import across profile
   expect(updated.panes.find((item: any) => item.id === pane.id)).toMatchObject({ profileId: target.id, device: exported.device })
   expect(updated.lockedViewports[pane.id]).toEqual(exported.viewport)
   await panel.screenshot({ path: path.resolve('artifacts/fingerprint-profiles.png') })
+  await panel.getByRole('tab', { name: 'Device', exact: true }).click()
+  await expect(panel.getByLabel('Device', { exact: true })).toHaveValue('pixel-8')
+  await expect(panel.getByLabel('Locale', { exact: true })).toHaveValue('fr-FR')
   await panel.getByRole('tab', { name: 'HTTP cache', exact: true }).click()
   await expect(panel.getByRole('button', { name: 'Clear HTTP cache', exact: true })).toBeVisible()
   await panel.getByRole('tab', { name: 'Viewport', exact: true }).focus()
@@ -1910,4 +1918,7 @@ test('fingerprint profiles restore device and viewport and import across profile
   await expect(panel.getByRole('tab', { name: 'Connection', exact: true })).toBeFocused()
   await expect(panel.getByRole('tabpanel', { name: 'Connection settings', exact: true })).toBeVisible()
   await panel.screenshot({ path: path.resolve('artifacts/fingerprint-connection.png') })
+  await panel.getByRole('button', { name: 'Close', exact: true }).click()
+  await rpc('kill-window', { window: created.id, confirm: true })
+  await rpc('select-window', { client: initialClient.id, window: initialClient.windowId })
 })
