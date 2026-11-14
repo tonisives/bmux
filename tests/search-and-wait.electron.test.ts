@@ -2205,6 +2205,7 @@ test('new sessions use the saved preference and loaded panes keep their profile 
   await expect(panel.getByRole('tab', { name: 'Device' })).toBeVisible()
   await expect(panel.getByRole('tab', { name: 'Connection' })).toBeVisible()
   await expect(panel).not.toContainText('Sessions organize windows')
+  await panel.getByRole('tab', { name: 'Overview', exact: true }).click()
   let otherDefaults = (await state()).model.sessions.filter((item: { id: string }) => item.id !== created.id).map((item: { id: string; defaultProfileId: string }) => [item.id, item.defaultProfileId])
   await panel.getByRole('combobox', { name: 'Default profile for this session' }).selectOption(model.profiles[1].id)
   await expect.poll(async () => (await state()).model.sessions.find((item: { id: string }) => item.id === created.id)?.windows[0].panes[0].profileId).toBe(model.profiles[1].id)

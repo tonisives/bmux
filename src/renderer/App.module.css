@@ -749,7 +749,7 @@
 
 .fingerprintSummary { display: grid; gap: 12px; margin: 0; }
 .fingerprintSummary > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; }
-.fingerprintSummary dt { color: var(--muted); }
+.fingerprintSummary dt { color: #aab4bf; }
 .fingerprintSummary dd { margin: 0; overflow-wrap: anywhere; }
 .fingerprintSave { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .fingerprintSave label { display: grid; gap: 4px; flex: 1; min-width: 160px; }
