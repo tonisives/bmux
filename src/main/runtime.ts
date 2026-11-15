@@ -557,6 +557,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
 
   let selectedOverlayTabs = new Map<string, string>(), newestOverlayRuns = new Map<string, string>()
   let pluginOverlayBounds = new Map<string, PluginOverlayBounds>(), pluginOverlayZoom = new Map<string, number>()
+  let pluginOverlayAreas = new Map<string, Bounds>()
   let dismissedPluginOverlays = new Set<string>(), pluginOverlayRuns = new Map<string, { id: string; ended: boolean; failed: boolean }>()
   let overlayForClient = (clientId: string, paneId = model.clients.find(client => client.id === clientId)?.paneId) => {
     let client = model.clients.find(client => client.id === clientId), owner = clients.get(clientId)
@@ -582,7 +583,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     selectedOverlayTabs.set(key, selectedTab)
     let value = values.find(value => value.runId === selectedTab) ?? { runId: 'pane:' + paneId, paneId, ended: false, error: undefined, content: { title: tabs.find(tab => tab.id === selectedTab)!.title, subtitle: '', status: '', nodes: [], metrics: '', details: [], controls: [] } as PluginOverlayContent }
     let zoom = pluginOverlayZoom.get(key) ?? 1, preferred = pluginOverlayBounds.get(key)
-    let bounds = fitPluginOverlay(preferred ?? (values.length ? undefined : { x: area.x + area.width - 384 * zoom - 12 * zoom, y: area.y + 12 * zoom, width: 384, height: 600, collapsed: true }), area, zoom)
+    let bounds = fitPluginOverlay(preferred ?? (values.length ? undefined : { x: area.x + area.width - 384 * zoom - 12 * zoom, y: area.y + 12 * zoom, width: 384, height: 600, collapsed: true }), area, zoom, pluginOverlayAreas.get(key))
+    pluginOverlayAreas.set(key, { ...area })
     let previous = pluginOverlayRuns.get(key + ':' + value.runId)
     let failed = Boolean(value.error || value.content.error)
     if (values.some(item => item.runId === selectedTab) && (previous?.id !== value.runId || value.ended && !previous?.ended || failed && !previous?.failed)) bounds = fitPluginOverlay({ ...bounds, collapsed: value.ended && !failed, compact: failed ? false : bounds.compact }, area, zoom)
@@ -1233,8 +1235,9 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let owner = client ? clients.get(client.id) : undefined
     let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
     let live = pane?.id ? tabs.get(pane.id) : undefined
-    let paneFocused = !!owner?.window.isFocused() && contents.isFocused() && live?.contents === contents && live?.parent === owner.window && !overlays.has(client!.id)
-    return shortcutMatchesContext(binding, paneFocused, paneFocused ? pageTools?.editing(pane!.id!) : undefined)
+    let inputLocked = live?.inputLock?.contents === contents
+    let paneFocused = !!owner?.window.isFocused() && contents.isFocused() && (live?.contents === contents || inputLocked) && live?.parent === owner.window && !overlays.has(client!.id)
+    return shortcutMatchesContext(binding, paneFocused, inputLocked ? false : paneFocused ? pageTools?.editing(pane!.id!) : undefined)
   }
   let syncPageSelection = (contents: WebContents) => {
     if (automatedContents.has(contents.id)) return

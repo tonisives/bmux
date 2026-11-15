@@ -20,6 +20,24 @@ test('overlay stays inside its pane after resize, drag and collapse', () => {
   expect(fitPluginOverlay(undefined, { x: 0, y: 0, width: 180, height: 150 })).toEqual({ x: 0, y: 0, width: 180, height: 150, collapsed: false })
 })
 
+test('overlay follows the top right of its pane through zoom, split and movement', () => {
+  let split = { x: 480, y: 240, width: 480, height: 240 }, full = { x: 0, y: 40, width: 1920, height: 960 }
+  let dock = fitPluginOverlay({ x: 564, y: 252, width: 384, height: 600, collapsed: true }, split)
+  let zoomed = fitPluginOverlay({ ...dock, height: 600 }, full, 1, split)
+  expect(zoomed).toMatchObject({ x: 1524, y: 52, width: 384, collapsed: true })
+  expect(fitPluginOverlay({ ...zoomed, height: 600 }, split, 1, full)).toEqual(dock)
+  let moved = { ...full, x: 60, y: 100 }
+  expect(fitPluginOverlay(zoomed, moved, 1, full)).toMatchObject({ x: 1584, y: 112 })
+})
+
+test('narrow split overlays restore their preferred width when zoomed', () => {
+  let split = { x: 240, y: 180, width: 240, height: 180 }, full = { x: 0, y: 0, width: 960, height: 720 }
+  let dock = fitPluginOverlay({ x: 240, y: 192, width: 384, height: 600, collapsed: true }, split)
+  let zoomed = fitPluginOverlay({ ...dock, width: 384, height: 600 }, full, 1, split)
+  expect(zoomed).toMatchObject({ x: 576, y: 12, width: 384 })
+  expect(fitPluginOverlay(zoomed, split, 1, full)).toEqual(dock)
+})
+
 
 test('full payload copies are separate from the compact overlay text limits', () => {
   let text = JSON.stringify({ image: 'x'.repeat(20000), caption: 'AI demo' })

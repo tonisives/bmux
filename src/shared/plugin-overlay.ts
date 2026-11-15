@@ -50,10 +50,18 @@ export let validatePluginOverlayInput = (control: PluginOverlayControl, value: u
   if (control.disabled || (control.kind === 'toggle' ? typeof value !== 'boolean' : control.kind === 'choice' ? typeof value !== 'string' || !control.choices?.includes(value) : control.kind === 'text' ? typeof value !== 'string' || value.length > 2000 : value !== undefined)) throw new Error('Invalid overlay input')
 }
 export let pluginOverlayHeight = (bounds: Pick<PluginOverlayBounds, 'height' | 'collapsed' | 'compact'>) => bounds.collapsed ? 32 : bounds.compact ? Math.min(64, bounds.height) : bounds.height
-export let fitPluginOverlay = (bounds: PluginOverlayBounds | undefined, area: {x:number;y:number;width:number;height:number}, zoom = 1): PluginOverlayBounds => {
+type OverlayArea = { x: number; y: number; width: number; height: number }
+export let fitPluginOverlay = (bounds: PluginOverlayBounds | undefined, area: OverlayArea, zoom = 1, previousArea?: OverlayArea): PluginOverlayBounds => {
   let width = Math.min(Math.max(280, bounds?.width ?? 384), Math.max(1, area.width / zoom)), height = Math.min(Math.max(240, bounds?.height ?? 600), Math.max(1, area.height / zoom))
   let collapsed = bounds?.collapsed === true
-  return { x: Math.round(Math.max(area.x, Math.min(bounds?.x ?? area.x + area.width - width * zoom - 12 * zoom, area.x + area.width - width * zoom))), y: Math.round(Math.max(area.y, Math.min(bounds?.y ?? area.y + 12 * zoom, area.y + area.height - pluginOverlayHeight({ height, collapsed, compact: bounds?.compact }) * zoom))), width: Math.round(width), height: Math.round(height), collapsed, ...(bounds?.compact ? { compact: true } : {}) }
+  let x = bounds?.x, y = bounds?.y
+  if (bounds && previousArea) {
+    let previousWidth = Math.min(Math.max(280, bounds.width), Math.max(1, previousArea.width / zoom))
+    let right = previousArea.x + previousArea.width - bounds.x - Math.round(previousWidth) * zoom
+    x = area.x + area.width - Math.round(width) * zoom - right
+    y = bounds.y + area.y - previousArea.y
+  }
+  return { x: Math.round(Math.max(area.x, Math.min(x ?? area.x + area.width - width * zoom - 12 * zoom, area.x + area.width - width * zoom))), y: Math.round(Math.max(area.y, Math.min(y ?? area.y + 12 * zoom, area.y + area.height - pluginOverlayHeight({ height, collapsed, compact: bounds?.compact }) * zoom))), width: Math.round(width), height: Math.round(height), collapsed, ...(bounds?.compact ? { compact: true } : {}) }
 }
 
 export let conciseConfidence = (line: string) => /confidence/i.test(line) && /\d+(?:\.\d+)?%/.test(line) ? 'Confidence: ' + line.match(/\d+(?:\.\d+)?%/)![0] : line.replace(/\s*· very confident match/i, '')
