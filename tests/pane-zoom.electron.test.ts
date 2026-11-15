@@ -54,6 +54,11 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
       return dockId
     }).toBeTruthy()
     let content = chrome.locator(`[data-content-pane-id="${client.paneId}"]`)
+    let paneWidth = () => content.evaluate(element => element.getBoundingClientRect().width)
+    let cmdZ = async () => {
+      if (process.platform === 'darwin') await promisify(execFile)('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "z" using command down'])
+      else await sendNativeKeys(application!, [{ keyCode: 'z', modifiers: ['meta'] }])
+    }
     let zoomed = async () => (await state()).model.clients.find((item: any) => item.id === client.id).zoomedPaneId ?? null
     let expectDock = async () => {
       await expect.poll(async () => {
@@ -68,7 +73,7 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
         return right >= -1 && right <= 13 && top >= -1 && top <= 13
       }).toBe(true)
     }
-    await expect.poll(async () => (await content.boundingBox())!.width).toBeLessThan((await chrome.evaluate(() => innerWidth)) / 3)
+    await expect.poll(paneWidth).toBeLessThan((await chrome.evaluate(() => innerWidth)) / 3)
     await expectDock()
     for (let attempt = 0; attempt < 2; attempt++) {
       await rpc('select-pane', { client: client.id, pane: client.paneId })
@@ -77,7 +82,7 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
       await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(client.paneId)
       await rpc('toggle-pane-zoom', { client: client.id })
       await expect.poll(zoomed).toBe(client.paneId)
-      await expect.poll(async () => (await content.boundingBox())!.width).toBeGreaterThan((await chrome.evaluate(() => innerWidth)) * .9)
+      await expect.poll(paneWidth).toBeGreaterThan((await chrome.evaluate(() => innerWidth)) * .9)
       await expectDock()
       if (attempt === 0 && process.platform === 'darwin') {
         await fs.mkdir('artifacts', { recursive: true })
@@ -85,7 +90,7 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
       }
       await rpc('toggle-pane-zoom', { client: client.id })
       await expect.poll(zoomed).toBeNull()
-      await expect.poll(async () => (await content.boundingBox())!.width).toBeLessThan((await chrome.evaluate(() => innerWidth)) / 3)
+      await expect.poll(paneWidth).toBeLessThan((await chrome.evaluate(() => innerWidth)) / 3)
       await expectDock()
     }
     // Keep an editor focused underneath the shield: only the shield is outside editing.
@@ -95,11 +100,11 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
     await rpc('focus-page', { client: client.id })
     await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getTitle())).toBe('Agent input lock')
     for (let attempt = 0; attempt < 2; attempt++) {
-      await sendNativeKeys(application, [{ keyCode: 'z', modifiers: ['meta'] }])
+      await cmdZ()
       await expect.poll(zoomed).toBe(client.paneId)
       await expectDock()
       await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getTitle())).toBe('Agent input lock')
-      await sendNativeKeys(application, [{ keyCode: 'z', modifiers: ['meta'] }])
+      await cmdZ()
       await expect.poll(zoomed).toBeNull()
       await expectDock()
     }
@@ -110,7 +115,10 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
     await page.getByRole('textbox', { name: 'Notes' }).click()
     await page.keyboard.type('draft')
     await page.keyboard.press('Backspace')
-    await sendNativeKeys(application, [{ keyCode: 'z', modifiers: ['meta'] }])
+    await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue('draf')
+    await expect(page.getByRole('textbox', { name: 'Notes' })).toBeFocused()
+    await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+    await cmdZ()
     await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue('draft')
     expect(await zoomed()).toBeNull()
   } finally {
