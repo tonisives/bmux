@@ -572,6 +572,55 @@ test('a saved verification alert stays while unresolved and clears after manual 
   }
 })
 
+for (let entry of ['alert', 'settings']) test(`orphaned verification warning reopens its website from ${entry}`, async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-orphaned-warning-'))
+  let application: Awaited<ReturnType<typeof electron.launch>> | undefined
+  try {
+    let startedAt = Date.now() - 60_000
+    await fs.writeFile(path.join(directory, 'automation-safety.json'), JSON.stringify({ warning: { profileId: 'profile_default', siteHost: 'one.example.com', startedAt, lastUsed: startedAt, warning: 'challenge', warningHost: 'one.example.com', warningAt: startedAt, actors: [{ paneId: '%closed', agentId: 'historical-agent', hosts: ['one.example.com'] }] } }))
+    await fs.writeFile(path.join(directory, 'config.yaml'), stringify({ keyboard: {}, browser: { adblock: false, autoUpdateFilters: false } }))
+    application = await electron.launch({ args: [process.cwd()], env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: path.join(directory, 'config.yaml'), BMUX_BACKGROUND: '0' } })
+    await application.context().route('https://one.example.com/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Verification fixture</title><h1>Verify you are human</h1>' }))
+    await application.context().route('https://two.example.com/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Unrelated fixture</title><main>Unrelated page</main>' }))
+    await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
+    let state = () => chrome.evaluate(() => (window as any).bmux.state())
+    let initial = await state(), client = initial.model.clients.find((client: { id: string }) => client.id === initial.clientId)
+    await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url: 'https://two.example.com/' })
+    await expect.poll(() => application!.context().pages().some(page => page.url() === 'https://two.example.com/')).toBe(true)
+    let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'default · Verification required' })
+    await expect(alert.getByRole('button', { name: 'Browser pane %closed closed', exact: true })).toBeDisabled()
+    await expect(alert.getByRole('button', { name: 'Resume automation', exact: true })).toHaveCount(0)
+    if (entry === 'settings') {
+      await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
+      await chrome.getByRole('tabpanel', { name: 'Bot settings' }).getByRole('region', { name: 'Paused automation' }).getByRole('button', { name: 'Open website', exact: true }).click()
+      await chrome.getByRole('dialog', { name: 'Profile', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+    } else await alert.getByRole('button', { name: 'Open website', exact: true }).click()
+    await expect.poll(() => application!.context().pages().some(page => page.url() === 'https://one.example.com/')).toBe(true)
+    let page = application.context().pages().find(page => page.url() === 'https://one.example.com/')!
+    await expect(page.getByRole('heading')).toHaveText('Verify you are human')
+    let opened = await state(), selected = opened.model.clients.find((client: { id: string }) => client.id === opened.clientId)
+    let panes = opened.model.sessions.flatMap((session: any) => session.windows.flatMap((window: any) => window.panes))
+    expect(selected.paneId).not.toBe(client.paneId)
+    expect(panes.find((pane: any) => pane.id === selected.paneId)).toMatchObject({ profileId: 'profile_default', url: 'https://one.example.com/' })
+    expect(panes.find((pane: any) => pane.id === client.paneId).url).toBe('https://two.example.com/')
+    await expect(alert.getByRole('button', { name: 'Open website', exact: true })).toHaveCount(0)
+    await alert.getByRole('button', { name: 'Resume automation', exact: true }).click()
+    let error = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'The page still shows an account warning or challenge' })
+    await expect(error).toBeVisible()
+    await error.getByRole('button', { name: 'Dismiss notification', exact: true }).click()
+    await fs.mkdir(path.resolve('artifacts'), { recursive: true })
+    await chrome.screenshot({ path: path.resolve(`artifacts/orphaned-verification-${entry}.png`) })
+    await page.getByRole('heading').evaluate(node => { node.textContent = 'Verification complete' })
+    await alert.getByRole('button', { name: 'Resume automation', exact: true }).click()
+    await expect(alert).toHaveCount(0)
+    expect((await state()).automationSafety.profiles.find((usage: { siteHost: string }) => usage.siteHost === 'one.example.com').warning).toBeUndefined()
+  } finally {
+    await closeTestApplication(application)
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
 test('default anti-bot protection blocks warnings across CLI and plugins, with a persistent profile toggle', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-safety-ui-'))
   let server = http.createServer((request, response) => {

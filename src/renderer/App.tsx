@@ -360,6 +360,8 @@ let resumeAutomation = async (state: PublicState, run: UIContext['run'], paneId:
   await run('automation.resume', { pane: paneId })
 }
 
+let openAutomationWebsite = (state: PublicState, run: UIContext['run'], profileId: string, host: string) => run('new-window', { session: selection(state).session!.id, client: state.clientId, profile: profileId, url: `https://${host}/` })
+
 let automationWarningNotices = (state: PublicState, run: UIContext['run']): Notification[] => (state.automationSafety?.profiles ?? []).flatMap<Notification>(usage => {
   let limits = state.automationSafety!.limits, host = usage.warningHost
   let actors = automationActors(state, usage)
@@ -375,7 +377,7 @@ let automationWarningNotices = (state: PublicState, run: UIContext['run']): Noti
   let warningEnabled = host && eligiblePanes.some(pane => automationWarningEnabled(limits, usage.profileId, host, Date.now(), pane.id))
   if (usage.warning && host && warningEnabled) {
     let affectedPane = eligiblePanes.find(pane => automationWebsiteHost(pane.url)?.replace(/^www\./, '') === host.replace(/^www\./, ''))
-    return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, warning: usage.warning, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `${name} · ${automationWarningLabels[usage.warning]}`, detectedAt: usage.warningAt, actions: affectedPane ? [{ label: 'Resume automation', title: 'Check the website again and resume if the warning has cleared', run: () => { void resumeAutomation(state, run, affectedPane.id) } }] : [], paneLinks: paneLinks(host) }]
+    return [{ id: `${usage.profileId}:${host}:${usage.warning}`, profileId: usage.profileId, warning: usage.warning, agents: actors.filter(actor => !actor.hosts?.length || actor.hosts.includes(host)), siteExclusion: { profileId: usage.profileId, host }, text: `${name} · ${automationWarningLabels[usage.warning]}`, detectedAt: usage.warningAt, actions: affectedPane ? [{ label: 'Resume automation', title: 'Check the website again and resume if the warning has cleared', run: () => { void resumeAutomation(state, run, affectedPane.id) } }] : [{ label: 'Open website', title: `Open ${host} in ${name} to resolve the warning`, run: () => { void openAutomationWebsite(state, run, usage.profileId, host) } }], paneLinks: paneLinks(host) }]
   }
   if (!usage.retryAfter || Date.parse(usage.retryAfter) <= Date.now()) return []
   if (!usage.jobId && usage.actors?.length && usage.actors.every(actor => { let jobId = automationJobId(actor); return jobId && limits.jobSessionMinutes?.[jobId] !== undefined })) return []
@@ -3202,8 +3204,9 @@ let ProfileBotSettings = ({ profile, pane }: BotProfileProps) => {
         let affectedPane = usage.warning && profilePanes.find(pane => automationWebsiteHost(pane.url)?.replace(/^www\./, '') === usage.warningHost?.replace(/^www\./, ''))
         let resetWebsite = () => { void resetSession(usage.siteHost) }
         let resumeWarning = () => { if (affectedPane) void resume(affectedPane.id) }
+        let openWebsite = () => { void openAutomationWebsite(state, run, profile.id, host) }
         return <div key={host} role="group" aria-label={host}>
-          <div className={css.antiBotStatus} role="status"><span>{usage.warning ? `${automationWarningLabels[usage.warning]} on ${host}` : `${host} · Break ends at ${new Date(usage.retryAfter!).toLocaleTimeString()}`}</span>{cooldown && <button type="button" onClick={resetWebsite} disabled={busy}>Reset session</button>}{affectedPane && <button type="button" onClick={resumeWarning} disabled={busy}>Resume automation</button>}</div>
+          <div className={css.antiBotStatus} role="status"><span>{usage.warning ? `${automationWarningLabels[usage.warning]} on ${host}` : `${host} · Break ends at ${new Date(usage.retryAfter!).toLocaleTimeString()}`}</span>{cooldown && <button type="button" onClick={resetWebsite} disabled={busy}>Reset session</button>}{usage.warning && (affectedPane ? <button type="button" onClick={resumeWarning} disabled={busy}>Resume automation</button> : <button type="button" onClick={openWebsite} disabled={busy}>Open website</button>)}</div>
           {usage.warning && <p>Resolve the warning on the website, then resume automation.</p>}
         </div>
       })}
