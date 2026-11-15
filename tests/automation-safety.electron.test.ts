@@ -595,7 +595,7 @@ for (let entry of ['alert', 'settings']) test(`orphaned verification warning reo
     if (entry === 'settings') {
       await chrome.getByRole('button', { name: 'Profile: default', exact: true }).click()
       await chrome.getByRole('tabpanel', { name: 'Bot settings' }).getByRole('region', { name: 'Paused automation' }).getByRole('button', { name: 'Open website', exact: true }).click()
-      await chrome.getByRole('dialog', { name: 'Profile', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(chrome.getByRole('dialog', { name: 'Profile', exact: true })).toHaveCount(0)
     } else await alert.getByRole('button', { name: 'Open website', exact: true }).click()
     await expect.poll(() => application!.context().pages().some(page => page.url() === 'https://one.example.com/')).toBe(true)
     let page = application.context().pages().find(page => page.url() === 'https://one.example.com/')!
