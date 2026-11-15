@@ -588,6 +588,7 @@ for (let entry of ['alert', 'settings']) test(`orphaned verification warning reo
     let initial = await state(), client = initial.model.clients.find((client: { id: string }) => client.id === initial.clientId)
     await chrome.evaluate(args => (window as any).bmux.command({ method: 'navigate', args }), { pane: client.paneId, url: 'https://two.example.com/' })
     await expect.poll(() => application!.context().pages().some(page => page.url() === 'https://two.example.com/')).toBe(true)
+    if (entry === 'alert') await chrome.evaluate(args => (window as any).bmux.command({ method: 'new-window', args }), { session: client.sessionId, client: client.id, profile: 'profile_bot' })
     let alert = chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: 'default · Verification required' })
     await expect(alert.getByRole('button', { name: 'Browser pane %closed closed', exact: true })).toBeDisabled()
     await expect(alert.getByRole('button', { name: 'Resume automation', exact: true })).toHaveCount(0)
