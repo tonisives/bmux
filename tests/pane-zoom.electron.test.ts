@@ -117,6 +117,8 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
     await page.keyboard.press('Backspace')
     await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue('draf')
     await expect(page.getByRole('textbox', { name: 'Notes' })).toBeFocused()
+    await rpc('select-pane', { client: client.id, pane: client.paneId })
+    await rpc('focus-page', { client: client.id })
     await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
     await cmdZ()
     await expect(page.getByRole('textbox', { name: 'Notes' })).toHaveValue('draft')
