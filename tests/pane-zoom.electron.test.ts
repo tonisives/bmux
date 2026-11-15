@@ -97,7 +97,9 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
     await page.getByRole('textbox', { name: 'Notes' }).focus()
     await cli('eval', '-t', client.paneId, 'document.title', '--no-start')
     await expect.poll(async () => (await state()).lockedAgentPanes).toContain(client.paneId)
+    await rpc('select-pane', { client: client.id, pane: client.paneId })
     await rpc('focus-page', { client: client.id })
+    await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(client.paneId)
     await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getTitle())).toBe('Agent input lock')
     for (let attempt = 0; attempt < 2; attempt++) {
       await cmdZ()
