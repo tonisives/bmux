@@ -329,6 +329,10 @@ test('page context menu opens links in a float using the source profile', async 
   await rpc('select-window', { client: client.id, window: window.id })
   await rpc('navigate', { pane: pane.id, url: `${url}/tiled` })
   await rpc('wait', { pane: pane.id, selector: 'a' })
+  await rpc('activate-client', { client: client.id })
+  await rpc('select-pane', { client: client.id, pane: pane.id })
+  await rpc('focus-page', { client: client.id })
+  await expect.poll(async () => (await views()).some(window => window.children.some(view => view.url === `${url}/tiled` && view.visible && view.bounds.width > 0 && view.bounds.height > 0))).toBe(true)
   // Observe the native menu, then invoke the actual menu item's click handler.
   await application.evaluate(({ Menu }) => {
     let build = Menu.buildFromTemplate
