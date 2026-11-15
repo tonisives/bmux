@@ -1,3 +1,12 @@
+# Pane zoom fixture readiness
+
+The full pane zoom Check exposed an agent-identity fixture calling the CLI before
+its isolated socket was listening. It now waits for status, verifies the process
+ID, and uses `--no-start` for every CLI request. The automation lease fixture
+uses the same readiness check and selects and focuses its pane before sending
+native reload shortcuts through macOS. Its reload and direct-command denial
+assertions retain their existing deadlines. Repeat both cases in focused CI.
+
 # Reddit integration check fixture readiness
 
 The full Reddit integration Check exposed two existing fixture races. The local

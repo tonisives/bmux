@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { closeTestApplication } from './electron-fixture'
+import { closeTestApplication, waitForControlStatus } from './electron-fixture'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -32,13 +32,19 @@ test('a site plugin owns a lease while direct agent commands are denied', async 
     await command('navigate', { tab: pane.id, url })
     await command('wait', { tab: pane.id, selector: 'main' })
     let cli = async (args: string[]) => {
-      let result = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), ...args], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
+      let result = await exec(process.execPath, [path.resolve('bin/bmux.mjs'), ...args, '--no-start'], { env: { ...process.env, BMUX_AGENT_ID: 'test-agent', BMUX_DATA_DIR: directory }, timeout: 20000 }).catch(error => {
         // Expected denials exit with valid JSON; preserve real process failures.
         if (error.code === 1 && typeof error.stdout === 'string' && error.stdout.trim()) return { stdout: error.stdout }
         throw error
       })
       return JSON.parse(result.stdout)
     }
+    await waitForControlStatus(async (...args) => {
+      let response = await cli(args)
+      expect(response.ok).toBe(true)
+      return response.result
+    })
+    expect(await cli(['diagnostics'])).toMatchObject({ ok: true, result: { pid: application.process().pid } })
     expect((await cli(['dom', '-t', pane.id])).ok).toBe(false)
     let run = await command('plugin.run', { action: 'test/browse', tab: pane.id })
     await expect.poll(async () => (await command('plugin.runs') as any[]).find(item => item.id === run.id)?.status).toBe('completed')
@@ -55,8 +61,13 @@ test('a site plugin owns a lease while direct agent commands are denied', async 
       for (let modifiers of [['meta'], ['meta', 'shift']] as Electron.KeyboardInputEvent['modifiers'][]) {
         let identity = await command('eval', { tab: pane.id, expression: 'window.identity' })
         await command('activate-client', { client: clientId })
+        await command('select-pane', { client: clientId, pane: pane.id })
         await command('focus-page', { client: clientId })
-        await sendNativeKeys(application, [{ keyCode: 'r', modifiers }])
+        await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getTitle())).toMatch(/^(Automation fixture|Agent input lock)$/)
+        if (process.platform === 'darwin') {
+          let keys = modifiers?.includes('shift') ? '{command down, shift down}' : 'command down'
+          await exec('/usr/bin/osascript', ['-e', `tell application "System Events" to keystroke "r" using ${keys}`])
+        } else await sendNativeKeys(application, [{ keyCode: 'r', modifiers }])
         await expect.poll(async () => {
           let next = await command('eval', { tab: pane.id, expression: 'window.identity' }).catch(() => undefined)
           return typeof next === 'number' && next !== identity
