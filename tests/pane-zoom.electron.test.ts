@@ -41,7 +41,8 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
     await expect(page.locator('#surface')).toBeVisible()
     for (let index = 1; index < 16; index++) await rpc('split-window', { pane: client.paneId, url: `${url}${index}` })
     await rpc('select-layout', { window: client.windowId, layout: 'tiled' })
-    await rpc('select-pane', { client: client.id, pane: client.paneId })
+    await expect.poll(async () => (await state()).nativePagePanes.length).toBe(16)
+    for (let fixture of application.context().pages().filter(page => page.url().startsWith(url))) await expect(fixture.locator('#surface')).toBeVisible()
     await rpc('lock-viewport', { window: client.windowId, width: 1512, height: 900 })
     let dockId: number | undefined
     await expect.poll(async () => {
@@ -70,6 +71,10 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
     await expect.poll(async () => (await content.boundingBox())!.width).toBeLessThan((await chrome.evaluate(() => innerWidth)) / 3)
     await expectDock()
     for (let attempt = 0; attempt < 2; attempt++) {
+      await rpc('select-pane', { client: client.id, pane: client.paneId })
+      await rpc('focus-page', { client: client.id })
+      await expect.poll(() => application!.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+      await expect.poll(async () => (await state()).model.clients.find((item: any) => item.id === client.id).paneId).toBe(client.paneId)
       await rpc('toggle-pane-zoom', { client: client.id })
       await expect.poll(zoomed).toBe(client.paneId)
       await expect.poll(async () => (await content.boundingBox())!.width).toBeGreaterThan((await chrome.evaluate(() => innerWidth)) * .9)
