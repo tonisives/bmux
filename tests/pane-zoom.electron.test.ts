@@ -27,7 +27,8 @@ test('pane zoom keeps the locked viewport dock at the top right of a 4x4 grid an
       expect(response.ok, response.error).toBe(true)
       return response.result
     }
-    expect((await waitForControlStatus(cli)).pid).toBe(application.process().pid)
+    await waitForControlStatus(cli)
+    expect((await cli('diagnostics', '--no-start')).pid).toBe(application.process().pid)
     await expect.poll(() => application!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = application.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let state = () => chrome.evaluate(() => (window as any).bmux.state())
