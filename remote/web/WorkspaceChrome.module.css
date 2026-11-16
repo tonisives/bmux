@@ -20,3 +20,12 @@
 @media(max-width:767px) { .header { padding:0 12px; gap:8px; } .label { display:none; } .signIn { padding:8px; font-size:12px; } }
 
 @media(max-width:767px) { .navigation { flex:none; max-height:45dvh; } .section[data-active=true] { flex:0 1 auto; } .sectionContent { max-height:28dvh; } }
+
+.section { transition:flex-grow 200ms ease; }
+.switchView svg { transition:transform 200ms ease; }
+.disclosure { display:grid; grid-template-rows:0fr; min-height:0; overflow:hidden; transition:grid-template-rows 200ms ease; }
+.section[data-active=true] .disclosure { grid-template-rows:1fr; }
+.disclosure > .sectionContent { min-height:0; padding-block:0; overflow:hidden; }
+.section[data-active=true] .sectionContent { padding-block:12px 8px; overflow:auto; }
+@starting-style { .section[data-active=true] .disclosure { grid-template-rows:0fr; } }
+@media(prefers-reduced-motion:reduce) { .section,.switchView svg,.disclosure { transition:none; } }

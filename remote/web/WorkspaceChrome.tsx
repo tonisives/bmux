@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useState } from 'react'
 import type { ReactNode } from 'react'
 import css from './WorkspaceChrome.module.css'
 
@@ -22,14 +22,15 @@ export let WorkspaceProfile = () => {
 }
 export let WorkspaceNavigation = ({ active, nodes, accounts, onActive }: { active: WorkspaceView; nodes?: ReactNode; accounts?: ReactNode; onActive?: () => void }) => {
   let workspace = useContext(WorkspaceViewContext)
+  let [collapsed, setCollapsed] = useState(false)
   let views: WorkspaceView[] = workspace ? ['nodes', 'accounts'] : [active]
   return <nav className={css.navigation} aria-label="Workspace views">{views.map(view => {
-    let selected = active === view, title = view === 'nodes' ? 'Nodes' : 'Accounts'
-    return <section key={view} className={css.section} data-active={selected} aria-label={title + ' view'}>
-      <button type="button" className={css.switchView} aria-expanded={selected} onClick={() => { if (selected) onActive?.(); else workspace?.select(view) }}>
+    let selected = active === view && !collapsed, title = view === 'nodes' ? 'Nodes' : 'Accounts'
+    return <section key={view} className={css.section} style={{ viewTransitionName: 'workspace-' + view }} data-active={selected} aria-label={title + ' view'}>
+      <button type="button" className={css.switchView} aria-expanded={selected} onClick={() => { if (active === view) { setCollapsed(!collapsed); if (collapsed) onActive?.() } else { setCollapsed(false); workspace?.select(view) } }}>
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" style={{ transform: selected ? 'rotate(90deg)' : undefined }}><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>{title}
       </button>
-      {selected && <div className={css.sectionContent} data-workspace-content>{view === 'nodes' ? nodes : accounts}</div>}
+      <div className={css.disclosure} inert={!selected} aria-hidden={!selected}><div className={css.sectionContent} data-workspace-content>{view === 'nodes' ? nodes : accounts}</div></div>
     </section>
   })}</nav>
 }
