@@ -3368,8 +3368,8 @@ let FingerprintSettings = ({ profile, paneCount }: { profile: Profile; paneCount
   let panelId = useId()
   let clearCache = () => void run('profile.cache.clear', { profile: profile.id })
   let cache = state.profileCaches[profile.id], proxy = pane ? connectionProfile(state.model, paneConnectionId(pane)).proxy : profile.proxy
-  return <div role="tabpanel" aria-label="Fingerprint settings"><FingerprintTabs panelId={panelId} label="Fingerprint sections" value={tab} change={setTab} tabs={[["profiles", "Profiles"], ["device", "Device"], ["connection", "Connection"], ["viewport", "Viewport"], ["cache", "HTTP cache"]]} />
-    <div id={panelId} role="tabpanel" aria-label={{ profiles: 'Fingerprint profiles', device: 'Device settings', connection: 'Connection settings', viewport: 'Viewport settings', cache: 'HTTP cache settings' }[tab]}>
+  return <div role="tabpanel" aria-label="Fingerprint settings"><FingerprintTabs panelId={panelId} label="Fingerprint sections" value={tab} change={setTab} tabs={[["profiles", "Profiles"], ["device", "Device"], ["connection", "Proxy"], ["viewport", "Viewport"], ["cache", "HTTP cache"]]} />
+    <div id={panelId} role="tabpanel" aria-label={{ profiles: 'Fingerprint profiles', device: 'Device settings', connection: 'Proxy settings', viewport: 'Viewport settings', cache: 'HTTP cache settings' }[tab]}>
       {tab === 'profiles' && <FingerprintProfiles />}
       {tab === 'device' && pane && session && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}
       {tab === 'connection' && <div className={css.profileSections}><ProfileSection title="Current pane connection"><p>{proxy ? `${proxy.protocol}://${proxy.host}:${proxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}

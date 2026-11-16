@@ -1,17 +1,17 @@
 # Fingerprint profiles
 
 Open a pane's Profile settings and choose Fingerprint. The sections are Profiles,
-Device, Connection, Viewport and HTTP cache. Both the local app and Accounts use
+Device, Proxy, Viewport and HTTP cache. Both the local app and Accounts use
 **Lock viewport** for the fixed page size.
 
 Profiles saves the current pane's device, proxy endpoint and locked viewport under
 a name. Apply to pane restores that configuration on another pane while retaining
-its browser profile. Device and Connection retain their separate new pane defaults.
+its browser profile. Device and Proxy retain their separate new pane defaults.
 HTTP cache is managed for the selected browser profile.
 
 Under Share profiles, Copy profile JSON produces a versioned configuration that
 another bmux host can import. Proxy credentials and browsing data stay on each
-host. Save authenticated proxy credentials in Connection on the destination before
+host. Save authenticated proxy credentials in Proxy on the destination before
 applying the imported profile. Included proxy routes use the destination's access.
 
 Profiles are stored locally; distribution uses copy and import. Hosts can exchange
