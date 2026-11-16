@@ -1,5 +1,12 @@
 # Pane zoom fixture readiness
 
+The 4x4 zoom regression waits for the default memory limit to unload background
+panes, then checks selection and native focus after their history is restored.
+Chromium focuses those history entries during restoration; the runtime returns
+that automatic focus to the selected pane while human input still selects panes.
+The case retains exact overlay positioning, shield shortcuts, and editor Undo
+assertions across repeated zoom cycles.
+
 The full pane zoom Check exposed an agent-identity fixture calling the CLI before
 its isolated socket was listening. It now waits for status, verifies the process
 ID, and uses `--no-start` for every CLI request. The automation lease fixture

@@ -1239,7 +1239,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let paneFocused = !!owner?.window.isFocused() && contents.isFocused() && (live?.contents === contents || inputLocked) && live?.parent === owner.window && !overlays.has(client!.id)
     return shortcutMatchesContext(binding, paneFocused, inputLocked ? false : paneFocused ? pageTools?.editing(pane!.id!) : undefined)
   }
-  let syncPageSelection = (contents: WebContents) => {
+  let syncPageSelection = (contents: WebContents, restoringFocus = false) => {
     if (automatedContents.has(contents.id)) return
     let entry = [...tabs].find(([, live]) => live.contents === contents || live.inputLock?.contents === contents)
     if (!entry || remotePages.get(entry[0])?.attach) return
@@ -1247,6 +1247,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!live.parent.isFocused()) return
     let client = model.clients.find(client => clients.get(client.id)?.window === live.parent && visiblePaneIds(client).includes(paneId))
     if (!client) return
+    // Chromium focuses restored history entries while waking background siblings.
+    if (restoringFocus && live.initialHistory && client.paneId !== paneId) {
+      let selected = client.paneId ? tabs.get(client.paneId) : undefined
+      if (selected?.parent === live.parent) selected.contents.focus()
+      return
+    }
     focusedClientId = client.id
     clients.get(client.id)!.pageFocused = true
     if (client.paneId === paneId) return
@@ -1666,7 +1672,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         if (owner) { owner.chrome.webContents.send('focus-control', 'dismiss') }
       }
     })
-    contents.on('focus', () => { syncPageSelection(contents) })
+    contents.on('focus', () => { syncPageSelection(contents, true) })
     contents.on('did-navigate', (_event, url) => {
       if (!session.private && requestedHistoryUrl && requestedHistoryUrl !== url && /^https?:\/\//.test(requestedHistoryUrl)) {
         let profile = model.profiles.find(profile => profile.id === pane.profileId)!
