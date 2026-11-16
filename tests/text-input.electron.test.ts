@@ -67,6 +67,34 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
       let state = await (window as any).bmux.state()
       return !!state.model.clients.find((client: any) => client.id === state.clientId).zoomedPaneId
     })
+    await cmdZ()
+    expect(await zoomed()).toBe(false)
+    await page.evaluate(() => {
+      let surface = document.createElement('div')
+      surface.id = 'focusable-content'
+      surface.tabIndex = 0
+      surface.textContent = 'Focusable page content'
+      document.body.append(surface)
+      let checkbox = document.createElement('input')
+      checkbox.id = 'checkbox'
+      checkbox.type = 'checkbox'
+      document.body.append(checkbox)
+      let select = document.createElement('select')
+      select.id = 'select'
+      select.innerHTML = '<option>First</option><option>Second</option>'
+      document.body.append(select)
+    })
+    for (let selector of ['#focusable-content', '#checkbox', '#select']) {
+      await test.step(`Cmd+Z on ${selector}`, async () => {
+        await page.locator(selector).focus()
+        await expect(page.locator(selector)).toBeFocused()
+        await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(url)
+        await cmdZ()
+        await expect.poll(zoomed).toBe(true)
+        await cmdZ()
+        await expect.poll(zoomed).toBe(false)
+      })
+    }
     await page.locator('#surface').click()
     await cmdZ()
     await expect.poll(zoomed).toBe(true)
@@ -156,18 +184,38 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
       await cmdZ()
       await expect.poll(zoomed).toBe(false)
     }
-    await page.evaluate(() => {
-      let host = document.createElement('div')
-      host.id = 'closed-editor'
-      let root = host.attachShadow({ mode: 'closed' })
-      root.innerHTML = '<input>'
-      document.body.append(host)
-      ;(root.firstElementChild as HTMLInputElement).focus()
-    })
-    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "closed"'])
-    await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 51'])
-    await cmdZ()
-    expect(await zoomed()).toBe(false)
+    for (let mode of ['open', 'closed'] as const) {
+      await page.evaluate(mode => {
+        let host = document.createElement('div')
+        host.id = `${mode}-editor`
+        host.tabIndex = 0
+        let root = host.attachShadow({ mode })
+        root.innerHTML = '<input><button>Page content</button>'
+        let input = root.querySelector('input')!
+        input.addEventListener('input', () => { host.dataset.value = input.value })
+        document.body.append(host)
+        input.focus()
+      }, mode)
+      await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "shadow"'])
+      await expect(page.locator(`#${mode}-editor`)).toHaveAttribute('data-value', 'shadow')
+      await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 51'])
+      await expect(page.locator(`#${mode}-editor`)).toHaveAttribute('data-value', 'shado')
+      await cmdZ()
+      await expect(page.locator(`#${mode}-editor`)).toHaveAttribute('data-value', 'shadow')
+      expect(await zoomed()).toBe(false)
+      // Moving within one shadow root does not deliver focusin to the window.
+      await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 48'])
+      await cmdZ()
+      await expect.poll(zoomed).toBe(true)
+      await cmdZ()
+      await expect.poll(zoomed).toBe(false)
+      await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 48 using shift down'])
+      await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 51'])
+      await expect(page.locator(`#${mode}-editor`)).toHaveAttribute('data-value', 'shado')
+      await cmdZ()
+      await expect(page.locator(`#${mode}-editor`)).toHaveAttribute('data-value', 'shadow')
+      expect(await zoomed()).toBe(false)
+    }
     await page.evaluate(() => { document.designMode = 'on'; document.body.focus() })
     await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to keystroke "document"'])
     await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 51'])

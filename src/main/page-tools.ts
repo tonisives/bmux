@@ -232,7 +232,7 @@ export let createPageTools = (options: Options) => {
     frameContexts: (tabId: string, expression: string) => targets.get(tabId)?.frames?.contexts(expression) ?? Promise.resolve([]),
     error: (tabId: string) => targets.get(tabId)?.error,
     attach: (tabId: string, profileId: string, contents: WebContents, bootstrap = true) => {
-      let target: Target = { focus: createKeyboardFocus(contents), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve(), styleDocument: styleDocument() }
+      let target: Target = { focus: createKeyboardFocus(contents, (method, params, sessionId) => send(target, method, params, sessionId)), contents, profileId, registrations: [], ready: Promise.resolve(), closed: false, version: 0, styles: {}, styleWork: Promise.resolve(), styleDocument: styleDocument() }
       target.frames = createFrameCosmetics({ contents, clipboard: options.clipboard, get focusSource() { return keyboardSource(target) }, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && (options.adblock?.(contents.id) ?? siteSettings(options.settings(), profileId, contents.getURL()).adblock), styles: options.styles })
       targets.set(tabId, target)
       contents.debugger.on('detach', () => { target.registeredSources = undefined })
