@@ -193,6 +193,9 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
         root.innerHTML = '<input><button>Page content</button>'
         let input = root.querySelector('input')!
         input.addEventListener('input', () => { host.dataset.value = input.value })
+        input.addEventListener('focus', () => { host.dataset.focus = 'input' })
+        root.querySelector('button')!.addEventListener('focus', () => { host.dataset.focus = 'button' })
+        host.addEventListener('focus-editor', () => { input.focus(); input.setSelectionRange(input.value.length, input.value.length) })
         document.body.append(host)
         input.focus()
       }, mode)
@@ -205,11 +208,13 @@ test('contextual zoom preserves native undo and accessibility focus in browser t
       expect(await zoomed()).toBe(false)
       // Moving within one shadow root does not deliver focusin to the window.
       await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 48'])
+      await expect(page.locator(`#${mode}-editor`)).toHaveAttribute('data-focus', 'button')
       await cmdZ()
       await expect.poll(zoomed).toBe(true)
       await cmdZ()
       await expect.poll(zoomed).toBe(false)
-      await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 48 using shift down'])
+      await page.locator(`#${mode}-editor`).dispatchEvent('focus-editor')
+      await expect(page.locator(`#${mode}-editor`)).toHaveAttribute('data-focus', 'input')
       await exec('/usr/bin/osascript', ['-e', 'tell application "System Events" to key code 51'])
       await expect(page.locator(`#${mode}-editor`)).toHaveAttribute('data-value', 'shado')
       await cmdZ()
