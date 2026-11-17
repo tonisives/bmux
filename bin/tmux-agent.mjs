@@ -13,7 +13,8 @@ let paneName = title => title.split(' | ').at(-2)?.replace(/^[\u2800-\u28ff]\s*/
 
 export let findAgentPane = (panes, processes, pid, thread) => {
   if (thread) {
-    let matches = panes.filter(pane => !pane.dead && pane.command === 'codex' && terminalName(paneName(pane.title)) === terminalName(thread.name) && pane.title.split(' | ').at(-1)?.trim() === sessionDirectory(thread.cwd))
+    let directories = [sessionDirectory(thread.cwd), thread.projectDirectory].filter(Boolean)
+    let matches = panes.filter(pane => !pane.dead && pane.command === 'codex' && terminalName(paneName(pane.title)) === terminalName(thread.name) && directories.includes(pane.title.split(' | ').at(-1)?.trim()))
     if (matches.length !== 1) throw new Error('Cannot identify a unique tmux pane for this agent thread; keep its terminal session name visible')
     return matches[0]
   }
@@ -36,6 +37,10 @@ let readThread = async (id, env) => {
   try {
     let thread = database.prepare('SELECT id, name, cwd FROM threads WHERE id = ? AND archived = 0').get(id)
     if (!thread?.name) throw new Error('Cannot identify the named terminal session for this agent thread')
+    try {
+      let repository = (await run('git', ['-C', thread.cwd, 'rev-parse', '--show-toplevel'])).trim()
+      if (repository) thread.projectDirectory = sessionDirectory(repository)
+    } catch {}
     return thread
   } finally { database.close() }
 }

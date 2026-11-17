@@ -3,6 +3,8 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { findAgentPane, resolveTmuxAgent, identifyTmuxAgent, focusTmuxPane as directFocusTmuxPane } from '../bin/tmux-agent.mjs'
 import type { AgentPane } from '../bin/tmux-agent.mjs'
 
@@ -128,4 +130,25 @@ test('explicit tmux context validates one pane without listing agents', async ()
   expect(calls).toHaveLength(1)
   expect(calls[0]).toContain('display-message')
   expect(calls[0]).not.toContain('list-panes')
+})
+
+test('saved subdirectory sessions accept their verified repository title and reject ambiguous or unrelated titles', async () => {
+  let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-nested-thread-'))
+  let repository = path.join(directory, 'deployments'), cwd = path.join(repository, 'k3s')
+  let database = new DatabaseSync(path.join(directory, 'state_5.sqlite'))
+  try {
+    await fs.mkdir(cwd, { recursive: true })
+    await promisify(execFile)('git', ['init', repository])
+    database.exec('CREATE TABLE threads (id TEXT, name TEXT, cwd TEXT, archived INTEGER)')
+    database.prepare('INSERT INTO threads VALUES (?, ?, ?, 0)').run(thread.id, thread.name, cwd)
+    let pane = { ...publishing, title: `${thread.name} | deployments`, cwd: repository }
+    let line = (p: AgentPane) => [p.sessionId, p.windowId, p.paneId, p.panePid, p.command, p.title, p.cwd, p.clientTty, p.sessionName, p.windowIndex, '0'].join('\t')
+    let execute = async () => line(pane)
+    let env = { TMUX: '/tmp/agent-tmux,123,5', CODEX_THREAD_ID: thread.id, CODEX_HOME: directory }
+    expect(await resolveTmuxAgent({ env, execute })).toEqual(context)
+    expect(await directFocusTmuxPane(context.agentData, context.agentOrigin, { env, execute })).toBe(pane.paneId)
+    await expect(resolveTmuxAgent({ env, execute: async () => `${line(pane)}\n${line({ ...pane, paneId: '%71' })}` })).rejects.toThrow('unique')
+    await expect(resolveTmuxAgent({ env, execute: async () => line({ ...pane, title: `${thread.name} | elsewhere` }) })).rejects.toThrow('unique')
+    await expect(resolveTmuxAgent({ env, execute: async () => line({ ...pane, title: 'Another conversation | deployments' }) })).rejects.toThrow('unique')
+  } finally { database.close(); await fs.rm(directory, { recursive: true, force: true }) }
 })
