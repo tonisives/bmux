@@ -34,3 +34,5 @@ actions:
       - { name: query, title: Search query, kind: text, required: true }
       - { name: expected_account_url, title: Expected account URL, kind: text, required: true }
       - { name: result_limit, title: Result limit, kind: text, required: false }
+      - { name: social_hooks, title: Named social hooks, kind: text, required: false, hidden: true }
+      - { name: search_group, title: Search group, kind: text, required: false, hidden: true }

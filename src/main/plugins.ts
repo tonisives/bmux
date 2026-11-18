@@ -12,12 +12,18 @@ import { spawn, execFile } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { matchesPluginUrl, parsePluginManifest } from './plugin-manifest'
 import { isAutomationSafetyError } from './automation-safety'
+import { socialHookNames } from './social-hooks'
+import type { SocialCapture } from './social-hooks'
 import { createPluginSocket, listenSocket } from '../../bin/ipc.mjs'
 import type { PluginAction, PluginContext, PluginHook, PluginInfo, PluginManifest, PluginParameter, PluginPrompt, PluginRun, PluginSettings, PluginSettingsProfiles } from '../shared/plugins'
 
 type Definition = { bundled?: boolean; directory: string; manifest: PluginManifest; error?: string }
 type Run = { summary?: string[]; sharedSettings?: boolean; destination?: 'current' | 'window'; profiles?: PluginSettingsProfiles; saving?: Promise<unknown>; overlay?: PluginOverlayContent; overlayInputs?: PluginOverlayInput[]; restartParameters?: Record<string, unknown>; public: PluginRun; definition: Definition; action: PluginAction; context: PluginContext; parameters: Record<string, unknown>; savedValues?: Record<string, string | boolean>; token: string; automationToken?: string; policyError?: string; interactive: boolean; controller: AbortController; child?: ChildProcess; timer?: ReturnType<typeof setTimeout>; pending?: { prompt: PluginPrompt; resolve: (value: unknown) => void; reject: (error: Error) => void } }
 type Options = {
+  socialCapture?: {
+    select: (context: PluginContext, plugin: string, names: string[], query: string) => Promise<void>
+    enqueue: (context: PluginContext, plugin: string, names: string[], capture: SocialCapture, posts: Record<string, unknown>[]) => Promise<void>
+  }
   browseHistory?: (context: PluginContext, method: string, args: Record<string, unknown>) => Promise<unknown>;
   bundledDirectory?: string; directory: string; cli: string; dataDirectory: string
   activity?: (context: PluginContext, method: string) => ((outcome?: 'success' | 'error') => void) | undefined
@@ -312,6 +318,10 @@ export let createPlugins = (options: Options) => {
     if (method === 'result') {
       if (JSON.stringify(args).length > 65536) throw new Error('Result too large')
       if (run.automationToken && run.context.profileId && run.context.paneId && run.context.url) policyCall(() => options.automation?.authorize({ profileId: run.context.profileId!, tabId: run.context.paneId!, url: run.context.url!, token: run.automationToken }))
+      if (run.public.pluginId === 'bmux.x' && run.public.actionId === 'search' && run.parameters.social_hooks && Array.isArray(args.results)) {
+        let capture = { runId: run.public.id, query: shortText(run.parameters.query,512), group: typeof run.parameters.search_group === 'string' ? shortText(run.parameters.search_group,48) : undefined }
+        await options.socialCapture?.enqueue(run.context, run.public.pluginId, socialHookNames(run.parameters.social_hooks), capture, args.results.map(record))
+      }
       run.public.result = args; options.changed(); return null
     }
     if (method === 'automation.acquire') {
@@ -391,6 +401,11 @@ export let createPlugins = (options: Options) => {
         run.context = { ...await options.prepare(run.context, run.definition.manifest.name, run.controller.signal, run.destination), launchUrl: run.action.launch_url, launchApproved: true }
       }
       if (!live(run)) return
+      if (run.public.pluginId === 'bmux.x' && run.public.actionId === 'search' && run.parameters.social_hooks) {
+        if (!options.socialCapture) throw new Error('Social capture is unavailable')
+        await options.socialCapture.select(run.context, run.public.pluginId, socialHookNames(run.parameters.social_hooks), shortText(run.parameters.query,512))
+        if (!live(run)) return
+      }
       let env: NodeJS.ProcessEnv = { ...process.env, BMUX_DATA_DIR: options.dataDirectory, BMUX_PLUGIN_SOCKET: socketPath, BMUX_PLUGIN_RUN_ID: run.public.id, BMUX_PLUGIN_TOKEN: run.token, BMUX_CLI: options.cli }
       delete env.ELECTRON_RUN_AS_NODE
       delete env.BW_SESSION; delete env.BMUX_VAULT_PASSWORD

@@ -56,3 +56,48 @@ it('imports TweetTrace credentials once and preserves shared settings and profil
     expect((await hooks.state('bmux.x')).config.url).toBe('https://edited.test/')
   } finally { await rm(directory,{recursive:true,force:true}) }
 })
+
+it('routes a selected search to independent named destinations and skips passive delivery after restart', async () => {
+  let directory = await mkdtemp(join(tmpdir(),'social-search-'))
+  let query = 'founder research', captures = 0
+  let contents = {
+    getURL: () => 'https://x.com/search?q=founder+research',
+    executeJavaScriptInIsolatedWorld: async (_world: number, scripts: {code: string}[]) => {
+      if (scripts[0].code.startsWith('(()')) captures++
+      return [{url:'https://x.com/user/status/1',text:'A captured post'}]
+    },
+  } as unknown as import('electron').WebContents
+  let requests: {url:string; body:unknown}[] = []
+  let options = {
+    directory, available: () => true, encrypt: Buffer.from, decrypt: (data:Buffer) => data.toString(),
+    targets: () => [{contents,profile:'one',private:false}], enabled: () => true, changed: () => {},
+    fetcher: (async (url:unknown, init:RequestInit) => {
+      requests.push({url:String(url),body:JSON.parse(String(init.body))})
+      return new Response('{}')
+    }) as typeof fetch,
+  }
+  try {
+    let hooks = createSocialHooks(options)
+    for (let hook of ['', 'crm', 'review']) {
+      await hooks.save('bmux.x','',{...emptySocialHook(),enabled:true,url:'https://receiver.test/'+(hook || 'default')},hook)
+    }
+    await expect(hooks.select('bmux.x','one',['missing'],query)).rejects.toThrow('unavailable')
+    await hooks.select('bmux.x','one',['crm','review'],query)
+    let capture = {runId:'run-one',query,group:'research'}
+    let posts = [{url:'https://x.com/user/status/1',text:'A captured post'}]
+    await hooks.enqueue('bmux.x','one',posts,'crm',capture)
+    await hooks.enqueue('bmux.x','one',posts,'crm',capture)
+    await hooks.enqueue('bmux.x','one',posts,'review',capture)
+    let restarted = createSocialHooks(options)
+    await restarted.tick()
+    await restarted.tick()
+    await restarted.tick()
+    expect(captures).toBe(0)
+    expect(requests).toEqual([
+      {url:'https://receiver.test/crm',body:expect.objectContaining({capture,posts:[expect.objectContaining(posts[0])]})},
+      {url:'https://receiver.test/review',body:expect.objectContaining({capture,posts:[expect.objectContaining(posts[0])]})},
+    ])
+    expect((await restarted.state('bmux.x','one','crm')).sent).toBe(1)
+    expect((await restarted.state('bmux.x','one')).sent).toBe(0)
+  } finally { await rm(directory,{recursive:true,force:true}) }
+})

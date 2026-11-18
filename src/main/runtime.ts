@@ -3162,8 +3162,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (context.paneId && tabById(model, context.paneId).session.private) throw new Error('Saved forms are unavailable in private sessions')
       return savedForms(method, args, context, (args._formsSignal as AbortSignal | undefined) ?? new AbortController().signal)
     }
-    if (method === 'plugin.social-hooks.get') return socialHooks?.state(required(args, 'id'), String(args.profile ?? ''))
-    if (method === 'plugin.social-hooks.save') return socialHooks?.save(required(args, 'id'), String(args.profile ?? ''), args.config as SocialHookConfig | null)
+    if (method === 'plugin.social-hooks.get') return socialHooks?.state(required(args, 'id'), String(args.profile ?? ''), String(args.hook ?? ''))
+    if (method === 'plugin.social-hooks.save') return socialHooks?.save(required(args, 'id'), String(args.profile ?? ''), args.config as SocialHookConfig | null, String(args.hook ?? ''))
     if (method === 'plugin.enable' || method === 'plugin.hooks') {
       let id = required(args, 'id')
       if (!configuration || !plugins?.list().some(plugin => plugin.id === id) || typeof args.enabled !== 'boolean') throw new Error('Plugin and enabled flag required')
@@ -4608,7 +4608,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     savedForms = createSavedForms({ directory: path.join(dataDirectory, 'saved-forms'), available: () => safeStorage.isEncryptionAvailable(), encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data), browser: createPluginBrowser({ context: pluginContext, cdp: (tab, method, params) => cdp(tab, method, params), execute }) })
     automation = createAutomationPolicy({ file: path.join(dataDirectory, 'automation-ledger.json'), settings: () => configuration!.automation })
     automationSafety = createAutomationSafety({ file: path.join(dataDirectory, 'automation-safety.json'), settings: () => configuration!.automation.safety, changed: publish, sessionManaged: (profileId, paneId) => plugins?.sessionManaged(profileId, paneId) ?? false })
-    plugins = createPlugins({ browseHistory: async (context, method, args) => {
+    plugins = createPlugins({ socialCapture: {
+      select: async (context, plugin, names, query) => {
+        if (!context.paneId || !context.profileId || !socialHooks || remotePages.has(context.paneId) || tabById(model, context.paneId).session.private) throw new Error('Social capture requires a local non-private tab')
+        await socialHooks.select(plugin, context.profileId, names, query.trim())
+      },
+      enqueue: async (context, plugin, names, capture, posts) => {
+        if (!context.paneId || !context.profileId || !socialHooks || tabById(model, context.paneId).session.private) throw new Error('Social capture is unavailable')
+        for (let name of names) await socialHooks.enqueue(plugin, context.profileId, posts, name, capture)
+      },
+    }, browseHistory: async (context, method, args) => {
       let local = !!context.paneId && !remotePages.has(context.paneId)
       let enabled = local && !tabById(model, context.paneId!).session.private && configuration!.browseRecording.enabled
       if (method === 'history.status') return { local, enabled }
