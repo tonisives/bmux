@@ -4611,11 +4611,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     plugins = createPlugins({ socialCapture: {
       select: async (context, plugin, names, query) => {
         if (!context.paneId || !context.profileId || !socialHooks || remotePages.has(context.paneId) || tabById(model, context.paneId).session.private) throw new Error('Social capture requires a local non-private tab')
-        await socialHooks.select(plugin, context.profileId, names, query.trim())
+        await socialHooks.select(plugin, paneConnectionId(tabById(model, context.paneId).pane), names, query.trim())
       },
       enqueue: async (context, plugin, names, capture, posts) => {
         if (!context.paneId || !context.profileId || !socialHooks || tabById(model, context.paneId).session.private) throw new Error('Social capture is unavailable')
-        for (let name of names) await socialHooks.enqueue(plugin, context.profileId, posts, name, capture)
+        let profile = paneConnectionId(tabById(model, context.paneId).pane)
+        for (let name of names) await socialHooks.enqueue(plugin, profile, posts, name, capture)
       },
     }, browseHistory: async (context, method, args) => {
       let local = !!context.paneId && !remotePages.has(context.paneId)
