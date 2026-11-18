@@ -10,9 +10,9 @@ test('X search evaluates the generated page script and returns bounded post resu
   expect(end).toBeGreaterThan(start)
   let expression = vm.runInNewContext(`(() => { let isX = true, resultLimit = 1; ${source.slice(start, end)}; return expression })()`)
   let card = (text: string, url: string) => ({
-    querySelector: (selector: string) => selector === '[data-testid="tweetText"]' ? { innerText: text } : selector === 'time' ? { closest: () => ({ href: url }) } : selector === '[data-testid="User-Name"]' ? { innerText: 'Founder\n@founder' } : null,
+    querySelector: (selector: string) => selector === '[data-testid="tweetText"]' ? { innerText: text } : selector === 'time' ? { closest: () => ({ href: url }), getAttribute: () => '2026-01-01T00:00:00Z' } : selector === '[data-testid="User-Name"]' ? { innerText: 'Founder\n@founder' } : null,
     querySelectorAll: () => [],
   })
   let document = { querySelectorAll: () => [card('Profile', 'https://x.com/founder'), card('Looking for a tool', 'https://x.com/founder/status/123'), card('Another post', 'https://x.com/founder/status/456')] }
-  expect(vm.runInNewContext(expression, { document })).toEqual([{ author: 'Founder', url: 'https://x.com/founder/status/123', text: 'Looking for a tool' }])
+  expect(vm.runInNewContext(expression, { document })).toEqual([{ author: 'Founder', url: 'https://x.com/founder/status/123', text: 'Looking for a tool', handle: 'founder', tweet_id: '123', posted_at: '2026-01-01T00:00:00Z' }])
 })
