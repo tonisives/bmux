@@ -40,6 +40,26 @@ let setClock = offset => new Promise(resolve => {
 })
 try {
   await until(async () => { try { return (await fetch(`${origin}/health`)).ok } catch { return false } })
+  let fingerprint = { version:1,id:'fingerprint_phone',name:'Phone',viewport:{width:430,height:915} }
+  let created = await post('/api/fingerprints',login,{ id:fingerprint.id,revision:null,value:{ ...fingerprint,password:'fixture-extra' } })
+  assert.equal(created.status,200)
+  let { record } = await created.json()
+  assert.deepEqual(record.value,fingerprint)
+  let hostEndpoint = `${origin}/api/host/fingerprints`
+  let hostHeaders = { Authorization:`Bearer ${token}`,'Content-Type':'application/json' }
+  assert.deepEqual(await fetch(hostEndpoint,{ headers:hostHeaders }).then(response=>response.json()),{ owner,records:[record] })
+  assert.deepEqual(await fetch(`${origin}/api/fingerprints`,{ headers:{ Cookie:`bmux_session=${guestLogin}` } }).then(response=>response.json()),{ owner:guest,records:[] })
+  let hostWrite = (owner, change) => fetch(hostEndpoint,{ method:'POST',headers:hostHeaders,body:JSON.stringify({ owner,change }) })
+  let update = { ...record,value:{ ...fingerprint,name:'New name' } }
+  assert.equal((await hostWrite(guest,update)).status,401)
+  let saved = await hostWrite(owner,update)
+  assert.equal(saved.status,200)
+  let latest = (await saved.json()).record
+  assert.notEqual(latest.revision,record.revision)
+  assert.deepEqual(await hostWrite(owner,update).then(response=>response.json()),{ record:latest })
+  assert.equal((await post('/api/fingerprints',login,{ ...record,value:null })).status,409)
+  assert.equal((await post('/api/fingerprints',login,{ ...latest,value:null })).status,200)
+  assert.equal((await hostWrite(owner,update)).status,409)
   let recoveryUrl = new URL(url); recoveryUrl.port = '18891'
   let recoveryOrigin = 'http://127.0.0.1:18890'
   recoveryServer = spawn(process.execPath, ['--import','tsx','remote/server.ts'], { cwd: process.cwd(), env: { ...process.env, DATABASE_URL: recoveryUrl.toString(), PORT:'18890', BMUX_PUBLIC_ORIGIN: recoveryOrigin, BMUX_GOOGLE_CLIENT_ID:'fixture', BMUX_TURN_SECRET:'fixture-only', BMUX_TURN_URLS:'turn:127.0.0.1:3478' }, stdio:'ignore' })
