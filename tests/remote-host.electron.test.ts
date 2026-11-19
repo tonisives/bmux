@@ -603,8 +603,11 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     },{timeout:30000})
     await test.step('Update the fingerprint of a watched page without replacing its stream', async () => {
       await focusWindow(viewerWindowId,'viewer')
-      await viewer.getByRole('button',{name:'Open main',exact:true}).click()
-      await expect(viewer.getByLabel('Pane',{exact:true})).toHaveValue(pane,{ timeout:25000 })
+      await resizeViewer(1280)
+      let pagePicker = viewer.getByLabel('Pane',{exact:true})
+      await expect(pagePicker).toBeVisible({ timeout:25000 })
+      await pagePicker.selectOption(pane)
+      await expect(viewer.getByRole('button',{name:'Take control',exact:true})).toBeEnabled({ timeout:15000 })
       await viewer.getByRole('button',{name:'Take control',exact:true}).click()
       await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()
       let before = (await command('status')).remoteControl[status.model.sessions[0].id]
