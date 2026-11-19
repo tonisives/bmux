@@ -612,6 +612,8 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect.poll(async()=>(await pool.query('SELECT sum(succeeded) AS succeeded FROM bmux_usage WHERE service=$1',[service])).rows[0]?.succeeded,{timeout:10000}).toBe('1')
     },{timeout:30000})
     await test.step('Update the fingerprint of a watched page without replacing its stream', async () => {
+      let fingerprint = { version:1,id:'fingerprint_live_test',name:'Remote fixture viewport',viewport:{width:660,height:420} }
+      await command('rpc','fingerprint.import',JSON.stringify({ fingerprint }))
       await focusWindow(viewerWindowId,'viewer')
       await resizeViewer(1280)
       await viewer.goto(bookmarkedUrl.href)
@@ -621,8 +623,6 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await viewer.getByRole('button',{name:'Take control',exact:true}).click()
       await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()
       let before = (await command('status')).remoteControl[status.model.sessions[0].id]
-      let fingerprint = { version:1,id:'fingerprint_live_test',name:'Remote fixture viewport',viewport:{width:660,height:420} }
-      await command('rpc','fingerprint.import',JSON.stringify({ fingerprint }))
       let panel = viewer.locator('details').filter({ has:viewer.locator('summary').filter({ hasText:/^Fingerprint/ }) })
       await panel.locator('summary').click()
       let picker = panel.getByLabel('Fingerprint profile')
