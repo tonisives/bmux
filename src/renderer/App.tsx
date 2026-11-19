@@ -3330,24 +3330,34 @@ let FingerprintViewport = () => {
   </form></div>
 }
 
-let FingerprintSettings = ({ profile, paneCount }: { profile: Profile; paneCount: number }) => {
-  let { state, run, settingsMemory } = useUI(), { pane, session, window } = selection(state)
-  let [tab, setTab] = useSettingsState(`fingerprint:${profile.id}:tab`, 'profiles')
-  let [selected, setSelected] = useState<string>(), [name, setName] = useState(''), [input, setInput] = useState('')
-  let [busy,setBusy] = useState(false), [message,setMessage] = useState(''), [edit,setEdit] = useState<{ base:FingerprintProfile; draft:FingerprintProfile }>()
-  let [offer,setOffer] = useState<FingerprintProfile>()
-  let panelId = useId()
-  useEffect(() => { if (tab === 'cache') void run('profile.cache.status', { profile: profile.id }) }, [profile.id, tab, run])
-  if (!pane || !session || !window) return <p>No pane is selected.</p>
+type FingerprintDetailsProps = {
+  current: FingerprintProfile; draft?: FingerprintProfile; saved?: FingerprintProfile; name: string; input: string; busy: boolean
+  changeName: (event: ChangeEvent<HTMLInputElement>) => void; changeDraftName: (event: ChangeEvent<HTMLInputElement>) => void
+  changeInput: (event: ChangeEvent<HTMLTextAreaElement>) => void; capture: (event: FormEvent) => void
+  importProfile: () => void; copy: () => void; remove: () => void
+}
+let FingerprintDetails = ({ current, draft, saved, name, input, busy, changeName, changeDraftName, changeInput, capture, importProfile, copy, remove }: FingerprintDetailsProps) => {
+  let { proxy, device, viewport } = current
+  let sharing = <details className={css.fingerprintSharing}><summary>Share profiles</summary>
+    {saved && <div className={css.profileProxyActions}><button onClick={copy} disabled={busy}>Copy profile JSON</button><button onClick={remove} disabled={busy}>Delete profile</button></div>}
+    <label>Profile JSON<textarea value={input} onChange={changeInput} rows={5} spellCheck={false} /></label><button onClick={importProfile} disabled={busy || !input.trim()}>Import profile</button>
+  </details>
+  let summary = <dl className={css.fingerprintSummary}><div><dt>Proxy</dt><dd>{proxy ? `${proxy.protocol}://${proxy.host}:${proxy.port}` : 'System connection'}</dd></div><div><dt>Device</dt><dd>{device ? deviceLabel(device) : 'Desktop'}</dd></div><div><dt>Lock viewport</dt><dd>{viewport ? `${viewport.width} × ${viewport.height}` : 'Off'}</dd></div></dl>
+  let form = <form className={css.fingerprintSave} onSubmit={capture}><label>Profile name<input className={css.pluginInput} value={name} onChange={changeName} maxLength={120} required /></label><button type="submit" disabled={busy || !name.trim()}>Save current</button></form>
+  return <div className={css.profileSections}><ProfileSection title="Current fingerprint">
+    {draft ? <label>Profile name<input className={css.pluginInput} value={draft.name} onChange={changeDraftName} maxLength={120} /></label> : <>{summary}{form}{sharing}</>}
+  </ProfileSection></div>
+}
 
-  let profiles = state.model.fingerprints ?? []
-  let lock = profile.fingerprintLock, locked = lock && (lock.scope === state.fingerprintScope ? profiles.find(item => item.id === lock.value.id) : undefined) || lock?.value
-  let saved = profiles.find(item => item.id === (selected ?? locked?.id ?? pane.fingerprint?.id))
-  let proxy = connectionProfile(state.model,paneConnectionId(pane)).proxy, viewport = window.lockedViewports?.[pane.id]
-  let current: FingerprintProfile = { version:1,id:'fingerprint_current',name:'Current settings',proxy,viewport,device:pane.device }
-  let needsLock = locked && fingerprintSettings(current) !== fingerprintSettings(locked)
-  let sealed = !!state.model.accountSeals?.[pane.id]
-  let conflicted = saved && state.fingerprintConflicts?.includes(saved.id)
+type FingerprintActionsOptions = {
+  pane: string; saved?: FingerprintProfile; name: string; input: string
+  edit?: { base:FingerprintProfile; draft:FingerprintProfile }; offer?: FingerprintProfile
+  setBusy: (busy: boolean) => void; setMessage: (message: string) => void; setSelected: (id: string) => void
+  setName: (name: string) => void; setInput: (input: string) => void
+  setEdit: (edit: undefined) => void; setOffer: (offer: FingerprintProfile | undefined) => void
+}
+let useFingerprintActions = ({ pane, saved, name, input, edit, offer, setBusy, setMessage, setSelected, setName, setInput, setEdit, setOffer }: FingerprintActionsOptions) => {
+  let { run, settingsMemory } = useUI()
   let action = async (method: string, args: Record<string,unknown>, success: string) => {
     setBusy(true); setMessage('')
     try { let value = await run(method,args); if (value) setMessage(success); return value }
@@ -3355,12 +3365,12 @@ let FingerprintSettings = ({ profile, paneCount }: { profile: Profile; paneCount
   }
   let capture = async (event: FormEvent) => {
     event.preventDefault()
-    let value = await action('fingerprint.save',{ pane:pane.id,name },'Profile saved') as FingerprintProfile | undefined
+    let value = await action('fingerprint.save',{ pane:pane,name },'Profile saved') as FingerprintProfile | undefined
     if (value) { setSelected(value.id); setName('') }
   }
   let apply = async (method: 'fingerprint.apply' | 'fingerprint.lock', useLock = false) => {
-    if (await action(method,{ pane:pane.id, fingerprint:saved?.id, locked:useLock },method === 'fingerprint.lock' ? 'Profile locked' : 'Profile applied')) {
-      for (let key of settingsMemory.keys()) if (key.startsWith(`device:${pane.id}:`)) settingsMemory.delete(key)
+    if (await action(method,{ pane, fingerprint:saved?.id, locked:useLock },method === 'fingerprint.lock' ? 'Profile locked' : 'Profile applied')) {
+      for (let key of settingsMemory.keys()) if (key.startsWith(`device:${pane}:`)) settingsMemory.delete(key)
     }
   }
   let importProfile = async () => {
@@ -3390,52 +3400,83 @@ let FingerprintSettings = ({ profile, paneCount }: { profile: Profile; paneCount
   }
   let refreshExisting = async () => {
     if (!offer) return
-    let result = await action('fingerprint.apply-existing',{ pane:pane.id,fingerprint:offer.id },'') as { applied:number; skipped:number } | undefined
+    let result = await action('fingerprint.apply-existing',{ pane,fingerprint:offer.id },'') as { applied:number; skipped:number } | undefined
     if (result) {
       setMessage(`Updated ${result.applied} panes${result.skipped ? ` (${result.skipped} skipped)` : ''}.`)
       setOffer(undefined)
     }
   }
+  return { action,capture,apply,importProfile,saveEdit,resolveConflict,refreshExisting }
+}
+
+let FingerprintSettings = ({ profile, paneCount }: { profile: Profile; paneCount: number }) => {
+  let { state, run } = useUI(), { pane, session, window } = selection(state)
+  let [tab, setTab] = useSettingsState(`fingerprint:${profile.id}:tab`, 'profiles')
+  let [selected, setSelected] = useState<string>(), [name, setName] = useState(''), [input, setInput] = useState('')
+  let [busy,setBusy] = useState(false), [message,setMessage] = useState(''), [edit,setEdit] = useState<{ base:FingerprintProfile; draft:FingerprintProfile }>()
+  let [offer,setOffer] = useState<FingerprintProfile>()
+  let panelId = useId()
+  useEffect(() => { if (tab === 'cache') void run('profile.cache.status', { profile: profile.id }) }, [profile.id, tab, run])
+  let profiles = state.model.fingerprints ?? []
+  let lock = profile.fingerprintLock, locked = lock && (lock.scope === state.fingerprintScope ? profiles.find(item => item.id === lock.value.id) : undefined) || lock?.value
+  let saved = profiles.find(item => item.id === (selected ?? locked?.id ?? pane?.fingerprint?.id))
+  let { action,capture,apply,importProfile,saveEdit,resolveConflict,refreshExisting } = useFingerprintActions({
+    pane:pane?.id ?? '', saved,name,input,edit,offer,setBusy,setMessage,setSelected,setName,setInput,setEdit,setOffer,
+  })
+  if (!pane || !session || !window) return <p>No pane is selected.</p>
+  let proxy = connectionProfile(state.model,paneConnectionId(pane)).proxy, viewport = window.lockedViewports?.[pane.id]
+  let current: FingerprintProfile = { version:1,id:'fingerprint_current',name:'Current settings',proxy,viewport,device:pane.device }
+  let needsLock = locked && fingerprintSettings(current) !== fingerprintSettings(locked)
+  let sealed = !!state.model.accountSeals?.[pane.id]
+  let conflicted = saved && state.fingerprintConflicts?.includes(saved.id)
   let beginEdit = () => { if (saved) { setEdit({ base:saved,draft:structuredClone(saved) }); setMessage(''); setTab('device') } }
   let changeDraft = (draft: FingerprintProfile) => setEdit(previous => previous && { ...previous,draft })
+  let choose = (event: ChangeEvent<HTMLSelectElement>) => { setSelected(event.target.value); setEdit(undefined); setMessage('') }
+  let changeName = (event: ChangeEvent<HTMLInputElement>) => setName(event.target.value)
+  let changeDraftName = (event: ChangeEvent<HTMLInputElement>) => { if (edit) changeDraft({ ...edit.draft,name:event.target.value }) }
+  let changeInput = (event: ChangeEvent<HTMLTextAreaElement>) => setInput(event.target.value)
+  let copy = () => { if (saved) void bridge.clipboard(JSON.stringify(saved,null,2)).then(() => setMessage('Profile copied')) }
+  let remove = async () => { if (saved && await action('fingerprint.delete',{ fingerprint:saved.id },'Profile deleted')) setSelected('') }
+  let saveChanges = () => void saveEdit()
+  let saveCopy = () => void saveEdit(true)
+  let cancelEdit = () => setEdit(undefined)
+  let applySelected = () => void apply('fingerprint.apply')
+  let applyLocked = () => void apply('fingerprint.apply',true)
+  let lockSelected = () => void apply('fingerprint.lock')
+  let unlock = () => void action('fingerprint.unlock',{ pane:pane.id },'Profile unlocked')
+  let reloadShared = () => void resolveConflict(false)
+  let copyConflict = () => void resolveConflict(true)
+  let later = () => setOffer(undefined)
+  let clearCache = () => void run('profile.cache.clear',{ profile:profile.id })
   let cache = state.profileCaches[profile.id]
   let tabs: [string,string][] = [['profiles','Profiles'],['device','Device'],['connection','Proxy'],['viewport','Viewport'],['cache','HTTP cache']]
   return <div role="tabpanel" aria-label="Fingerprint settings">
     <div className={css.fingerprintHeader}>
       <div className={css.fingerprintSave}>
-        <label>Fingerprint profile<FingerprintSelect profiles={profiles} selected={saved?.id ?? ''} change={event => { setSelected(event.target.value); setEdit(undefined); setMessage('') }} /></label>
-        {edit ? <><button onClick={() => void saveEdit()} disabled={busy}>Save changes</button><button onClick={() => setEdit(undefined)}>Cancel</button>{saved && JSON.stringify(saved) !== JSON.stringify(edit.base) && <button onClick={() => void saveEdit(true)} disabled={busy}>Save a copy</button>}</> :
-          <><button type="button" onClick={() => void apply('fingerprint.apply')} disabled={busy || !saved || sealed}>Apply to pane</button><button type="button" onClick={beginEdit} disabled={busy || !saved || conflicted}>Edit</button></>}
+        <label>Fingerprint profile<FingerprintSelect profiles={profiles} selected={saved?.id ?? ''} change={choose} /></label>
+        {edit ? <><button onClick={saveChanges} disabled={busy}>Save changes</button><button onClick={cancelEdit}>Cancel</button>{saved && JSON.stringify(saved) !== JSON.stringify(edit.base) && <button onClick={saveCopy} disabled={busy}>Save a copy</button>}</> :
+          <><button type="button" onClick={applySelected} disabled={busy || !saved || sealed}>Apply to pane</button><button type="button" onClick={beginEdit} disabled={busy || !saved || conflicted}>Edit</button></>}
       </div>
       <div className={css.fingerprintLock}>
         {locked ? <>
           <span>Locked to {locked.name}</span>
-          {needsLock && <button onClick={() => void apply('fingerprint.apply',true)} disabled={busy || sealed}>Apply and refresh</button>}
-          <button onClick={() => void action('fingerprint.unlock',{ pane:pane.id },'Profile unlocked')} disabled={busy}>Unlock browser profile</button>
-          {saved && saved.id !== locked.id && <button onClick={() => void apply('fingerprint.lock')} disabled={busy || sealed}>Change locked fingerprint</button>}
-        </> : <button onClick={() => void apply('fingerprint.lock')} disabled={busy || !saved || sealed}>Lock to browser profile</button>}
+          {needsLock && <button onClick={applyLocked} disabled={busy || sealed}>Apply and refresh</button>}
+          <button onClick={unlock} disabled={busy}>Unlock browser profile</button>
+          {saved && saved.id !== locked.id && <button onClick={lockSelected} disabled={busy || sealed}>Change locked fingerprint</button>}
+        </> : <button onClick={lockSelected} disabled={busy || !saved || sealed}>Lock to browser profile</button>}
       </div>
-      {conflicted && <div className={css.fingerprintLock}><span>Fingerprint changed on another host.</span><button onClick={() => void resolveConflict(false)} disabled={busy}>Reload shared version</button><button onClick={() => void resolveConflict(true)} disabled={busy}>Save a copy</button></div>}
-      {offer && <div className={css.fingerprintLock} role="alertdialog" aria-label="Update existing panes?"><span>Update existing panes on this host?</span><button onClick={refreshExisting} disabled={busy}>Apply and refresh</button><button onClick={() => setOffer(undefined)} disabled={busy} autoFocus>Later</button></div>}
+      {conflicted && <div className={css.fingerprintLock}><span>Fingerprint changed on another host.</span><button onClick={reloadShared} disabled={busy}>Reload shared version</button><button onClick={copyConflict} disabled={busy}>Save a copy</button></div>}
+      {offer && <div className={css.fingerprintLock} role="alertdialog" aria-label="Update existing panes?"><span>Update existing panes on this host?</span><button onClick={refreshExisting} disabled={busy}>Apply and refresh</button><button onClick={later} disabled={busy} autoFocus>Later</button></div>}
       {message && <p role="status">{message}</p>}
     </div>
     <FingerprintTabs panelId={panelId} label="Fingerprint sections" value={tab} change={setTab} tabs={tabs} />
     <div id={panelId} role="tabpanel" aria-label={{ profiles:'Fingerprint profiles',device:'Device settings',connection:'Proxy settings',viewport:'Viewport settings',cache:'HTTP cache settings' }[tab]}>
-      {tab === 'profiles' && <div className={css.profileSections}><ProfileSection title="Current fingerprint">
-        {edit ? <label>Profile name<input className={css.pluginInput} value={edit.draft.name} onChange={event => changeDraft({ ...edit.draft,name:event.target.value })} maxLength={120} /></label> : <>
-          <dl className={css.fingerprintSummary}><div><dt>Proxy</dt><dd>{proxy ? `${proxy.protocol}://${proxy.host}:${proxy.port}` : 'System connection'}</dd></div><div><dt>Device</dt><dd>{pane.device ? deviceLabel(pane.device) : 'Desktop'}</dd></div><div><dt>Lock viewport</dt><dd>{viewport ? `${viewport.width} × ${viewport.height}` : 'Off'}</dd></div></dl>
-          <form className={css.fingerprintSave} onSubmit={capture}><label>Profile name<input className={css.pluginInput} value={name} onChange={event => setName(event.target.value)} maxLength={120} required /></label><button type="submit" disabled={busy || !name.trim()}>Save current</button></form>
-          <details className={css.fingerprintSharing}><summary>Share profiles</summary>
-            {saved && <div className={css.profileProxyActions}><button onClick={() => void bridge.clipboard(JSON.stringify(saved,null,2)).then(() => setMessage('Profile copied'))} disabled={busy}>Copy profile JSON</button><button onClick={async () => { if (await action('fingerprint.delete',{ fingerprint:saved.id },'Profile deleted')) setSelected('') }} disabled={busy}>Delete profile</button></div>}
-            <label>Profile JSON<textarea value={input} onChange={event => setInput(event.target.value)} rows={5} spellCheck={false} /></label><button onClick={importProfile} disabled={busy || !input.trim()}>Import profile</button>
-          </details>
-        </>}
-      </ProfileSection></div>}
+      {tab === 'profiles' && <FingerprintDetails current={current} draft={edit?.draft} saved={saved} name={name} input={input} busy={busy} changeName={changeName} changeDraftName={changeDraftName} changeInput={changeInput} capture={capture} importProfile={importProfile} copy={copy} remove={remove} />}
       {edit && ['device','connection','viewport'].includes(tab) && <div className={css.profileSections}><ProfileSection title={edit.draft.name}><FingerprintFields section={tab as FingerprintSection} value={edit.draft} change={changeDraft} /></ProfileSection></div>}
       {!edit && tab === 'device' && <ProfileDeviceSettings key={pane.id} profile={profile} pane={pane} session={session} />}
       {!edit && tab === 'connection' && <div className={css.profileSections}><ProfileSection title="Current pane connection"><p>{proxy ? `${proxy.protocol}://${proxy.host}:${proxy.port}` : 'System connection'}</p></ProfileSection><ProxySettings key={profile.id} profile={profile} paneCount={paneCount} /></div>}
       {!edit && tab === 'viewport' && <FingerprintViewport />}
-      {tab === 'cache' && <div className={css.profileSections}><ProfileSection title="HTTP cache"><p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p><button type="button" onClick={() => void run('profile.cache.clear',{ profile:profile.id })}>Clear HTTP cache</button></ProfileSection></div>}
+      {tab === 'cache' && <div className={css.profileSections}><ProfileSection title="HTTP cache"><p>{cache ? `${(cache.bytes / 1024 / 1024).toFixed(1)} MiB of ${(cache.limit / 1024 / 1024).toFixed(0)} MiB` : 'Checking size'}. Cookies and site storage are preserved.</p><button type="button" onClick={clearCache}>Clear HTTP cache</button></ProfileSection></div>}
     </div>
   </div>
 }
