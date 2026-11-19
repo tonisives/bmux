@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { Model, Profile } from '../shared/types'
+import type { InternalWindow, Model, Pane, Profile } from '../shared/types'
 import { newSession, newWindow, paneById } from './model'
 import { defaultConnectionId } from '../shared/profile-connections'
 import { parseProfileProxy, type ProxyCredentials } from './profile-proxy'
@@ -8,6 +8,7 @@ import type { RemoteCapabilities, RemoteProfile, RemoteProxy, RemoteProxyCredent
 type Options = {
   model: Model
   interactiveOnly: boolean
+  initializeFingerprint?: (window: InternalWindow, pane: Pane) => void
   hostProxy?: RemoteProxy
   credentials: { has: (id: string) => boolean; get: (id: string) => ProxyCredentials | undefined; available: () => boolean }
   assertControl: (session: string, owner: string, generation: number) => unknown
@@ -65,6 +66,7 @@ export let createRemoteManagement = (options: Options) => {
       if (model.sessions.some(item => item.name === name)) throw new Error('SESSION_NAME_UNAVAILABLE')
       let session = newSession(name,profile.id,false,model), pane = session.windows[0].panes[0]
       pane.url = url; pane.title = url === 'about:blank' ? 'New window' : url
+      options.initializeFingerprint?.(session.windows[0],pane)
       model.sessions.push(session)
       result = { session:session.id, pane:pane.id, revision:remoteSessionRevision(model,session.id) }
     } else if (request.method === 'pages.create') {
@@ -76,6 +78,7 @@ export let createRemoteManagement = (options: Options) => {
       let profile = getProfile(params.profileId ?? session.defaultProfileId), url = pageUrl(params.url), window = newWindow(`window-${session.windows.length+1}`,profile.id,true,model)
       window.panes[0].url = url; window.panes[0].title = url === 'about:blank' ? 'New window' : url
       if (session.device) window.panes[0].device = { ...session.device }
+      options.initializeFingerprint?.(window,window.panes[0])
       session.windows.push(window)
       result = { session:session.id, pane:window.panes[0].id, revision:remoteSessionRevision(model,session.id) }
     } else if (request.method === 'profiles.proxy.set') {

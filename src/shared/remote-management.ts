@@ -6,6 +6,7 @@ export type RemoteCapabilities = {
   proxy?: 1
   streamQuality?: 1
   verifiedAttention?: 1
+  fingerprints?: 1
 }
 
 export type RemoteProxy = { protocol: 'http' | 'https' | 'socks5'; host: string; port: number; authenticated: boolean }

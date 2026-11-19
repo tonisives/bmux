@@ -759,3 +759,8 @@
 .fingerprintSharing label { display: grid; gap: 8px; margin: 16px 0; }
 .fingerprintSharing textarea { width: 100%; resize: vertical; }
 @media (max-width: 650px) { .fingerprintSummary > div { grid-template-columns: 1fr; gap: 4px; } }
+
+.fingerprintHeader { display: grid; gap: 8px; margin-bottom: 14px; }
+.fingerprintHeader .fingerprintSave { margin-top: 0; }
+.fingerprintLock { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.fingerprintHeader p { margin: 0; }

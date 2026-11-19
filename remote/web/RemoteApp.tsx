@@ -8,6 +8,7 @@ import { RemoteMachineDetails, useRemoteMachineColors } from '../../src/renderer
 import { remoteMachineName } from '../../src/shared/remote-tree'
 import type { RemoteSession } from '../../src/shared/remote-sessions'
 import { SessionTree } from './SessionTree'
+import { SessionFingerprints } from './SessionFingerprints'
 import { DemoWorkspace } from './DemoWorkspace'
 import { WorkspaceHeader, WorkspaceNavigation } from './WorkspaceChrome'
 import { useGoogleLogin } from './useGoogleLogin'
@@ -199,6 +200,7 @@ export let RemoteApp = () => {
         <span className={styles.status}>{watching ? 'Connecting' : controlling ? 'Controlling' : 'Watching'}</span>
         {selected.host.permission === 'control' && state && (controlling ? <button className={styles.controlButton} onClick={release}>Release control</button> : <button className={styles.controlButton} onClick={acquire}>{lease ? 'Take over' : 'Take control'}</button>)}
       </div>
+      {viewer && state && session && selected.host.owner && selected.host.capabilities?.fingerprints && <SessionFingerprints key={`${selected.host.id}:${state.pane}`} viewer={viewer} session={session.id} pane={state.pane} lease={controlling ? lease?.generation : undefined} />}
       {help && <div className={styles.attention}><span>{help.status==='verifying' ? 'Verifying' : help.reason === 'help' ? 'Agent needs your help. Resolve the issue, then resume.' : 'Automation paused for verification. Resolve the issue, then resume.'}</span>{controlling && help.status!=='verifying' && <button onClick={resume} disabled={resuming}>Resume automation</button>}</div>}
       <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} data-viewport-width={viewport?.width} data-viewport-height={viewport?.height} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
       {controlling && <div className={styles.controls}><div className={styles.controlGroup}><button className={styles.iconButton} onClick={back} aria-label="Back" title="Back"><Icon name="back" /></button><button className={styles.iconButton} onClick={forward} aria-label="Forward" title="Forward"><Icon name="forward" /></button><button className={styles.iconButton} onClick={reload} aria-label="Reload" title="Reload"><Icon name="reload" /></button></div><div className={styles.controlGroup}><button className={styles.iconButton} onClick={() => openInput('address')} aria-label="Open address" title="Open address"><Icon name="link" /></button><button className={styles.iconButton} onClick={() => openInput('text')} aria-label="Type into page" title="Type into page"><Icon name="type" /></button><button className={styles.iconButton} onClick={enter} aria-label="Enter" title="Enter"><Icon name="enter" /></button><button className={styles.iconButton} onClick={resize} aria-label="Fit viewport" title="Fit viewport"><Icon name="fit" /></button></div></div>}

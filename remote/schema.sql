@@ -119,3 +119,11 @@ CREATE TABLE IF NOT EXISTS bmux_hook_deliveries(id uuid PRIMARY KEY,hook uuid NO
 ALTER TABLE bmux_hook_deliveries ADD COLUMN IF NOT EXISTS trigger_id uuid;
 ALTER TABLE bmux_hook_deliveries ADD COLUMN IF NOT EXISTS failures integer NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS bmux_hook_delivery_pending ON bmux_hook_deliveries(next_at) WHERE status='pending';
+
+CREATE TABLE IF NOT EXISTS bmux_fingerprints (
+  owner text NOT NULL,
+  id text NOT NULL,
+  revision uuid NOT NULL,
+  value jsonb,
+  PRIMARY KEY(owner,id)
+);

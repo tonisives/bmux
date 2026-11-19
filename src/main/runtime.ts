@@ -1,4 +1,6 @@
-import { parseFingerprint, sameFingerprintProxy } from '../shared/fingerprint'
+import { createFingerprintCatalog } from './fingerprint-catalog'
+import type { FingerprintProfile, FingerprintLock } from '../shared/fingerprint'
+import { fingerprintSettings, parseFingerprint, sameFingerprintProxy } from '../shared/fingerprint'
 import { createAccountProxies } from './account-proxies'
 import { createAccountMobility } from './account-mobility'
 import { applyAccountMobility } from './account-mobility-runtime'
@@ -637,7 +639,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!view.getVisible()) view.setVisible(true)
     }
   }
-  let state = (clientId = '', contentsId?: number): PublicState => ({ browseRecording: { ...(configuration?.browseRecording ?? { enabled: true, manual: true }), error: browseRecorder.error }, nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayState(clientId, contentsId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...new Set([...activeAgents.keys(), ...walkPanes(model).filter(item => managedConnection(item.pane)).map(item => item.pane.id)])].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, findResults, browserTools: toolsState(), plugins: plugins?.list().map(plugin => ({...plugin,sent:plugin.category === 'Social Media' ? socialHooks?.sent(plugin.id) : undefined})), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
+  let state = (clientId = '', contentsId?: number): PublicState => ({ browseRecording: { ...(configuration?.browseRecording ?? { enabled: true, manual: true }), error: browseRecorder.error }, nativePagePanes: [...tabs].filter(([, live]) => live.parent === clients.get(clientId)?.window && !live.disposed && live.view.getVisible()).map(([pane]) => pane), viewportPanModes: [...viewportPanModes], pluginOverlay: overlayState(clientId, contentsId), remotePreviews: configuration?.remotePreviews ?? DEFAULT_REMOTE_PREVIEWS, remoteViews: Object.fromEntries([...remotePages].flatMap(([pane, remote]) => remote.view ? [[pane, remote.view]] : [])), remoteSizes: Object.fromEntries([...remoteSizes].map(([pane, size]) => [pane, { width: size.width, height: size.height }])), dialogPrompt: dialogPrompts.get(clientId)?.prompt, agentFeedback: agentFeedback(), automationAgents: configuration?.automation.agents ?? DEFAULT_AGENTS, hiddenAgentCursors: [...virtualMouse.hiddenTabs], lockedAgentPanes: [...new Set([...activeAgents.keys(), ...walkPanes(model).filter(item => managedConnection(item.pane)).map(item => item.pane.id)])].filter(agentInputLocked), agentLockOverrides: agentInputOverrides.status(), activeAgents: [...activeAgents.values()].filter(actor => (actor.pending > 0 || agentInputDue(actor.paneId) || Date.now() - actor.lastUsed < 60_000) && model.sessions.some(session => session.windows.some(window => window.panes.some(pane => pane.id === actor.paneId)))), automationSafety: automationSafety?.status(), dismissedPermissions: [...(clients.get(clientId)?.dismissedPermissions ?? [])], remoteControl: Object.fromEntries(model.sessions.map(session => [session.id, controls.get(session.id)])), searchApps: configuration?.searchApps ?? DEFAULT_SEARCH_APPS, memory: configuration?.memory ?? DEFAULT_MEMORY, security, fingerprintScope: fingerprints.scope(), fingerprintConflicts: fingerprints.conflicts(), findResults, browserTools: toolsState(), plugins: plugins?.list().map(plugin => ({...plugin,sent:plugin.category === 'Social Media' ? socialHooks?.sent(plugin.id) : undefined})), pluginRuns: plugins?.runs(), pluginPrompt: clientId ? plugins?.prompt(clientId) : undefined, bookmarkPlugins, bookmarkPluginErrors: bookmarkPluginPages?.errors(), bookmarkParameters, model: { ...model, fingerprints: fingerprints.profiles(), fingerprintSync: undefined }, clientId, focusedClientId, snapshots, crashes, navigationProxyHints: navigationProxyHints.hints, loading, audio, favicons, pendingUrls: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.pendingUrl ? [[tabId, live.pendingUrl]] : [])), navigation: Object.fromEntries([...tabs].flatMap(([tabId, live]) => live.contents.isDestroyed() ? [] : [[tabId, { activeIndex: live.contents.navigationHistory.getActiveIndex(), entries: live.contents.navigationHistory.getAllEntries().map(({ title, url }) => ({ title, url })) }]])), keyboard: configuration?.keyboard ?? DEFAULT_KEYBOARD, clickMode: configuration?.clickMode ?? DEFAULT_CLICK_MODE, clickModeState: clickMode.status(clientId), configPath: configuration?.path ?? configPath(dataDirectory), configError: configuration?.error ?? null, startupNotice, accessibility: configuration?.accessibility ?? false, statusBar: configuration?.statusBar ?? 'top', buildInfo, showBuildId: configuration?.showBuildId ?? false, showTabCloseButtons: configuration?.showTabCloseButtons ?? false, showDarkModeButton: configuration?.showDarkModeButton ?? false, vimEditing: configuration?.vimEditing ?? true, permissions: [...permissions.values()].map(({ reply: _reply, ...request }) => request), downloads, profileCaches, profileProxyTests, profileProxyFailures })
   let updateLinkPreview = (clientId: string, live: LiveClient) => {
     let client = model.clients.find(client => client.id === clientId)
     let target = live.linkTabId ? walkPanes(model).find(({ pane }) => pane.id === live.linkTabId) : undefined
@@ -960,6 +962,101 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     profile.proxy = proxy
     save()
     return profile
+  }
+  let fingerprints = createFingerprintCatalog(model, () => { writeModel(dataDirectory,model,bookmarkFile); publish() })
+  type FingerprintTarget = ReturnType<typeof paneById>
+  let captureFingerprint = ({ pane, window }: Pick<FingerprintTarget, 'pane' | 'window'>, name = 'Current settings', key = `fingerprint_${randomUUID()}`) => parseFingerprint({
+    version: 1, id: key, name, device: pane.device,
+    proxy: hostProxy ?? connectionProfile(model,paneConnectionId(pane)).proxy,
+    viewport: window.lockedViewports?.[pane.id],
+  })
+  let profileFingerprint = (profile: Model['profiles'][number]): FingerprintLock | undefined => {
+    let lock = profile.fingerprintLock
+    if (!lock) return
+    return { ...lock, value: lock.scope === fingerprints.scope() ? fingerprints.find(lock.value.id) ?? lock.value : lock.value }
+  }
+  let prepareFingerprint = (pane: FingerprintTarget['pane'], value: FingerprintProfile, profile = resolve(model.profiles,pane.profileId,'Profile')) => {
+    if (value.proxy) value = { ...value, proxy: parseProfileProxy(value.proxy) }
+    if (hostProxy && !sameFingerprintProxy(hostProxy,value.proxy)) throw new Error('FINGERPRINT_HOST_PROXY_REQUIRED')
+    let credentials = value.proxy?.authenticated && !hostProxy
+      ? model.profiles.flatMap(item => item.connections ?? [{ id:item.id,proxy:item.proxy }])
+        .filter(item => sameFingerprintProxy(item.proxy,value.proxy)).map(item => proxyCredentials.get(item.id)).find(Boolean)
+      : undefined
+    if (value.proxy?.authenticated && !credentials && !hostProxy) throw new Error('FINGERPRINT_PROXY_CREDENTIALS_REQUIRED')
+    return () => hostProxy ? paneConnectionId(pane) : saveConnection(profile,value.proxy,credentials,paneConnectionId(pane))
+  }
+  let setFingerprint = ({ pane, window }: Pick<FingerprintTarget, 'pane' | 'window'>, lock: FingerprintLock, connection: string) => {
+    let { value, scope } = lock
+    pane.connectionId = connection
+    if (value.device) pane.device = structuredClone(value.device)
+    else delete pane.device
+    if (value.viewport) { window.lockedViewports ??= {}; window.lockedViewports[pane.id] = { ...value.viewport } }
+    else if (window.lockedViewports) { delete window.lockedViewports[pane.id]; if (!Object.keys(window.lockedViewports).length) delete window.lockedViewports }
+    pane.fingerprint = { scope, id:value.id, settings:fingerprintSettings(value) }
+  }
+  let initializeFingerprint = (window: InternalWindow, pane: FingerprintTarget['pane']) => {
+    let lock = profileFingerprint(resolve(model.profiles,pane.profileId,'Profile'))
+    if (lock) setFingerprint({ pane,window },lock,prepareFingerprint(pane,lock.value)())
+  }
+  let fingerprintCaptures = new Map<string, Set<Awaited<ReturnType<typeof createRemoteCapture>>>>()
+  let pendingFingerprintRefresh = new Set<string>()
+  let beginFingerprintRefresh = (pane: string) => {
+    pendingFingerprintRefresh.add(pane)
+    for (let capture of fingerprintCaptures.get(pane) ?? []) capture.replaceSource()
+  }
+  let finishFingerprintRefresh = async (pane: string) => {
+    if (!pendingFingerprintRefresh.delete(pane)) return
+    let captures = fingerprintCaptures.get(pane)
+    if (!captures?.size) return
+    try {
+      let live = await ensureLiveTab(pane)
+      for (let capture of captures) capture.replaceSource(live.contents)
+    } catch (error) {
+      let live = tabs.get(pane)
+      for (let capture of captures) {
+        if (live && !live.contents.isDestroyed()) capture.replaceSource(live.contents)
+        else capture.close()
+      }
+      throw error
+    }
+  }
+  let fingerprintRefreshes = new Map<string, Promise<unknown>>()
+  let prepareFingerprintApply = (target: FingerprintTarget, lock: FingerprintLock, owner?: string, generation?: number) => {
+    let { pane,session } = target
+    if (session.remote || session.ephemeral || accountBlocked(paneConnectionId(pane))) throw new Error('TARGET_UNAVAILABLE')
+    controls.assert(session.id,owner,generation)
+    assertAccountMutation(model,'fingerprint.apply',{ pane:pane.id })
+    assertAccountMutation(model,'profile.device.set',{ pane:pane.id })
+    if (fingerprintSettings(captureFingerprint(target)) === fingerprintSettings(lock.value)) return () => {
+      pane.fingerprint = { scope:lock.scope,id:lock.value.id,settings:fingerprintSettings(lock.value) }
+    }
+    let connection = prepareFingerprint(pane,lock.value)
+    return () => {
+      let connectionId = connection()
+      beginFingerprintRefresh(pane.id)
+      disposeTab(pane.id)
+      setFingerprint(target,lock,connectionId)
+      remoteSizes.delete(pane.id)
+      previewCache.remove(pane.id)
+    }
+  }
+  let applyFingerprint = (target: FingerprintTarget, lock: FingerprintLock, owner?: string, generation?: number, onApply?: () => void) => {
+    let pane = target.pane.id
+    let apply = async () => {
+      let current = paneById(model,pane)
+      if (current.pane !== target.pane || current.session !== target.session || current.window !== target.window) throw new Error('TARGET_UNAVAILABLE')
+      prepareFingerprintApply(target,lock,owner,generation)()
+      onApply?.()
+      writeModel(dataDirectory,model,bookmarkFile)
+      changed()
+      try { await visualQueue } finally { await finishFingerprintRefresh(pane) }
+      return target.pane
+    }
+    let previous = fingerprintRefreshes.get(pane)
+    let operation = previous ? previous.catch(() => undefined).then(apply) : apply()
+    fingerprintRefreshes.set(pane,operation)
+    void operation.finally(() => { if (fingerprintRefreshes.get(pane) === operation) fingerprintRefreshes.delete(pane) }).catch(() => undefined)
+    return operation
   }
   let automationPointerTabs = new Set<string>()
   let runAgentAction = <T>(pane: string, method: string, args: Record<string, unknown>, operation: () => Promise<T>, owner = String(args.agentId ?? '')) => {
@@ -1701,6 +1798,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let created = newWindow(`window-${session.windows.length + 1}`, pane.profileId, true, model)
       let added = created.panes[0]
       added.device = session.device
+      initializeFingerprint(created,added)
       added.openerPaneId = tabId
       added.backToOpener = backToOpener
       if (!options?.webContents) { added.url = url; added.title = url }
@@ -1713,7 +1811,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         changed(); return undefined
       }
       if (!options) {
-        if (pane.device || loadOptions) {
+        if (added.device || loadOptions) {
           let popup = createLiveTab(added.id, false)
           void popup.ready.then(() => { if (isLiveTabOpen(popup)) return popup.contents.loadURL(url, loadOptions) }).catch(reportError)
         }
@@ -1728,8 +1826,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (interactiveOnly) return { action:'deny' }
       // Chromium loads allowed background popups before their tab is selected.
       // Keep only their destination until activation creates the page instead.
-      if (details.disposition === 'background-tab' || pane.device || paneConnectionId(pane) !== defaultConnectionId(profile)) {
-        setTimeout(() => { if (!live.disposed) openLinkWindow(details.url, !pane.device && details.disposition !== 'background-tab', undefined, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }, details.disposition !== 'background-tab') }, 100)
+      if (details.disposition === 'background-tab' || profile.fingerprintLock || pane.device || paneConnectionId(pane) !== defaultConnectionId(profile)) {
+        setTimeout(() => { try { if (!live.disposed) openLinkWindow(details.url, !pane.device && details.disposition !== 'background-tab', undefined, { httpReferrer: details.referrer, ...(details.postBody ? { postData: details.postBody.data, extraHeaders: `content-type: ${details.postBody.contentType}` } : {}) }, details.disposition !== 'background-tab') } catch (error) { reportError(error) } }, 100)
         return { action: 'deny' }
       }
       return {
@@ -2306,7 +2404,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       live.inputLock?.refresh()
       live.camera?.setVisible(!retainPickerOwner)
       let { session, window, pane } = tabById(model, tabId)
-      if (window.lockedViewports && !window.lockedViewports[tabId] && bounds) {
+      if (window.lockedViewports && !window.lockedViewports[tabId] && bounds && !pane.fingerprint) {
         let size = pane.device ? fittedDeviceBounds(bounds, pane.device) : bounds
         window.lockedViewports[tabId] = { width: Math.max(1, Math.round(size.width)), height: Math.max(1, Math.round(size.height)) }
         capturedViewport = true
@@ -3550,45 +3648,46 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       changed(); await visualQueue
       return { profiles: imported.profiles, bookmarks: imported.profiles.reduce((sum, profile) => sum + profile.bookmarks, 0) }
     }
-    if (method === 'fingerprint.list') return model.fingerprints ?? []
+    if (method === 'fingerprint.list') return fingerprints.profiles()
     if (method === 'fingerprint.save' || method === 'fingerprint.import') {
-      let value
-      if (method === 'fingerprint.import') value = parseFingerprint(args.fingerprint)
-      else {
-        let { pane, window } = paneById(model, required(args, 'pane'))
-        value = parseFingerprint({ version: 1, id: args.id ?? id('fingerprint'), name: required(args, 'name'), device: pane.device, proxy: hostProxy ?? connectionProfile(model, paneConnectionId(pane)).proxy, viewport: window.lockedViewports?.[pane.id] })
-      }
+      let value = method === 'fingerprint.import' ? parseFingerprint(args.fingerprint)
+        : captureFingerprint(paneById(model,required(args,'pane')),required(args,'name'),typeof args.id === 'string' ? args.id : undefined)
       if (value.proxy) value.proxy = parseProfileProxy(value.proxy)
-      let existing = model.fingerprints ?? []
-      if (!existing.some(item => item.id === value.id) && existing.length >= 100) throw new Error('Fingerprint profile limit reached')
-      model.fingerprints = [...existing.filter(item => item.id !== value.id), value]
-      save(); return value
+      if (args.expected !== undefined && args.expected !== JSON.stringify(fingerprints.find(value.id))) throw new Error('Fingerprint changed. Reload it or save a copy.')
+      fingerprints.update(value.id,value)
+      for (let profile of model.profiles) if (profile.fingerprintLock?.scope === fingerprints.scope() && profile.fingerprintLock.value.id === value.id) profile.fingerprintLock.value = value
+      save()
+      return value
     }
-    if (method === 'fingerprint.export') return parseFingerprint(resolve(model.fingerprints ?? [], args.fingerprint, 'Fingerprint'))
-    if (method === 'fingerprint.delete') {
-      let value = resolve(model.fingerprints ?? [], args.fingerprint, 'Fingerprint')
-      model.fingerprints = model.fingerprints!.filter(item => item.id !== value.id)
-      save(); return { deleted: value.id }
-    }
-    if (method === 'fingerprint.apply') {
+    if (method === 'fingerprint.discard') {
       if (!sourceClientId) throw new Error('Trusted UI required')
-      let value = parseFingerprint(resolve(model.fingerprints ?? [], args.fingerprint, 'Fingerprint'))
-      let { pane, window } = paneById(model, required(args, 'pane'))
-      assertAccountMutation(model, 'profile.device.set', { pane: pane.id })
-      if (hostProxy && !sameFingerprintProxy(hostProxy, value.proxy)) throw new Error('Host proxy is required')
-      let profile = resolve(model.profiles, pane.profileId, 'Profile')
-      let credentials = value.proxy?.authenticated ? model.profiles.flatMap(item => item.connections ?? [{ id: item.id, proxy: item.proxy }]).filter(item => sameFingerprintProxy(item.proxy, value.proxy)).map(item => proxyCredentials.get(item.id)).find(Boolean) : undefined
-      if (value.proxy?.authenticated && !credentials && !hostProxy) throw new Error('Save credentials for this proxy in Connection first')
-      let connectionId = hostProxy ? paneConnectionId(pane) : saveConnection(profile, value.proxy, credentials, paneConnectionId(pane))
-      disposeTab(pane.id)
-      pane.connectionId = connectionId
-      if (value.device) pane.device = value.device
-      else delete pane.device
-      if (value.viewport) { window.lockedViewports ??= {}; window.lockedViewports[pane.id] = { ...value.viewport } }
-      else if (window.lockedViewports) { delete window.lockedViewports[pane.id]; if (!Object.keys(window.lockedViewports).length) delete window.lockedViewports }
-      remoteSizes.delete(pane.id); viewportPanModes.delete(pane.id)
-      previewCache.remove(pane.id)
-      changed(); await visualQueue; return pane
+      fingerprints.discard(required(args,'fingerprint')); return true
+    }
+    if (method === 'fingerprint.export') return parseFingerprint(resolve(fingerprints.profiles(),args.fingerprint,'Fingerprint'))
+    if (method === 'fingerprint.delete') {
+      let value = resolve(fingerprints.profiles(),args.fingerprint,'Fingerprint')
+      fingerprints.update(value.id,null); return { deleted:value.id }
+    }
+    if (['fingerprint.apply','fingerprint.lock','fingerprint.unlock','fingerprint.apply-existing'].includes(method)) {
+      if (!sourceClientId) throw new Error('Trusted UI required')
+      let target = paneById(model,required(args,'pane'))
+      let profile = resolve(model.profiles,target.pane.profileId,'Profile')
+      if (method === 'fingerprint.unlock') { delete profile.fingerprintLock; save(); return true }
+      let lock = args.locked === true ? profileFingerprint(profile) : { scope:fingerprints.scope(), value:resolve(fingerprints.profiles(),args.fingerprint,'Fingerprint') }
+      if (!lock) throw new Error('Choose a fingerprint profile')
+      if (method === 'fingerprint.apply-existing') {
+        let outcomes = { applied:0, skipped:0 }
+        for (let item of walkPanes(model)) {
+          let assigned = item.pane.fingerprint
+          let inherited = resolve(model.profiles,item.pane.profileId,'Profile').fingerprintLock
+          if (![assigned && { scope:assigned.scope,id:assigned.id },inherited && { scope:inherited.scope,id:inherited.value.id }].some(ref => ref?.scope === lock.scope && ref.id === lock.value.id)) continue
+          if (fingerprintSettings(captureFingerprint(item)) === fingerprintSettings(lock.value)) continue
+          try { await applyFingerprint(item,lock); outcomes.applied++ }
+          catch { outcomes.skipped++ }
+        }
+        return outcomes
+      }
+      return applyFingerprint(target,lock,undefined,undefined,method === 'fingerprint.lock' ? () => { profile.fingerprintLock = structuredClone(lock) } : undefined)
     }
     if (method === 'profile.list') return model.profiles
     if (method === 'profile.create') {
@@ -3741,6 +3840,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let restoredProfile = args.name === undefined ? undefined : model.closedSessionProfiles?.[name]
       let profile = resolve(model.profiles, args.profile ?? (args.private === true ? 'default' : restoredProfile ?? model.newSessionProfileId ?? 'default'), 'Profile')
       let session = newSession(name, profile.id, args.private === true, model)
+      initializeFingerprint(session.windows[0],session.windows[0].panes[0])
       updateAgentInfo(session.windows[0].panes[0], args)
       if (args.profile !== undefined) session.profileExplicit = true
       model.sessions.push(session)
@@ -3867,6 +3967,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       updateAgentInfo(window.panes[0], args)
       if (!sourceClientId && args.url) automatedNavigations.set(window.panes[0].id, { paneId: window.panes[0].id, ...agentInfo(window.panes[0]) })
       if (session.device) window.panes[0].device = session.device
+      initializeFingerprint(window,window.panes[0])
       if (args.url) {
         let tab = window.panes[0]
         tab.url = normalizeUrl(String(args.url), searchAppForSession(session))
@@ -3880,6 +3981,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let original = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       let session = resolve(model.sessions, model.sessions.find(item => item.windows.includes(original))?.id, 'Session')
       let copy = cloneWindow(original, model)
+      for (let pane of copy.panes) initializeFingerprint(copy,pane)
       copy.name = `${original.name} copy`
       copy.automaticName = false
       session.windows.splice(session.windows.indexOf(original) + 1, 0, copy)
@@ -4086,7 +4188,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (method === 'new-pane') updateAgentInfo(pane, args)
       if (method === 'new-pane' && !sourceClientId && args.url) automatedNavigations.set(pane.id, { paneId: pane.id, ...agentInfo(pane) })
       if (method === 'new-pane' && session.device) pane.device = session.device
-      if (method === 'new-pane') window.panes.push(pane)
+      if (method === 'new-pane') { initializeFingerprint(window,pane); window.panes.push(pane) }
       liftPane(window, pane.id, client?.width ?? 1280, (client?.height ?? 850) - 28)
       if (args.client && args.background !== true) {
         let selected = resolve(model.clients, args.client, 'Client')
@@ -4107,6 +4209,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       updateAgentInfo(pane, args)
       if (!sourceClientId && args.url) automatedNavigations.set(pane.id, { paneId: pane.id, ...agentInfo(pane) })
       if (session.device) pane.device = session.device
+      initializeFingerprint(window,pane)
       let placement = parent && window.floating?.find(item => item.paneId === parent.pane.id)
       if (placement) { forgetPlacement(window, parent!.pane.id); dockPane(window, parent!.pane.id, placement) }
       window.layout = splitLayout(window.layout, parent?.pane.id ?? layoutPaneIds(window.layout)[0], pane.id, args.axis === 'vertical' ? 'vertical' : 'horizontal', args.before === true)
@@ -4219,6 +4322,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let window = resolve(model.sessions.flatMap(session => session.windows), args.window, 'Window')
       if (!(await closeTabsBeforeRemoval(window.panes.map(pane => pane.id)))) return { cancelled: window.id }
       let replacement = cloneWindow(saved.window, model)
+      for (let pane of replacement.panes) initializeFingerprint(replacement,pane)
       window.layout = replacement.layout; window.panes = replacement.panes; window.floating = replacement.floating; window.lockedViewports = replacement.lockedViewports
       changed(); await visualQueue; return window
     }
@@ -4752,7 +4856,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     return previewCache.flush()
   }
   let management = createRemoteManagement({
-    model, interactiveOnly, hostProxy,
+    model, interactiveOnly, hostProxy, initializeFingerprint,
     credentials:{ ...proxyCredentials, available:credentialEncryption.available },
     assertControl:controls.assert,
     saveProxy:saveDefaultConnection,
@@ -4768,12 +4872,29 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     changed,
     reopen:async pane => { disposeTab(pane); await scheduleVisuals() },
   })
+  let remoteSessionState = (session: WorkspaceSession) => ({ ...session, windows:session.windows.map(window => ({
+    ...window,
+    panes:window.panes.map(({ fingerprint: _fingerprint,...pane }) => pane),
+  })) })
   let remote = {
     accountConfiguration: (platform: string, profileId: string, operation?: Parameters<NonNullable<typeof plugins>['accountConfiguration']>[2]) => {
       if (!model.profiles.some(profile => profile.id === profileId) || !plugins) throw new Error('Browsing profile unavailable')
       return plugins.accountConfiguration(platform, profileId, operation)
     },
     capabilities:management.capabilities,
+    fingerprints,
+    inspectFingerprint: (pane: string) => {
+      let target = paneById(model,pane)
+      let current = captureFingerprint(target,'Current settings','fingerprint_current')
+      let locked = profileFingerprint(resolve(model.profiles,target.pane.profileId,'Profile'))
+      let applied = target.pane.fingerprint
+      return { current, ...(applied && applied.scope === fingerprints.scope() && applied.settings === fingerprintSettings(current) ? { applied } : {}), ...(locked && locked.scope === fingerprints.scope() ? { locked:locked.value } : {}), needsLock: !!locked && fingerprintSettings(locked.value) !== fingerprintSettings(current) }
+    },
+    applyFingerprint: (pane: string, key: string, settings: string, owner: string, generation: number) => {
+      let value = model.fingerprintSync?.scopes[fingerprints.scope()]?.records[key]?.value
+      if (!value || fingerprintSettings(value) !== settings) throw new Error('STALE_FINGERPRINT')
+      return applyFingerprint(paneById(model,pane),{ scope:fingerprints.scope(),value },owner,generation)
+    },
     rpc:management.rpc,
     sessionRevision:management.sessionRevision,
     attentions: () => {
@@ -4840,19 +4961,29 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       controls.release(session.id)
       return await execute({ method: 'kill-pane', args: { pane: paneId, confirm: true } }) as { closed?: string; cancelled?: string }
     },
-    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral).map(session => ({ ...session, revision: management.sessionRevision(session.id) })); return { activity: activity.episodes(), capabilities: management.capabilities, sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
+    state: () => { clearRemoteSizes(); let sessions = model.sessions.filter(session => !session.ephemeral).map(session => ({ ...remoteSessionState(session), revision: management.sessionRevision(session.id) })); return { activity: activity.episodes(), capabilities: management.capabilities, sessions, viewports: Object.fromEntries([...tabs.keys()].filter(pane => !remotePages.has(pane)).map(pane => [pane, remoteViewport(pane)])), controls: Object.fromEntries(sessions.map(session => [session.id, controls.get(session.id)])), attention: remote.attentions() } },
     workspace: (sessionId: string) => {
       let session = model.sessions.find(session => session.id === sessionId && !session.ephemeral)
       if (!session) return undefined
       let client = model.clients.find(client => client.sessionId === sessionId && client.id === (focusedClientId ?? model.lastFocusedClientId)) ?? model.clients.find(client => client.sessionId === sessionId)
       let window = session.windows.find(window => window.id === client?.windowId) ?? session.windows.slice().sort((a, b) => (b.lastVisitedAt ?? 0) - (a.lastVisitedAt ?? 0))[0]
-      return { session, profiles: model.profiles.map(({ id, name }) => ({ id, name })), selection: { windowId: window.id, paneId: client?.paneId ?? window.panes[0]?.id ?? null, zoomedPaneId: client?.zoomedPaneId } }
+      return { session:remoteSessionState(session), profiles: model.profiles.map(({ id, name }) => ({ id, name })), selection: { windowId: window.id, paneId: client?.paneId ?? window.panes[0]?.id ?? null, zoomedPaneId: client?.zoomedPaneId } }
     },
     manage: (options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => createRemoteCapture(options),
     capture: async (pane: string, options: Omit<Parameters<typeof createRemoteCapture>[0], 'contents'>) => {
       let contents = tabs.get(pane)?.contents
       if (contents && !contents.isDestroyed() && contents.isCrashed()) throw new Error('Page process crashed. Reload to recover.')
-      return createRemoteCapture({ ...options, contents: (await ensureLiveTab(pane)).contents })
+      let capture: Awaited<ReturnType<typeof createRemoteCapture>> | undefined
+      let live = await ensureLiveTab(pane)
+      capture = await createRemoteCapture({ ...options, contents:live.contents, closed:() => {
+        let captures = fingerprintCaptures.get(pane)
+        if (capture && captures?.delete(capture) && !captures.size) fingerprintCaptures.delete(pane)
+        options.closed()
+      } })
+      let captures = fingerprintCaptures.get(pane) ?? new Set()
+      captures.add(capture)
+      fingerprintCaptures.set(pane,captures)
+      return capture
     },
     acquire: (session: string, owner: string, takeover: boolean) => {
       let target = resolve(model.sessions, session, 'Session'), managed = managedSession(session)

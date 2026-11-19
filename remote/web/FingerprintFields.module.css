@@ -1,0 +1,4 @@
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 12px; }
+.fields label { display: grid; gap: 4px; min-width: 0; }
+.fields input:not([type="checkbox"]), .fields select { width: 100%; }
+.fields .toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }

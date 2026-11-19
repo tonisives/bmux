@@ -27,6 +27,17 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   }
   let initial = config(), identity = remoteIdentity(initial.identityFile ?? path.join(directory, 'remote-identity.pem'))
   runtime.remote.enablePreviews()
+  let fingerprintSync: Promise<void> | undefined, fingerprintSupport = false, fingerprintReady = false
+  let fingerprintAbort = new AbortController()
+  let fingerprints = runtime.remote.fingerprints
+  let syncFingerprints = (origin: string, token: string) => {
+    if (!fingerprintSupport) return Promise.resolve()
+    let signal = fingerprintAbort.signal
+    return fingerprintSync ??= fingerprints.synchronize(origin,token,signal).then(() => {
+      if (!signal.aborted) { fingerprintReady = true; advertise() }
+    }).finally(() => { if (!signal.aborted) fingerprintSync = undefined })
+  }
+  let currentEnrollment = initial
   let hostFile = path.join(directory, 'remote-host-id')
   if (!fs.existsSync(hostFile)) fs.writeFileSync(hostFile, randomUUID(), { mode: 0o600, flag: 'wx' })
   let hostId = fs.readFileSync(hostFile, 'utf8').trim(), generation = randomUUID()
@@ -81,8 +92,9 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
         return { id: pane.id, title: pane.title, lastActivityAt: pane.lastActivityAt, ...actor, ...(fields ? { agentFields: Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.label])) } : {}) }
       })),
     }))
-    let serialized = JSON.stringify(sessions)
-    if (serialized !== lastSessions) { send({ type: 'sessions', sessions, capabilities: runtime.remote.capabilities, machine: { name: os.hostname(), platform: process.platform, arch: process.arch, version: buildInfo?.version, revision: buildInfo?.revision } }); lastSessions = serialized }
+    let capabilities = { ...runtime.remote.capabilities, ...(fingerprintReady ? { fingerprints:1 } : {}) }
+    let serialized = JSON.stringify([sessions,capabilities])
+    if (serialized !== lastSessions) { send({ type: 'sessions', sessions, capabilities, machine: { name: os.hostname(), platform: process.platform, arch: process.arch, version: buildInfo?.version, revision: buildInfo?.revision } }); lastSessions = serialized }
   }
   let streamKey = (id: string, view?: string) => view ? `${id}:${view}` : id
   let disconnect = (key: string, release = true) => {
@@ -163,7 +175,18 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
             let target = message.command?.args?.pane ?? message.command?.args?.tab
             if (!runtime.model.sessions.some(item => item.id === session.id && item.windows.some(window => window.panes.some(pane => pane.id === target)))) throw new Error('Session is no longer available')
           }
-          if (message.type === 'rpc') {
+          if (message.type === 'fingerprint.inspect' || message.type === 'fingerprint.apply') {
+            if (!authorized.get(id)?.owner) throw new Error('OWNER_REQUIRED')
+            if (!fingerprintReady || !selected || !session || metadata || message.pane !== selected || message.session !== session.id) throw new Error('TARGET_UNAVAILABLE')
+            if (message.type === 'fingerprint.inspect') result = runtime.remote.inspectFingerprint(selected)
+            else {
+              if (typeof message.fingerprint !== 'string' || typeof message.settings !== 'string' || !Number.isSafeInteger(message.generation)) throw new Error('INVALID_REQUEST')
+              await syncFingerprints(new URL(currentEnrollment.url).origin,currentEnrollment.token)
+              await runtime.remote.applyFingerprint(selected,message.fingerprint,message.settings,id,message.generation)
+              result = runtime.remote.inspectFingerprint(selected)
+            }
+          }
+          else if (message.type === 'rpc') {
             if (!authorized.get(id)?.owner) throw new Error('OWNER_REQUIRED')
             result = await runtime.remote.rpc(id, message as RemoteRPCRequest)
             advertise()
@@ -211,6 +234,13 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   let connect = () => {
     if (stopped) return
     let current = config(), url = new URL('/connect', current.url)
+    currentEnrollment = current
+    fingerprintAbort.abort()
+    fingerprintAbort = new AbortController()
+    fingerprintSync = undefined
+    fingerprints.bind(url.origin,current.token)
+    fingerprintSupport = false
+    fingerprintReady = false
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('host', hostId); url.searchParams.set('generation', generation)
     url.searchParams.set('protocol', '2')
@@ -222,7 +252,10 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       void (async () => {
         let message = JSON.parse(raw.toString())
         if (message.type === 'activity-recorded') { runtime.activity.acknowledge(message.id); return }
-        if (message.type === 'ready') { accountRelay ??= startAccountRelay(runtime, current.url, current.token, hostId, generation, directory, runtime.remote.accountConfiguration); activitySupported = message.activityHooks === 1; iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); reportActivity(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
+        if (message.type === 'ready') {
+          fingerprintSupport = message.fingerprints === 1
+          if (fingerprintSupport) void syncFingerprints(new URL(current.url).origin,current.token).catch(() => undefined)
+          accountRelay ??= startAccountRelay(runtime, current.url, current.token, hostId, generation, directory, runtime.remote.accountConfiguration); activitySupported = message.activityHooks === 1; iceServers = message.iceServers; streamPermits = message.streamPermits === true; backoff = 1000; lastSessions = ''; advertise(); reportActivity(); for (let item of attention.values()) item.acknowledged = false; reportAttention(); return }
         if (message.type === 'attention-recorded') { let item = attention.get(message.episode); if (item && item.target.revision === message.revision) item.acknowledged = true; return }
         if (message.type === 'stream-permit') { let pending = permits.get(message.request); if (pending) { clearTimeout(pending.timer); permits.delete(message.request); if (message.error) pending.reject(Object.assign(new Error(String(message.error)),{code:message.code})); else pending.resolve() } return }
         if (message.type === 'stream-revoked') { for (let [id, stream] of streams) if (stream.connection === message.connection) disconnect(id); return }
@@ -313,6 +346,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
     })
     socket.on('close', () => {
       accountRelay?.close(); accountRelay = undefined
+      fingerprintAbort.abort(); fingerprintReady = false
       for (let pending of permits.values()) { clearTimeout(pending.timer); pending.reject(new Error('Relay disconnected')) } permits.clear()
       opening.clear()
       for (let id of streams.keys()) disconnect(id)
@@ -332,6 +366,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
   }
   let timer = setInterval(() => {
     usage()
+    if (socket?.readyState === WebSocket.OPEN && fingerprintSupport) void syncFingerprints(new URL(currentEnrollment.url).origin,currentEnrollment.token).catch(() => undefined)
     advertise()
     reportAttention()
     reportActivity()
@@ -344,7 +379,7 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
       }
     } } catch { for (let id of streams.keys()) disconnect(id) }
   }, 5000)
-  let close = () => { accountRelay?.close(); opening.clear(); usage(); stopped = true; clearInterval(timer); clearTimeout(retry); for (let id of streams.keys()) disconnect(id); socket?.close() }
+  let close = () => { fingerprintAbort.abort(); fingerprints.disconnect(); accountRelay?.close(); opening.clear(); usage(); stopped = true; clearInterval(timer); clearTimeout(retry); for (let id of streams.keys()) disconnect(id); socket?.close() }
   let unsubscribeActivity = runtime.activity.subscribe(reportActivity)
   connect()
   return {

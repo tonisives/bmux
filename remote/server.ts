@@ -12,6 +12,7 @@ import type { RemoteMachine } from '../src/shared/remote-sessions'
 import { createMobileAuth, type LoginContext } from './mobile-auth'
 import type { RemoteCapabilities } from '../src/shared/remote-management'
 import { recordHostAttention } from './attention-records'
+import { fingerprintCatalog } from './fingerprints'
 import { createActivityHooks } from './activity-hooks'
 
 let required = (name: string) => { let value = process.env[name]; if (!value) throw new Error(`${name} is required`); return value }
@@ -23,6 +24,7 @@ let turnUrls = required('BMUX_TURN_URLS').split(',')
 let pool = new Pool({ connectionString: required('DATABASE_URL'), max: 4 })
 // pg removes failed idle clients; handling this event keeps the relay alive.
 pool.on('error', error => console.error('Idle database connection lost', { code: (error as Error & { code?: string }).code }))
+let fingerprints = fingerprintCatalog(pool)
 let activityHooks = createActivityHooks(pool)
 let managed = process.env.BMUX_MANAGED_BILLING === 'true'
 let leases = createStreamLeases(pool, managed)
@@ -92,7 +94,7 @@ let refreshIce = (peer: Peer) => {
   if ((peer.iceExpiresAt ?? 0) > Date.now() + 120000) return
   let configuration = ice(peer.id)
   // Running hosts already accept ready messages; renewal does not replace their streams.
-  if (send(peer, { type: 'ready', id: peer.id, ...configuration, streamPermits: true, activityHooks: 1 })) peer.iceExpiresAt = configuration.iceExpiresAt
+  if (send(peer, { type: 'ready', id: peer.id, ...configuration, streamPermits: true, activityHooks: 1, fingerprints: 1 })) peer.iceExpiresAt = configuration.iceExpiresAt
 }
 let server = http.createServer((request, response) => {
   let connectionDeadline = Date.now() + 30000
@@ -102,6 +104,18 @@ let server = http.createServer((request, response) => {
     if (!ready) { json(503, { error: 'Service starting' }); return }
     if (request.method === 'GET' && url.pathname === '/health') { await pool.query('SELECT 1'); json(200, { ok: true }); return }
     if (request.method === 'GET' && url.pathname === '/api/config') { json(200, { googleClientId: audience, appleEnabled: mobileAuth.appleEnabled }); return }
+    if (url.pathname === '/api/host/fingerprints' && ['GET','POST'].includes(request.method ?? '')) {
+      let token = request.headers.authorization?.match(/^Bearer (\S+)$/)?.[1]
+      if (!token) throw new Error('Invalid enrollment')
+      let { rows } = await pool.query('SELECT owner FROM bmux_services WHERE token_hash=$1 AND NOT revoked', [digest(token)])
+      let owner = rows[0]?.owner
+      if (!owner) throw new Error('Invalid enrollment')
+      if (request.method === 'GET') { json(200, await fingerprints.list(owner)); return }
+      let input = await body(request)
+      if (input?.owner !== owner) throw new Error('Enrollment changed')
+      let result = await fingerprints.change(owner, input.change)
+      json(result.status,result.body); return
+    }
     let authentication: LoginContext | undefined
     let protectedFlow = request.method === 'POST' && ['/api/auth/mobile/exchange','/api/auth/mobile/refresh','/api/auth/mobile/password','/api/auth/apple/callback'].includes(url.pathname)
     if (!['GET','HEAD'].includes(request.method ?? '') && request.headers.origin !== publicOrigin && !protectedFlow) {
@@ -132,6 +146,11 @@ let server = http.createServer((request, response) => {
     if (url.pathname.startsWith('/api/')) {
       let auth = authentication ?? await mobileAuth.authenticate(request), owner = auth.owner
       if (auth.nativeSession && !['/api/me','/api/hosts','/api/connect','/api/streams','/api/streams/disconnect'].includes(url.pathname)) throw new Error('Native operation unavailable')
+      if (url.pathname === '/api/fingerprints' && request.method === 'GET') { json(200, await fingerprints.list(owner)); return }
+      if (url.pathname === '/api/fingerprints' && request.method === 'POST') {
+        let result = await fingerprints.change(owner,await body(request))
+        json(result.status,result.body); return
+      }
       if (url.pathname === '/api/hooks' || url.pathname.startsWith('/api/hooks/')) { json(200,await activityHooks.api(owner,request.method ?? 'GET',url.pathname,['POST','PATCH'].includes(request.method ?? '') ? await body(request) : {})); return }
       if (request.method === 'GET' && url.pathname === '/api/me') { let user = (await pool.query('SELECT email,name FROM bmux_accounts WHERE owner=$1', [owner])).rows[0]; json(200, { owner, ...user, pro: !!(await pool.query('SELECT 1 FROM bmux_entitlements WHERE owner=$1 AND expires>now()', [owner])).rowCount, entitlement:await leases.status(owner) }); return }
       if (request.method === 'GET' && url.pathname === '/api/streams') { json(200, (await leases.list(owner)).map(view => ({...view,session:peers.get(view.host)?.sessions?.find(session=>session.panes.some(pane=>pane.id===view.pane))?.id}))); return }
@@ -299,7 +318,7 @@ server.on('upgrade', (request, socket, head) => {
           }
           if (message.type === 'sessions' && current.role === 'host') {
             if (message.capabilities !== undefined) {
-              if (!message.capabilities || typeof message.capabilities !== 'object' || Object.keys(message.capabilities).some(key => !['management','sessionCreate','pageCreate','profiles','proxy','streamQuality','verifiedAttention'].includes(key)) || Object.values(message.capabilities).some(value => value !== 1)) throw new Error('Invalid capabilities')
+              if (!message.capabilities || typeof message.capabilities !== 'object' || Object.keys(message.capabilities).some(key => !['management','sessionCreate','pageCreate','profiles','proxy','streamQuality','verifiedAttention','fingerprints'].includes(key)) || Object.values(message.capabilities).some(value => value !== 1)) throw new Error('Invalid capabilities')
               current.capabilities = message.capabilities
             }
             let sessions = message.sessions

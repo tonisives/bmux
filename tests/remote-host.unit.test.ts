@@ -46,7 +46,7 @@ let setup = (request?: string, open = true, streamPermits = false) => {
     signalOffer()
     return pending
   })
-  let runtime = { accounts: { proxyStatus: () => ({}), proxies: { configure: vi.fn(), disconnect: vi.fn() }, mobility: { publicKey: () => undefined }, jobs: { receipts: async () => [] }, actions: () => [] }, activity:{events:()=>[],acknowledge:vi.fn(),subscribe:()=>()=>undefined}, state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { capabilities: { management: 1, streamQuality: 1 }, sessionRevision: () => 'fixture-revision', rpc: vi.fn(async (_owner: string, _request: unknown) => ({ profiles: [] })), attentions: vi.fn((): AttentionTarget[] => []), attentionHistory: vi.fn((): AttentionTarget[] => []), capture, manage: vi.fn(async (_options: unknown) => peer), workspace: vi.fn(() => ({ selection: { paneId: 'pane' }, session: { id: 'session', windows: [] }, profiles: [] })), state: vi.fn(() => ({ sessions: [], controls: {}, viewports: {} })), acquire: vi.fn(), renew: vi.fn(), release: vi.fn(), enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })), closePage: vi.fn(async (_session: string, _pane: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'pane' })) } }
+  let runtime = { accounts: { proxyStatus: () => ({}), proxies: { configure: vi.fn(), disconnect: vi.fn() }, mobility: { publicKey: () => undefined }, jobs: { receipts: async () => [] }, actions: () => [] }, activity:{events:()=>[],acknowledge:vi.fn(),subscribe:()=>()=>undefined}, state: () => ({ automationAgents: { definitions: {} } }), model: { sessions: [{ id: 'session', name: 'main', windows: [{ lastVisitedAt: 123456, panes: [{ id: 'pane', title: 'fixture' }] }] }] }, remote: { fingerprints: { bind:vi.fn(), disconnect:vi.fn(), synchronize:vi.fn(async () => undefined) }, inspectFingerprint:vi.fn(() => ({ needsLock:false })), applyFingerprint:vi.fn(async () => undefined), capabilities: { management: 1, streamQuality: 1 }, sessionRevision: () => 'fixture-revision', rpc: vi.fn(async (_owner: string, _request: unknown) => ({ profiles: [] })), attentions: vi.fn((): AttentionTarget[] => []), attentionHistory: vi.fn((): AttentionTarget[] => []), capture, manage: vi.fn(async (_options: unknown) => peer), workspace: vi.fn(() => ({ selection: { paneId: 'pane' }, session: { id: 'session', windows: [] }, profiles: [] })), state: vi.fn(() => ({ sessions: [], controls: {}, viewports: {} })), acquire: vi.fn(), renew: vi.fn(), release: vi.fn(), enablePreviews: vi.fn(), previews: vi.fn(async () => ({ pane: { image: 'data:image/jpeg;base64,Zmlyc3Q=', capturedAt: 123456 } })), disconnect: vi.fn(), closeSession: vi.fn(async (_session: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'session' })), closePage: vi.fn(async (_session: string, _pane: string): Promise<{ closed?: string; cancelled?: string }> => ({ closed: 'pane' })) } }
   host = startRemoteHost(runtime as unknown as Parameters<typeof startRemoteHost>[0], directory, path.join(directory, 'remote.json'))
   let viewer = remoteIdentity(path.join(directory, 'viewer.pem'))
   let socket = sockets[0]
@@ -315,4 +315,27 @@ it('replays terminal attention history after a restart and after relay reconnect
   socket.emit('message', JSON.stringify({ type: 'attention-recorded', episode: target.episode, revision: target.revision }))
   ready()
   expect(socket.sent.filter(message => message.type === 'attention')).toHaveLength(2)
+})
+
+it('applies fingerprints only to the owner’s selected live pane under its control lease', async () => {
+  let { socket, deliver, capture, resolveCapture, peer, offers, runtime, viewer } = setup('fingerprint-view',false)
+  socket.emit('message',JSON.stringify({ type:'ready',iceServers:[],fingerprints:1 }))
+  deliver({ type:'open',session:'session',pane:'pane',request:'fingerprint-view' })
+  await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce(),{ interval:1 })
+  resolveCapture(peer)
+  await vi.waitFor(() => expect(offers()).toHaveLength(1),{ interval:1 })
+  let data = capture.mock.calls[0][1].data
+  let request = { type:'fingerprint.apply',session:'session',pane:'pane',generation:4,fingerprint:'fingerprint_phone',settings:'settings' }
+  socket.emit('message',JSON.stringify({ type:'authorized',id:viewer.id,key:viewer.publicKey,permission:'control',owner:false }))
+  data(JSON.stringify({ ...request, request:'guest' }))
+  await vi.waitFor(() => expect(peer.send).toHaveBeenCalledWith(expect.stringContaining('OWNER_REQUIRED')),{ interval:1 })
+  expect(runtime.remote.applyFingerprint).not.toHaveBeenCalled()
+  socket.emit('message',JSON.stringify({ type:'authorized',id:viewer.id,key:viewer.publicKey,permission:'control',owner:true }))
+  data(JSON.stringify({ ...request,pane:'other',request:'other-pane' }))
+  await vi.waitFor(() => expect(peer.send).toHaveBeenCalledWith(expect.stringContaining('TARGET_UNAVAILABLE')),{ interval:1 })
+  expect(runtime.remote.applyFingerprint).not.toHaveBeenCalled()
+  data(JSON.stringify({ ...request,request:'apply' }))
+  await vi.waitFor(() => expect(runtime.remote.applyFingerprint).toHaveBeenCalledWith('pane','fingerprint_phone','settings',viewer.id,4),{ interval:1 })
+  await vi.waitFor(() => expect(peer.send).toHaveBeenCalledWith(expect.stringContaining('"request":"apply"')),{ interval:1 })
+  expect(peer.close).not.toHaveBeenCalled()
 })

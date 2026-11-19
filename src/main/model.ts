@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import type { Client, Layout, Model, Pane, Profile, WorkspaceSession, InternalWindow } from '../shared/types'
 import { parseProfileProxy } from './profile-proxy'
 import { parseDevicePersona } from './device-persona'
-import { parseFingerprint } from '../shared/fingerprint'
+import { parseFingerprint, validFingerprintId } from '../shared/fingerprint'
 
 export let id = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`
 export let nextPaneId = (model: Model, reserved: Iterable<string> = []) => {
@@ -256,6 +256,13 @@ export let validateModel = (value: unknown): Model => {
       if (JSON.stringify(profile.proxy) !== JSON.stringify(profile.connections.find(connection => connection.id === (profile.connectionId ?? profile.id))?.proxy)) throw new Error('Invalid default connection')
     } else if (profile.connectionId !== undefined) throw new Error('Missing profile connections')
     if (profile.device !== undefined) profile.device = parseDevicePersona(profile.device)
+    if (profile.fingerprintLock !== undefined) {
+      let lock = profile.fingerprintLock
+      if (!lock || typeof lock.scope !== 'string' || !/^(?:[a-f0-9]{64})?$/.test(lock.scope)) throw new Error('Invalid fingerprint lock')
+      let value = parseFingerprint(lock.value)
+      if (value.proxy) value.proxy = parseProfileProxy(value.proxy)
+      profile.fingerprintLock = { scope:lock.scope,value }
+    }
   }
   for (let session of model.sessions) {
     checkId(session.id)
@@ -295,6 +302,7 @@ export let validateModel = (value: unknown): Model => {
       for (let pane of window.panes) {
         checkId(pane.id)
         if (pane.device !== undefined) pane.device = parseDevicePersona(pane.device)
+      if (pane.fingerprint && (!validFingerprintId(pane.fingerprint.id) || typeof pane.fingerprint.scope !== 'string' || !/^(?:[a-f0-9]{64})?$/.test(pane.fingerprint.scope) || typeof pane.fingerprint.settings !== 'string' || pane.fingerprint.settings.length > 4096)) throw new Error('Invalid applied fingerprint')
         else pane.device = model.profiles.find(profile => profile.id === pane.profileId)?.device
         if (pane.connectionId !== undefined && !model.profiles.find(profile => profile.id === pane.profileId)?.connections?.some(connection => connection.id === pane.connectionId)) throw new Error('Unknown pane connection')
         if (!leaves.includes(pane.id) || !model.profiles.some(profile => profile.id === pane.profileId)) throw new Error('Invalid pane')

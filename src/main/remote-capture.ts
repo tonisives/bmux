@@ -34,9 +34,10 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 export let createRemoteCapture = async (options: CaptureOptions) => {
+  let source = options.contents, media = !!source, started = false
   let sourceError = () => {
-    if (!options.contents) return
-    try { assertFrameCapture(options.contents) } catch (error) { return error instanceof Error ? error : new Error('Video capture unavailable') }
+    if (!source) return
+    try { assertFrameCapture(source) } catch (error) { return error instanceof Error ? error : new Error('Video capture unavailable') }
   }
   let error = sourceError()
   if (error) throw error
@@ -56,8 +57,9 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   }
   let start = (frame?: Electron.NativeImage) => {
     if (disposed) return
-    send({ type: 'start', media: !!options.contents, quality: options.quality ?? remoteStreamQuality('quality'), iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate, ...(frame && !frame.isEmpty() ? frameSize(frame) : {}) })
-    if (options.contents) unsubscribe = subscribe(options.contents, sendFrame)
+    started = true
+    send({ type: 'start', media, quality: options.quality ?? remoteStreamQuality('quality'), iceServers: options.iceServers, relayOnly: options.relayOnly, trickle: !!options.candidate, ...(frame && !frame.isEmpty() ? frameSize(frame) : {}) })
+    if (source) unsubscribe = subscribe(source, sendFrame)
     let data = frame && encodeFrame(frame)
     if (data) sendFrame(data)
   }
@@ -70,10 +72,8 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     if (disposed) return
     disposed = true
     activeCaptures.delete(close)
-    options.contents?.off('destroyed', close)
-    options.contents?.off('render-process-gone', close)
+    detachSource()
     for (let pending of pendingQuality.values()) { clearTimeout(pending.timer); pending.reject(new Error('Stream closed')) }; pendingQuality.clear()
-    unsubscribe?.()
     // Keep the transport alive long enough to send SCTP closure to the viewer.
     if (!window.isDestroyed() && !window.webContents.isCrashed()) {
       // SCTP reset can outlive one second when several streams close together.
@@ -83,15 +83,31 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
     } else destroy()
     options.closed()
   }
+  let detachSource = () => {
+    source?.off('destroyed',close)
+    source?.off('render-process-gone',close)
+    unsubscribe?.()
+    unsubscribe = undefined
+  }
+  let replaceSource = (contents?: Electron.WebContents) => {
+    if (disposed || !media) return
+    detachSource()
+    source = contents
+    if (!source) return
+    source.once('destroyed',close)
+    source.once('render-process-gone',close)
+    if (started) unsubscribe = subscribe(source,sendFrame)
+  }
   let receive = (event: Electron.IpcMainEvent, message: { type: string; sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; data?: string; state?: string; request?: string; quality?: RemoteStreamQuality; error?: string }) => {
     if (window.isDestroyed() || event.sender !== window.webContents || !message || typeof message.type !== 'string') return
     if (disposed) { if (message.type === 'stopped') destroy(); return }
     if (message.type === 'ready') {
-      if (options.contents) void capturePageFrame(options.contents).then(start).catch(() => start())
+      if (source) { let initial = source; void capturePageFrame(initial).then(frame => start(source === initial ? frame : undefined)).catch(() => start()) }
       else start()
     } else if (message.type === 'frame-ack') framePending = false
-    else if (message.type === 'connection' && message.state === 'connected' && options.contents) {
-      void capturePageFrame(options.contents).then(frame => { let data = encodeFrame(frame); if (data) sendFrame(data) }).catch(() => undefined)
+    else if (message.type === 'connection' && message.state === 'connected' && source) {
+      let current = source
+      void capturePageFrame(current).then(frame => { let data = encodeFrame(frame); if (data && source === current) sendFrame(data) }).catch(() => undefined)
     }
     else if (message.type === 'offer' && message.sdp) options.signal(message.sdp)
     else if (message.type === 'candidate' && message.candidate) options.candidate?.(message.candidate)
@@ -104,8 +120,7 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   }
   ipcMain.on('remote-message', receive)
   if (options.contents) activeCaptures.add(close)
-  options.contents?.once('destroyed', close)
-  options.contents?.once('render-process-gone', close)
+  replaceSource(source)
   window.webContents.once('render-process-gone', close)
   window.once('closed', close)
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -113,8 +128,8 @@ export let createRemoteCapture = async (options: CaptureOptions) => {
   try { await window.loadFile(path.join(import.meta.dirname, '../renderer/remote-peer.html')) } catch (error) { close(); throw sourceError() ?? error }
   error = sourceError()
   if (error || disposed) { close(); throw error ?? new Error('Stream closed') }
-  return { close, answer: (sdp: RTCSessionDescriptionInit) => send({ type: 'answer', sdp }), candidate: (candidate: RTCIceCandidateInit) => send({ type: 'candidate', candidate }), send: (data: string) => send({ type: 'data', data }), quality:(quality: RemoteStreamQuality) => new Promise<RemoteStreamQuality>((resolve,reject) => {
-    if (disposed || !options.contents) { reject(new Error('QUALITY_UNAVAILABLE')); return }
+  return { close, replaceSource, answer: (sdp: RTCSessionDescriptionInit) => send({ type: 'answer', sdp }), candidate: (candidate: RTCIceCandidateInit) => send({ type: 'candidate', candidate }), send: (data: string) => send({ type: 'data', data }), quality:(quality: RemoteStreamQuality) => new Promise<RemoteStreamQuality>((resolve,reject) => {
+    if (disposed || !media) { reject(new Error('QUALITY_UNAVAILABLE')); return }
     let request = randomUUID(), timer = setTimeout(() => { pendingQuality.delete(request); reject(new Error('QUALITY_UNAVAILABLE')) },5000)
     pendingQuality.set(request,{resolve,reject,timer}); send({type:'quality',request,quality})
   }) }
