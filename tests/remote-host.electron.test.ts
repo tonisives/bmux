@@ -604,9 +604,9 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
     await test.step('Update the fingerprint of a watched page without replacing its stream', async () => {
       await focusWindow(viewerWindowId,'viewer')
       await resizeViewer(1280)
-      let pagePicker = viewer.getByLabel('Pane',{exact:true})
-      await expect(pagePicker).toBeVisible({ timeout:25000 })
-      await pagePicker.selectOption(pane)
+      await viewer.goto(bookmarkedUrl.href)
+      await expect(viewer.getByLabel('Pane',{exact:true})).toHaveValue(pane,{ timeout:25000 })
+      await viewer.waitForFunction(() => (document.querySelector('video')?.getVideoPlaybackQuality().totalVideoFrames ?? 0) > 0)
       await expect(viewer.getByRole('button',{name:'Take control',exact:true})).toBeEnabled({ timeout:15000 })
       await viewer.getByRole('button',{name:'Take control',exact:true}).click()
       await expect(viewer.getByRole('button',{name:'Release control',exact:true})).toBeVisible()
