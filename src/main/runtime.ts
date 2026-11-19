@@ -975,11 +975,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!lock) return
     return { ...lock, value: lock.scope === fingerprints.scope() ? fingerprints.find(lock.value.id) ?? lock.value : lock.value }
   }
-  let prepareFingerprint = (pane: FingerprintTarget['pane'], value: FingerprintProfile, profile = resolve(model.profiles,pane.profileId,'Profile')) => {
+  let prepareFingerprint = (pane: FingerprintTarget['pane'], value: FingerprintProfile, replacement?: ProxyCredentials) => {
+    let profile = resolve(model.profiles,pane.profileId,'Profile')
     if (value.proxy) value = { ...value, proxy: parseProfileProxy(value.proxy) }
     if (hostProxy && !sameFingerprintProxy(hostProxy,value.proxy)) throw new Error('FINGERPRINT_HOST_PROXY_REQUIRED')
+    if (replacement && (hostProxy || !value.proxy?.authenticated || !credentialEncryption.available())) throw new Error('FINGERPRINT_PROXY_CREDENTIALS_UNAVAILABLE')
     let credentials = value.proxy?.authenticated && !hostProxy
-      ? model.profiles.flatMap(item => item.connections ?? [{ id:item.id,proxy:item.proxy }])
+      ? replacement ?? [connectionProfile(model,paneConnectionId(pane)), ...model.profiles.flatMap(item => item.connections ?? [{ id:item.id,proxy:item.proxy }])]
         .filter(item => sameFingerprintProxy(item.proxy,value.proxy)).map(item => proxyCredentials.get(item.id)).find(Boolean)
       : undefined
     if (value.proxy?.authenticated && !credentials && !hostProxy) throw new Error('FINGERPRINT_PROXY_CREDENTIALS_REQUIRED')
@@ -1021,16 +1023,16 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
   }
   let fingerprintRefreshes = new Map<string, Promise<unknown>>()
-  let prepareFingerprintApply = (target: FingerprintTarget, lock: FingerprintLock, owner?: string, generation?: number) => {
+  let prepareFingerprintApply = (target: FingerprintTarget, lock: FingerprintLock, owner?: string, generation?: number, replacement?: ProxyCredentials) => {
     let { pane,session } = target
     if (session.remote || session.ephemeral || accountBlocked(paneConnectionId(pane))) throw new Error('TARGET_UNAVAILABLE')
     controls.assert(session.id,owner,generation)
     assertAccountMutation(model,'fingerprint.apply',{ pane:pane.id })
     assertAccountMutation(model,'profile.device.set',{ pane:pane.id })
-    if (fingerprintSettings(captureFingerprint(target)) === fingerprintSettings(lock.value)) return () => {
+    if (!replacement && fingerprintSettings(captureFingerprint(target)) === fingerprintSettings(lock.value)) return () => {
       pane.fingerprint = { scope:lock.scope,id:lock.value.id,settings:fingerprintSettings(lock.value) }
     }
-    let connection = prepareFingerprint(pane,lock.value)
+    let connection = prepareFingerprint(pane,lock.value,replacement)
     return () => {
       let connectionId = connection()
       beginFingerprintRefresh(pane.id)
@@ -1040,12 +1042,12 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       previewCache.remove(pane.id)
     }
   }
-  let applyFingerprint = (target: FingerprintTarget, lock: FingerprintLock, owner?: string, generation?: number, onApply?: () => void) => {
+  let applyFingerprint = (target: FingerprintTarget, lock: FingerprintLock, owner?: string, generation?: number, onApply?: () => void, replacement?: ProxyCredentials) => {
     let pane = target.pane.id
     let apply = async () => {
       let current = paneById(model,pane)
       if (current.pane !== target.pane || current.session !== target.session || current.window !== target.window) throw new Error('TARGET_UNAVAILABLE')
-      prepareFingerprintApply(target,lock,owner,generation)()
+      prepareFingerprintApply(target,lock,owner,generation,replacement)()
       onApply?.()
       writeModel(dataDirectory,model,bookmarkFile)
       changed()
@@ -4855,16 +4857,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     for (let host of hosts.values()) if (!host.isDestroyed()) host.destroy()
     return previewCache.flush()
   }
+  let testProxyConfiguration = async (proxy: NonNullable<FingerprintProfile['proxy']>, credentials?: ProxyCredentials) => {
+    let probe = id('profile')
+    try { let relay = await proxyRelays.create(probe,proxy,credentials); return await testProxyRelay(relay,process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/') }
+    finally { await proxyRelays.close(probe) }
+  }
   let management = createRemoteManagement({
     model, interactiveOnly, hostProxy, initializeFingerprint,
     credentials:{ ...proxyCredentials, available:credentialEncryption.available },
     assertControl:controls.assert,
     saveProxy:saveDefaultConnection,
-    testProxy:async (proxy, credentials) => {
-      let probe = id('profile')
-      try { let relay = await proxyRelays.create(probe,proxy,credentials); return await testProxyRelay(relay,process.env.BMUX_PROXY_TEST_URL ?? 'https://ipwho.is/') }
-      finally { await proxyRelays.close(probe) }
-    },
+    testProxy:testProxyConfiguration,
     persist:() => {
       clearTimeout(persistTimer); writeModel(dataDirectory,model,bookmarkFile)
       if (process.platform !== 'win32') { let descriptor = fsSync.openSync(dataDirectory,'r'); try { fsSync.fsyncSync(descriptor) } finally { fsSync.closeSync(descriptor) } }
@@ -4888,12 +4891,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let current = captureFingerprint(target,'Current settings','fingerprint_current')
       let locked = profileFingerprint(resolve(model.profiles,target.pane.profileId,'Profile'))
       let applied = target.pane.fingerprint
-      return { current, ...(applied && applied.scope === fingerprints.scope() && applied.settings === fingerprintSettings(current) ? { applied } : {}), ...(locked && locked.scope === fingerprints.scope() ? { locked:locked.value } : {}), needsLock: !!locked && fingerprintSettings(locked.value) !== fingerprintSettings(current) }
+      return { current, ...(applied && applied.scope === fingerprints.scope() && applied.settings === fingerprintSettings(current) ? { applied } : {}), ...(locked && locked.scope === fingerprints.scope() ? { locked:locked.value } : {}), needsLock: !!locked && fingerprintSettings(locked.value) !== fingerprintSettings(current), proxyCredentialsAvailable:!hostProxy && credentialEncryption.available() }
     },
-    applyFingerprint: (pane: string, key: string, settings: string, owner: string, generation: number) => {
-      let value = model.fingerprintSync?.scopes[fingerprints.scope()]?.records[key]?.value
+    applyFingerprint: async (pane: string, key: string, settings: string, owner: string, generation: number, replacement?: ProxyCredentials) => {
+      let scope = fingerprints.scope()
+      let record = () => model.fingerprintSync?.scopes[scope]?.records[key]
+      let value = record()?.value, target = paneById(model,pane)
       if (!value || fingerprintSettings(value) !== settings) throw new Error('STALE_FINGERPRINT')
-      return applyFingerprint(paneById(model,pane),{ scope:fingerprints.scope(),value },owner,generation)
+      let lock = { scope,value }
+      if (replacement) {
+        prepareFingerprintApply(target,lock,owner,generation,replacement)
+        try { await testProxyConfiguration(value.proxy!,replacement) }
+        catch { throw new Error('FINGERPRINT_PROXY_TEST_FAILED') }
+        if (fingerprints.scope() !== scope || !record()?.value || fingerprintSettings(record()!.value!) !== settings) throw new Error('STALE_FINGERPRINT')
+      }
+      return applyFingerprint(target,lock,owner,generation,undefined,replacement)
     },
     rpc:management.rpc,
     sessionRevision:management.sessionRevision,

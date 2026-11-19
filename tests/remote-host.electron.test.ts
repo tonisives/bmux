@@ -9,6 +9,7 @@ import type { ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createHash, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
+import { Server as ProxyServer } from 'proxy-chain'
 import { closeTestApplication } from './electron-fixture'
 import { observeNativeFocus, recordNativeFocus } from './native-focus'
 import { initialModel } from '../src/main/model'
@@ -23,7 +24,10 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let pool = new Pool({ connectionString: process.env.BMUX_TEST_DATABASE_URL, max: 2, connectionTimeoutMillis: 5000, query_timeout: 5000 })
   let origin = 'http://127.0.0.1:18889', owner = randomBytes(12).toString('hex'), service = `test-${owner}`, token = randomBytes(32).toString('hex'), cookie = randomBytes(32).toString('hex')
   let digest = (value: string) => createHash('sha256').update(value).digest('hex')
-  let fixture = http.createServer((_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Remote fixture</title><a href="?linked=1" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Open link</a><input autofocus aria-label="Fixture input" style="position:absolute;top:120px"><div id="tick"></div><script>window.memory="retained";document.addEventListener("keydown",event=>document.body.dataset.key=event.key);document.addEventListener("pointerdown",event=>document.body.dataset.pointer=event.clientX+","+event.clientY);document.addEventListener("wheel",event=>document.body.dataset.wheel=String(event.deltaY));setInterval(()=>document.querySelector("#tick").textContent=Date.now(),100)</script>') })
+  let fixture = http.createServer((request, response) => {
+    if (request.url === '/ip') { response.setHeader('Content-Type','application/json'); response.end('{"ip":"203.0.113.12"}'); return }
+    response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Remote fixture</title><a href="?linked=1" style="position:absolute;left:40px;top:40px;width:120px;height:40px">Open link</a><input autofocus aria-label="Fixture input" style="position:absolute;top:120px"><div id="tick"></div><script>window.memory="retained";document.addEventListener("keydown",event=>document.body.dataset.key=event.key);document.addEventListener("pointerdown",event=>document.body.dataset.pointer=event.clientX+","+event.clientY);document.addEventListener("wheel",event=>document.body.dataset.wheel=String(event.deltaY));setInterval(()=>document.querySelector("#tick").textContent=Date.now(),100)</script>')
+  })
   await new Promise<void>(resolve => fixture.listen(0, '127.0.0.1', resolve))
   let fixtureUrl = `http://127.0.0.1:${(fixture.address() as { port: number }).port}`
   await pool.query(await fs.readFile('remote/schema.sql', 'utf8'))
@@ -38,6 +42,12 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
   let server = spawn(process.execPath,['--import','tsx','remote/server.ts'],{env:{...process.env,DATABASE_URL:process.env.BMUX_TEST_DATABASE_URL,PGAPPNAME:service,PORT:'18889',BMUX_PUBLIC_ORIGIN:origin,BMUX_GOOGLE_CLIENT_ID:'fixture',BMUX_TURN_SECRET:'fixture',BMUX_TURN_URLS:'turn:127.0.0.1:3478'},stdio:'ignore'})
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   let applicationProcess: ChildProcess | undefined
+  let acceptedProxyRequests = 0
+  let proxy = new ProxyServer({ host:'127.0.0.1',port:0,prepareRequestFunction:request => {
+    let approved = request.username === 'fixture-user' && request.password === 'fixture-password'
+    if (approved) acceptedProxyRequests++
+    return { requestAuthentication:!approved }
+  } })
   let failed = true
   try {
     await expect.poll(async()=>{try{return(await fetch(`${origin}/health`)).ok}catch{return false}}).toBe(true)
@@ -47,7 +57,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await expect.poll(async () => { try { return (await fetch(`${origin}/health`)).ok } catch { return false } }).toBe(true)
       expect(server.exitCode).toBeNull()
     })
-    application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_DEFAULT_AGENT_ID:'fixture-adapter',BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1'}})
+    application = await electron.launch({args:[process.cwd(),'--background'],env:{...process.env,BMUX_DATA_DIR:directory,BMUX_CONFIG:path.join(directory,'config.yaml'),BMUX_REMOTE_CONFIG:path.join(directory,'remote.json'),BMUX_DEFAULT_AGENT_ID:'fixture-adapter',BMUX_REMOTE_URL:origin,BMUX_BACKGROUND:'1',BMUX_PROXY_TEST_URL:`${fixtureUrl}/ip`,BMUX_HOST_CREDENTIAL_KEY_FILE:path.join(directory,'fixture-key')}})
     applicationProcess = application.process()
     application.context().setDefaultTimeout(10000)
     application.context().setDefaultNavigationTimeout(10000)
@@ -621,21 +631,35 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await panel.getByRole('button',{name:'Apply to page',exact:true}).click()
       await expect(panel.getByRole('status')).toHaveText('Fingerprint applied',{timeout:15000})
       await expect(video).toHaveAttribute('data-viewport-width','660')
+      await proxy.listen()
+      let endpoint = { protocol:'http',host:'127.0.0.1',port:proxy.port,authenticated:true }
       let record = (await fetch(`${origin}/api/fingerprints`,{headers:{Cookie:`bmux_session=${cookie}`}}).then(response=>response.json())).records.find((item: { id:string }) => item.id === fingerprint.id)
-      let result = await fetch(`${origin}/api/fingerprints`,{ method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({ ...record,value:{ ...fingerprint,viewport:{width:680,height:420} } }) })
+      let result = await fetch(`${origin}/api/fingerprints`,{ method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({ ...record,value:{ ...fingerprint,proxy:endpoint,viewport:{width:680,height:420} } }) })
       expect(result.ok).toBe(true)
       await expect(panel.getByText('Update available',{exact:true})).toBeVisible({ timeout:15000 })
       await expect(video).toHaveAttribute('data-viewport-width','660')
       await panel.getByRole('button',{name:'Update and refresh',exact:true}).click()
+      let credentials = panel.getByRole('form',{name:'Proxy credentials'})
+      await expect(credentials).toBeVisible()
+      await credentials.getByLabel('Proxy username').fill('fixture-user')
+      await credentials.getByLabel('Proxy password').fill('incorrect')
+      await credentials.getByRole('button',{name:'Save on host and apply'}).click()
+      await expect(panel.getByRole('alert')).toContainText('Could not connect through the proxy')
+      await expect(video).toHaveAttribute('data-viewport-width','660')
+      await credentials.getByLabel('Proxy username').fill('fixture-user')
+      await credentials.getByLabel('Proxy password').fill('fixture-password')
+      await credentials.getByRole('button',{name:'Save on host and apply'}).click()
       await expect(panel.getByText('Update available',{exact:true})).toHaveCount(0,{ timeout:15000 })
       await expect(video).toHaveAttribute('data-viewport-width','680')
+      await expect.poll(() => acceptedProxyRequests).toBeGreaterThanOrEqual(2)
+      expect(await fs.readFile(path.join(directory,'state.json'),'utf8')).not.toContain('fixture-password')
       let frames = () => video.evaluate(element => (element as HTMLVideoElement).getVideoPlaybackQuality().totalVideoFrames)
       let currentFrames = await frames()
       await expect.poll(frames).toBeGreaterThan(currentFrames)
       let after = await command('status')
       expect(after.remoteControl[status.model.sessions[0].id]).toMatchObject({ owner:before.owner,generation:before.generation })
       expect(after.model.sessions[0].windows.find((window: { id:string }) => window.id === remoteTab.id).lockedViewports).toBeUndefined()
-    },{timeout:40000})
+    },{timeout:55000})
     await test.step('Revoke the original viewer and verify signed-out controls',async()=>{
       let response = await fetch(`${origin}/api/revoke`,{method:'POST',headers:{Origin:origin,Cookie:`bmux_session=${cookie}`,'Content-Type':'application/json'},body:JSON.stringify({id:viewerDevice}),signal:AbortSignal.timeout(10000)})
       expect(response.ok).toBe(true)
@@ -685,6 +709,7 @@ test('discovers a host, watches its live page, coordinates control, and revokes 
       await test.info().attach('native-hang', { path: output, contentType: 'text/plain' })
     }
     await closeTestApplication(application,applicationProcess)
+    await proxy.close(true).catch(() => undefined)
     server.kill('SIGTERM')
     await new Promise<void>(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',()=>resolve());setTimeout(()=>{server.kill('SIGKILL');resolve()},3000).unref()})
     await new Promise<void>(resolve=>{fixture.close(()=>resolve());fixture.closeAllConnections()})

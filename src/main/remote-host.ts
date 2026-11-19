@@ -181,8 +181,10 @@ export let startRemoteHost = (runtime: ReturnType<typeof createRuntime>, directo
             if (message.type === 'fingerprint.inspect') result = runtime.remote.inspectFingerprint(selected)
             else {
               if (typeof message.fingerprint !== 'string' || typeof message.settings !== 'string' || !Number.isSafeInteger(message.generation)) throw new Error('INVALID_REQUEST')
+              let credentials = message.credentials
+              if (credentials !== undefined && (!credentials || ![credentials.username,credentials.password].every(value => typeof value === 'string' && value.length > 0 && value.length <= 4096))) throw new Error('INVALID_REQUEST')
               await syncFingerprints(new URL(currentEnrollment.url).origin,currentEnrollment.token)
-              await runtime.remote.applyFingerprint(selected,message.fingerprint,message.settings,id,message.generation)
+              await runtime.remote.applyFingerprint(selected,message.fingerprint,message.settings,id,message.generation,credentials)
               result = runtime.remote.inspectFingerprint(selected)
             }
           }

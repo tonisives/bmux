@@ -16,8 +16,9 @@ Remote, open **Fingerprint** on the selected session. Take control to apply a
 profile to the selected page. **Update available** appears when that page is
 using a version that has since changed.
 
-Proxy credentials and browser data stay on their host. Add credentials in Proxy
-on the destination before applying an authenticated fingerprint.
+Proxy credentials and browser data stay on their host. For an authenticated
+proxy, use **Enter proxy credentials** in Remote to test and save the login on
+the destination host. Hosts with a required proxy use their configured route.
 
 **Share profiles** supports JSON export and import for standalone hosts. The
 local socket also supports the following commands.
