@@ -26,25 +26,52 @@ let setSessionUrl = (host?: string, session?: string) => {
   else { url.searchParams.delete('host'); url.searchParams.delete('session') }
   if (url.href !== location.href) history.pushState(null, '', url)
 }
-type IconName = 'back' | 'forward' | 'reload' | 'link' | 'type' | 'close' | 'sessions' | 'fit' | 'enter' | 'user'
+type IconName = 'back' | 'forward' | 'reload' | 'keyboard' | 'close' | 'fit' | 'enter' | 'user'
 let Icon = ({ name }: { name: IconName }) => {
   let paths: Record<IconName, ReactNode> = {
-    back: <path d="m14.5 5-7 7 7 7M8 12h12" />,
-    forward: <path d="m9.5 5 7 7-7 7m6.5-7H4" />,
-    reload: <><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.5 9A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 12.5-3" /></>,
-    link: <><path d="M10 7H5v12h12v-5M13 5h6v6M19 5l-9 9" /></>,
-    type: <><path d="M4 7h16M12 7v12M8 19h8" /></>,
+    back: <path d="M20 12H4m7-7-7 7 7 7" />,
+    forward: <path d="M4 12h16m-7-7 7 7-7 7" />,
+    reload: <path d="M20 4v6h-6m6 0a8 8 0 1 0 .2 5" />,
+    keyboard: <><rect x="2" y="5" width="20" height="14" rx="3" /><path d="M6 9h1m4 0h2m4 0h1M6 13h1m4 2h7" /></>,
     close: <path d="M5 5l14 14M19 5 5 19" />,
-    sessions: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></>,
-    fit: <path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5" />,
-    enter: <path d="M20 6v6a4 4 0 0 1-4 4H5m5-5-5 5 5 5" />,
+    fit: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M9 9H7v2m8-2h2v2M7 13v2h2m8-2v2h-2" /></>,
+    enter: <path d="M20 5v6a4 4 0 0 1-4 4H4m5-5-5 5 5 5" />,
     user: <><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></>,
   }
   return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
+let BrowserAction = ({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) => {
+  let [dismissed, setDismissed] = useState(false)
+  return <div className={styles.browserAction} data-dismissed={dismissed || undefined}
+    onMouseEnter={() => setDismissed(false)}
+    onFocus={() => setDismissed(false)}
+    onKeyDown={event => { if (event.key === 'Escape') setDismissed(true) }}>
+    <button type="button" className={styles.iconButton} aria-label={label} onClick={() => { setDismissed(true); onClick() }}><Icon name={icon} /></button>
+    <span className={styles.actionTooltip} role="tooltip">{label}</span>
+  </div>
+}
+
+let BrowserAddress = ({ url, navigate }: { url: string; navigate: (url: string) => void }) => {
+  let [draft, setDraft] = useState<string>()
+  let address = draft ?? url
+  let submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (address.trim()) navigate(address.trim())
+    setDraft(undefined)
+  }
+  return <form className={styles.browserAddress} onSubmit={submit} onBlur={event => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setDraft(undefined)
+  }}>
+    <input aria-label="Address" type="url" value={address} placeholder="Enter URL" autoComplete="off" spellCheck={false}
+      onChange={event => setDraft(event.target.value)}
+      onKeyDown={event => { if (event.key === 'Escape') setDraft(undefined) }} />
+    <button type="submit" disabled={!address.trim()}>Go</button>
+  </form>
+}
+
 export let RemoteApp = () => {
   let [viewer, setViewer] = useState<Viewer>(), [hosts, setHosts] = useState<Host[]>([]), [state, setState] = useState<State>()
-  let [error, setError] = useState(''), [address, setAddress] = useState(''), [text, setText] = useState(''), [watching, setWatching] = useState(false)
+  let [error, setError] = useState(''), [text, setText] = useState(''), [watching, setWatching] = useState(false)
   let [selectedId, setSelectedId] = useState(''), [usage, setUsage] = useState<{ service: string; started: number; succeeded: number; failed: number; browser_ms: number }[]>([])
   let [target, setTarget] = useState(sessionFromUrl)
   let [owner, setOwner] = useState(''), [services, setServices] = useState<{ id: string; revoked: boolean }[]>([])
@@ -65,9 +92,9 @@ export let RemoteApp = () => {
   let selected = listed.find(item => `${item.host.id}:${item.session.id}` === selectedId)
   let mounted = useRef(true)
   let video = useRef<HTMLVideoElement>(null), inputDialog = useRef<HTMLDialogElement>(null), inputField = useRef<HTMLInputElement>(null), active = useRef<Viewer | undefined>(undefined), reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), watchRequest = useRef(0)
-  let [inputMode, setInputMode] = useState<'address' | 'text'>('text')
   let viewport = state && state.viewports[state.pane]
   let session = state?.sessions.find(session => session.windows.some(window => window.panes.some(pane => pane.id === state.pane)))
+  let pane = session?.windows.flatMap(window => window.panes).find(pane => pane.id === state?.pane)
   let lease = session && state?.controls[session.id], controlling = !!viewer && !!lease && lease.owner === viewer.id
   let report = (error: unknown) => setError(error instanceof Error ? error.message : 'Operation failed')
   let signOut = async () => {
@@ -149,7 +176,7 @@ export let RemoteApp = () => {
     }).catch(report).finally(()=>setResuming(false))
   }
   let command = (method: string, args: Record<string, unknown> = {}) => { if (controlling && state) viewer?.send({ type: 'command', generation: lease?.generation, command: { method, args: { tab: state.pane, ...args } } }) }
-  let navigate = (event: FormEvent) => { event.preventDefault(); if (address.trim()) command('navigate', { url: address.trim() }); inputDialog.current?.close() }
+  let navigate = (url: string) => command('navigate', { url })
   let back = () => command('back'), forward = () => command('forward'), reload = () => command('reload')
   let choosePane = (event: ChangeEvent<HTMLSelectElement>) => viewer?.send({ type: 'switch', pane: event.target.value })
   let pointer = (event: PointerEvent<HTMLVideoElement> | WheelEvent<HTMLVideoElement>, type: string) => {
@@ -172,11 +199,10 @@ export let RemoteApp = () => {
     let modifiers = [event.shiftKey && 'shift', event.ctrlKey && 'control', event.altKey && 'alt', event.metaKey && 'meta'].filter(Boolean)
     viewer?.send({ type: 'input', generation: lease?.generation, viewportGeneration: viewport?.generation, event: { type: event.type === 'keyup' ? 'keyUp' : event.key.length === 1 && !event.ctrlKey && !event.metaKey ? 'char' : 'keyDown', keyCode, modifiers } })
   }
-  let changeAddress = (event: ChangeEvent<HTMLInputElement>) => setAddress(event.target.value)
   let changeText = (event: ChangeEvent<HTMLInputElement>) => setText(event.target.value)
   let enter = () => command('key', { key: 'Enter' })
   let sendText = (event: FormEvent) => { event.preventDefault(); if (controlling && text) { viewer?.send({ type: 'text', generation: lease?.generation, text }); setText('') } inputDialog.current?.close() }
-  let openInput = (mode: 'address' | 'text') => { setInputMode(mode); inputDialog.current?.showModal(); inputField.current?.focus() }
+  let openInput = () => { inputDialog.current?.showModal(); inputField.current?.focus() }
   let showSessions = () => { inputDialog.current?.close(); leave(); setMachineId(undefined); setView('sessions') }
   let selectTree = (host: Host, session: RemoteSession, pane?: string) => watch(host, session, true, pane)
   let closeMachine = () => { setMachineId(undefined); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-machine-details="${CSS.escape(machineId ?? '')}"]`)?.focus({ preventScroll: true })) }
@@ -200,12 +226,33 @@ export let RemoteApp = () => {
         <span className={styles.status}>{watching ? 'Connecting' : controlling ? 'Controlling' : 'Watching'}</span>
         {selected.host.permission === 'control' && state && (controlling ? <button className={styles.controlButton} onClick={release}>Release control</button> : <button className={styles.controlButton} onClick={acquire}>{lease ? 'Take over' : 'Take control'}</button>)}
       </div>
+      {controlling && <div className={styles.controls} role="group" aria-label="Browser controls">
+        <div className={styles.controlGroup}>
+          <BrowserAction icon="back" label="Back" onClick={back} />
+          <BrowserAction icon="forward" label="Forward" onClick={forward} />
+          <BrowserAction icon="reload" label="Reload" onClick={reload} />
+        </div>
+        <BrowserAddress key={state?.pane} url={pane?.url ?? ''} navigate={navigate} />
+        <div className={styles.controlGroup}>
+          <BrowserAction icon="keyboard" label="Type into page" onClick={openInput} />
+          <BrowserAction icon="enter" label="Press Enter" onClick={enter} />
+          <BrowserAction icon="fit" label="Fit viewport" onClick={resize} />
+        </div>
+      </div>}
       {viewer && state && session && selected.host.owner && selected.host.capabilities?.fingerprints && <SessionFingerprints key={`${selected.host.id}:${state.pane}`} viewer={viewer} session={session.id} pane={state.pane} lease={controlling ? lease?.generation : undefined} />}
       {help && <div className={styles.attention}><span>{help.status==='verifying' ? 'Verifying' : help.reason === 'help' ? 'Agent needs your help. Resolve the issue, then resume.' : 'Automation paused for verification. Resolve the issue, then resume.'}</span>{controlling && help.status!=='verifying' && <button onClick={resume} disabled={resuming}>Resume automation</button>}</div>}
       <video ref={video} className={styles.video} muted autoPlay playsInline tabIndex={0} data-viewport-width={viewport?.width} data-viewport-height={viewport?.height} onPointerDown={down} onPointerUp={up} onPointerMove={move} onWheel={scroll} onKeyDown={keyboard} onKeyUp={keyboard} aria-label="Remote browser" />
-      {controlling && <div className={styles.controls}><div className={styles.controlGroup}><button className={styles.iconButton} onClick={back} aria-label="Back" title="Back"><Icon name="back" /></button><button className={styles.iconButton} onClick={forward} aria-label="Forward" title="Forward"><Icon name="forward" /></button><button className={styles.iconButton} onClick={reload} aria-label="Reload" title="Reload"><Icon name="reload" /></button></div><div className={styles.controlGroup}><button className={styles.iconButton} onClick={() => openInput('address')} aria-label="Open address" title="Open address"><Icon name="link" /></button><button className={styles.iconButton} onClick={() => openInput('text')} aria-label="Type into page" title="Type into page"><Icon name="type" /></button><button className={styles.iconButton} onClick={enter} aria-label="Enter" title="Enter"><Icon name="enter" /></button><button className={styles.iconButton} onClick={resize} aria-label="Fit viewport" title="Fit viewport"><Icon name="fit" /></button></div></div>}
     </section> : !machine && <section className={styles.emptyViewer} aria-label="Session preview"><p>Select a session.</p></section>}</div>}
-    <dialog ref={inputDialog} className={styles.dialog} aria-label={inputMode === 'address' ? 'Open address' : 'Type into page'}><form onSubmit={inputMode === 'address' ? navigate : sendText}><div className={styles.dialogHeading}><strong>{inputMode === 'address' ? 'Open address' : 'Type into page'}</strong><button type="button" className={styles.iconButton} onClick={() => inputDialog.current?.close()} aria-label="Close"><Icon name="close" /></button></div><input ref={inputField} aria-label={inputMode === 'address' ? 'Address' : 'Text'} type={inputMode === 'address' ? 'url' : 'text'} value={inputMode === 'address' ? address : text} onChange={inputMode === 'address' ? changeAddress : changeText} placeholder={inputMode === 'address' ? 'https://example.com' : 'Enter text'} required /><button className={styles.primaryButton}>{inputMode === 'address' ? 'Go' : 'Type'}</button></form></dialog>
+    <dialog ref={inputDialog} className={styles.dialog} aria-label="Type into page">
+      <form onSubmit={sendText}>
+        <div className={styles.dialogHeading}>
+          <strong>Type into page</strong>
+          <button type="button" className={styles.iconButton} onClick={() => inputDialog.current?.close()} aria-label="Close" title="Close"><Icon name="close" /></button>
+        </div>
+        <input ref={inputField} aria-label="Text" value={text} onChange={changeText} placeholder="Enter text" required />
+        <button className={styles.primaryButton}>Type</button>
+      </form>
+    </dialog>
     {view === 'service' && viewer && <div className={styles.workspace}><aside className={styles.library} aria-label="Workspace navigation"><WorkspaceNavigation active="nodes" onActive={showSessions} /></aside><section className={styles.serviceView}><div className={styles.sectionHeading}><button onClick={showSessions}><Icon name="back" />Sessions</button></div><h2>{rent ? 'Add box' : 'Account'}</h2><RemoteAccount api={api} visit={visitBilling} signIn={signIn} signOut={signOut} rent={rent} view={rent ? 'boxes' : 'account'} />{!rent && <><p>Account ID: <code>{owner}</code></p>{providers?.appleEnabled && <p>{providers.appleLinked ? 'Apple linked' : <a href="/api/auth/providers/apple/link">Link Apple</a>}</p>}<details><summary>Services and access</summary>
       <form className={styles.row} onSubmit={createService}><input aria-label="New service name" placeholder="Service name" value={serviceName} onChange={event => setServiceName(event.target.value)} required /><button>Create API key</button></form>
       {createdKey && <p>Save the key for {keyService} now. It is shown once: <code>{createdKey}</code><button onClick={() => setCreatedKey('')}>Dismiss</button></p>}
