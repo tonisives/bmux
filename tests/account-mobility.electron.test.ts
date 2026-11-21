@@ -83,10 +83,10 @@ test('account migration restores login storage once and keeps the retired source
     expect((move.imported as any).identity.settingsHash).toBe((provision.identity as any).settingsHash)
     expect((move.imported as any).seal).toEqual(provision.seal)
     expect(await fs.readFile(path.join(target, 'reddit-research', (move.imported as any).identity.profileId + '-fixture-daily.json'), 'utf8')).toBe(ledger)
+    await application.evaluate(async (_electron, command) => (globalThis as any).mobilityTarget.accounts.mobility.apply({ ...command, phase: 'activate' }, () => true), move.command)
     let hook = await application.evaluate(async (_electron, profile) => (globalThis as any).mobilityTarget.execute({ method: 'plugin.social-hooks.get', args: { id: 'bmux.reddit', profile } }), (move.imported as any).identity.connectionId)
     expect(hook.config).toMatchObject({ url: 'https://fixture.invalid/receipt', hasSecret: true })
     expect(hook.config).not.toHaveProperty('secret')
-    await application.evaluate(async (_electron, command) => (globalThis as any).mobilityTarget.accounts.mobility.apply({ ...command, phase: 'activate' }, () => true), move.command)
     await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
     page = application.context().pages().find(page => page.url() === url)!
     expect(await page.evaluate(async () => ({ cookies: document.cookie, local: localStorage.getItem('login'), dimensions: [innerWidth, innerHeight], record: await new Promise<unknown>((resolve, reject) => { let open = indexedDB.open('login'); open.onerror = () => reject(open.error); open.onsuccess = () => { let db = open.result, request = db.transaction('tokens').objectStore('tokens').get('login'); request.onsuccess = () => { let value = request.result; db.close(); resolve({ token: value.token, at: value.at.getTime(), bytes: Array.from(value.bytes) }) } } }) }))).toEqual({ cookies: 'login=fixture', local: 'fixture', dimensions: [1200,800], record: { token: 'fixture', at: 123, bytes: [1,2,3] } })
