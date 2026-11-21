@@ -16,7 +16,7 @@ test('account migration restores login storage once and keeps the retired source
   await fs.symlink(path.join(process.cwd(), 'node_modules'), path.join(output, 'node_modules'))
   for (let name of ['preload','renderer','native']) await fs.symlink(path.join(process.cwd(), 'out', name), path.join(output, name))
   for (let data of [source, target]) { await fs.mkdir(data); await fs.writeFile(path.join(data, 'config.yaml'), JSON.stringify({ keyboard: {}, browser: { autoUpdateFilters: false } })) }
-  await build({ configFile: false, logLevel: 'error', plugins: [externalizeDepsPlugin(), pageVimPlugin()], build: { ssr: true, emptyOutDir: false, outDir: path.join(output, 'main'), rollupOptions: { input: 'tests/fixtures/account-mobility-main.ts', output: { format: 'es', entryFileNames: 'main.js' } } } })
+  await build({ configFile: false, logLevel: 'error', plugins: [externalizeDepsPlugin(), pageVimPlugin()], build: { ssr: true, emptyOutDir: false, outDir: path.join(output, 'main'), rollupOptions: { input: 'tests/fixtures/remote-layout-main.ts', output: { format: 'es', entryFileNames: 'main.js' } } } })
   let requests = 0, sockets = new Set<net.Socket>()
   let proxy = http.createServer((request, response) => {
     requests++
@@ -34,8 +34,9 @@ test('account migration restores login storage once and keeps the retired source
   })
   await new Promise<void>(resolve => gateway.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(gateway.address() as net.AddressInfo).port}`, url = `http://www.reddit.com:${port}/`
-  let launch = () => electron.launch({ args: [path.join(output, 'main/main.js')], env: { ...process.env, BMUX_DATA_DIR: source, BMUX_CONFIG: path.join(source, 'config.yaml'), BMUX_PROXY_TEST_URL: 'http://proxy.fixture/ip', BMUX_HOST_CREDENTIAL_KEY_FILE: path.join(directory, 'fixture.key') } })
-  let application = await launch()
+  let launch = (data: string) => electron.launch({ args: [path.join(output, 'main/main.js')], env: { ...process.env, BMUX_DATA_DIR: data, BMUX_CONFIG: path.join(data, 'config.yaml'), BMUX_PROXY_TEST_URL: 'http://proxy.fixture/ip', BMUX_HOST_CREDENTIAL_KEY_FILE: path.join(data, 'fixture.key') } })
+  let application = await launch(source)
+  let destination: Awaited<ReturnType<typeof launch>> | undefined
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let provision = await application.evaluate(async (_electron, origin) => {
@@ -64,58 +65,69 @@ test('account migration restores login storage once and keeps the retired source
     let ledger = JSON.stringify({ day: '2026-11-21', communities: { example: ['post-id'] } })
     await fs.mkdir(path.join(source, 'reddit-research'))
     await fs.writeFile(path.join(source, 'reddit-research', (provision.identity as any).profileId + '-fixture-daily.json'), ledger)
-    let move = await application.evaluate(async (_electron, { target, origin, provision }) => {
-      let source = (globalThis as any).remoteLayoutRuntime, destination = (globalThis as any).createMobilityRuntime(target)
-      ;(globalThis as any).mobilityTarget = destination
-      await destination.start(true)
-      destination.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'fixture' })
-      let command = { id: '30000000-0000-4000-8000-000000000001', account: '20000000-0000-4000-8000-000000000001', phase: 'export', identity: provision.identity, seal: provision.seal, operation: { request: {}, targetKey: destination.accounts.mobility.publicKey(), platform: 'reddit', persona: 'Fixture', label: 'Fixture' }, expires: Date.now() + 30000 }
-      let result = await source.accounts.mobility.apply(command, () => true)
-      let imported = await destination.accounts.mobility.apply({ ...command, phase: 'import', capsule: result.capsule }, () => true)
-      await destination.accounts.mobility.apply({ ...command, phase: 'import', capsule: result.capsule }, () => true)
-      if (Object.values(destination.model.accountSeals).length !== 1) throw new Error('Duplicate import')
-      return { command, imported }
-    }, { target, origin, provision })
+    destination = await launch(target)
+    await expect.poll(() => destination!.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
+    let targetKey = await destination.evaluate(async (_electron, origin) => {
+      let runtime = (globalThis as any).remoteLayoutRuntime
+      runtime.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'fixture' })
+      return runtime.accounts.mobility.publicKey()
+    }, origin)
+    let command = { id: '30000000-0000-4000-8000-000000000001', account: '20000000-0000-4000-8000-000000000001', phase: 'export', identity: provision.identity, seal: provision.seal, operation: { request: {}, targetKey, platform: 'reddit', persona: 'Fixture', label: 'Fixture' } }
+    let capsule = await application.evaluate(async (_electron, command) => {
+      let runtime = (globalThis as any).remoteLayoutRuntime
+      return (await runtime.accounts.mobility.apply({ ...command, expires: Date.now() + 30000 }, () => true)).capsule
+    }, command)
+    let imported = await destination.evaluate(async (_electron, { command, capsule }) => {
+      let runtime = (globalThis as any).remoteLayoutRuntime
+      let request = { ...command, phase: 'import', capsule, expires: Date.now() + 30000 }
+      let result = await runtime.accounts.mobility.apply(request, () => true)
+      await runtime.accounts.mobility.apply(request, () => true)
+      if (Object.values(runtime.model.accountSeals).length !== 1) throw new Error('Duplicate import')
+      return result
+    }, { command, capsule })
     await expect(application.evaluate(async (_electron, identity) => {
       let runtime = (globalThis as any).remoteLayoutRuntime, lease = runtime.remote.acquire(identity.sessionId, 'fixture', false)
       try { await runtime.remote.command('fixture', lease.generation, { method: 'navigate', args: { pane: identity.paneId, url: 'about:blank' } }) } finally { runtime.remote.release(identity.sessionId, 'fixture') }
     }, provision.identity as any)).rejects.toThrow('ACCOUNT_HOST_INACTIVE')
-    expect((move.imported as any).identity.settingsHash).toBe((provision.identity as any).settingsHash)
-    expect((move.imported as any).seal).toEqual(provision.seal)
-    expect(await fs.readFile(path.join(target, 'reddit-research', (move.imported as any).identity.profileId + '-fixture-daily.json'), 'utf8')).toBe(ledger)
-    await application.evaluate(async (_electron, command) => (globalThis as any).mobilityTarget.accounts.mobility.apply({ ...command, phase: 'activate' }, () => true), move.command)
-    let hook = await application.evaluate(async (_electron, profile) => (globalThis as any).mobilityTarget.execute({ method: 'plugin.social-hooks.get', args: { id: 'bmux.reddit', profile } }), (move.imported as any).identity.connectionId)
+    expect((imported as any).identity.settingsHash).toBe((provision.identity as any).settingsHash)
+    expect((imported as any).seal).toEqual(provision.seal)
+    expect(await fs.readFile(path.join(target, 'reddit-research', (imported as any).identity.profileId + '-fixture-daily.json'), 'utf8')).toBe(ledger)
+    await destination.evaluate(async (_electron, command) => (globalThis as any).remoteLayoutRuntime.accounts.mobility.apply({ ...command, phase: 'activate', expires: Date.now() + 30000 }, () => true), command)
+    let hook = await destination.evaluate(async (_electron, profile) => (globalThis as any).remoteLayoutRuntime.execute({ method: 'plugin.social-hooks.get', args: { id: 'bmux.reddit', profile } }), (imported as any).identity.connectionId)
     expect(hook.config).toMatchObject({ url: 'https://fixture.invalid/receipt', hasSecret: true })
     expect(hook.config).not.toHaveProperty('secret')
-    await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
-    page = application.context().pages().find(page => page.url() === url)!
+    await expect.poll(() => destination!.context().pages().some(page => page.url() === url)).toBe(true)
+    page = destination!.context().pages().find(page => page.url() === url)!
     expect(await page.evaluate(async () => ({ cookies: document.cookie, local: localStorage.getItem('login'), dimensions: [innerWidth, innerHeight], record: await new Promise<unknown>((resolve, reject) => { let open = indexedDB.open('login'); open.onerror = () => reject(open.error); open.onsuccess = () => { let db = open.result, request = db.transaction('tokens').objectStore('tokens').get('login'); request.onsuccess = () => { let value = request.result; db.close(); resolve({ token: value.token, at: value.at.getTime(), bytes: Array.from(value.bytes) }) } } }) }))).toEqual({ cookies: 'login=fixture', local: 'fixture', dimensions: [1200,800], record: { token: 'fixture', at: 123, bytes: [1,2,3] } })
     await closeTestApplication(application)
     let before = requests
-    application = await launch()
+    application = await launch(source)
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     await application.evaluate(async (_electron, command) => {
       let runtime = (globalThis as any).remoteLayoutRuntime
       await runtime.accounts.mobility.apply({ ...command, expires: Date.now() + 30000 }, () => true)
       if (!Object.values(runtime.model.accountRetired).includes(command.id)) throw new Error('Missing retirement')
-    }, move.command)
+    }, command)
     expect(requests).toBe(before)
     expect(application.context().pages().some(page => page.url() === url)).toBe(false)
-    let restored = await application.evaluate(async (_electron, { target, origin, moved }) => {
-      let source = (globalThis as any).remoteLayoutRuntime, destination = (globalThis as any).createMobilityRuntime(target)
-      await destination.start(true)
-      source.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'restore' })
-      destination.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'restore' })
-      let command = { ...moved.command, id: '30000000-0000-4000-8000-000000000002', identity: moved.imported.identity, operation: { ...moved.command.operation, targetKey: source.accounts.mobility.publicKey() }, expires: Date.now() + 30000 }
-      let { capsule } = await destination.accounts.mobility.apply(command, () => true)
-      let result = await source.accounts.mobility.apply({ ...command, phase: 'import', capsule }, () => true)
-      await source.accounts.mobility.apply({ ...command, phase: 'activate' }, () => true)
+    let sourceKey = await application.evaluate(async (_electron, origin) => {
+      let runtime = (globalThis as any).remoteLayoutRuntime
+      runtime.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'restore' })
+      return runtime.accounts.mobility.publicKey()
+    }, origin)
+    let reverse = { ...command, id: '30000000-0000-4000-8000-000000000002', identity: imported.identity, operation: { ...command.operation, targetKey: sourceKey } }
+    let reverseCapsule = await destination.evaluate(async (_electron, reverse) => (await (globalThis as any).remoteLayoutRuntime.accounts.mobility.apply({ ...reverse, expires: Date.now() + 30000 }, () => true)).capsule, reverse)
+    let restored = await application.evaluate(async (_electron, { reverse, reverseCapsule }) => {
+      let runtime = (globalThis as any).remoteLayoutRuntime
+      let request = { ...reverse, capsule: reverseCapsule, expires: Date.now() + 30000 }
+      let result = await runtime.accounts.mobility.apply({ ...request, phase: 'import' }, () => true)
+      await runtime.accounts.mobility.apply({ ...reverse, phase: 'activate', expires: Date.now() + 30000 }, () => true)
       return result
-    }, { target, origin, moved: move })
+    }, { reverse, reverseCapsule })
     expect((restored as any).identity.settingsHash).toBe((provision.identity as any).settingsHash)
     await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
   } finally {
-    await closeTestApplication(application)
+    try { if (destination) await closeTestApplication(destination) } finally { await closeTestApplication(application) }
     for (let client of ws.clients) client.terminate()
     ws.close(); gateway.closeAllConnections(); await new Promise<void>(resolve => gateway.close(() => resolve()))
     for (let socket of sockets) socket.destroy()
