@@ -203,6 +203,29 @@ keyboard:
 
 Pane movement actions are `pane-left`, `pane-down`, `pane-up`, and `pane-right`. Split actions are `split-right` and `split-down`. Assign any of them under `keyboard.shortcuts` or `keyboard.prefixBindings`.
 
+### Optional follow-up keys
+
+A shortcut with a `followUp` map runs its main action immediately. The next
+non-modifier key can run one of the mapped actions. Other keys go through the
+usual browser handling. `timeoutMs` defaults to `prefixTimeoutMs` and accepts
+250 to 10,000 milliseconds.
+
+```yaml
+keyboard:
+  shortcuts:
+    Cmd+G:
+      action: switchc -t work
+      timeoutMs: 2000
+      followUp:
+        t: switchc -t tasks
+        s: switchc -t support
+```
+
+Replace the session names with your own. Here Cmd+G opens `work` immediately,
+and `t` or `s` can switch again within two seconds.
+
+### Two-letter sequences
+
 Page scrolling actions are `scroll-up`, `scroll-down`, `scroll-half-up`, `scroll-half-down`, `scroll-top`, and `scroll-bottom`. A two letter binding such as `gg` goes under `keyboard.sequences`. Sequence keys use `prefixTimeoutMs` for the interval between letters. For Vim style page controls that leave text fields alone:
 
 ```yaml

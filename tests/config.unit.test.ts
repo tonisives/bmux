@@ -6,6 +6,23 @@ import os from 'node:os'
 import { configPath, createConfig, defaultConfigText, parseConfig } from '../src/main/config'
 import { isModifierKeyBinding, matchesBinding, shortcutMatchesContext } from '../src/shared/keyboard'
 
+it('loads shortcut follow-ups and validates their actions, keys and timeout', () => {
+  let config = (options: string) => parseConfig(`keyboard:
+  prefixTimeoutMs: 1700
+  shortcuts:
+    Cmd+G: { action: switchc -t work, ${options} }
+`).keyboard.shortcuts['Cmd+G']
+  expect(config('followUp: { t: switchc -t tasks, Ctrl+S: plugin:fixture/go }, timeoutMs: 2000')).toEqual({
+    action: 'switchc -t work', followUp: { t: 'switchc -t tasks', 'Ctrl+S': 'plugin:fixture/go' }, timeoutMs: 2000,
+  })
+  expect(config('followUp: { t: new-tab }')).toMatchObject({ followUp: { t: 'new-window' }, timeoutMs: 1700 })
+  expect(() => config('followUp: { t: typo }')).toThrow('Unknown keyboard action')
+  expect(() => config('followUp: { t: help, T: help }')).toThrow('Invalid follow-up key')
+  expect(() => config('followUp: {}')).toThrow('nonempty mapping')
+  expect(() => config('followUp: { t: help }, timeoutMs: 1')).toThrow('timeoutMs')
+  expect(() => config('timeoutMs: 2000')).toThrow('requires followUp')
+})
+
 it('loads macOS defaults, remaps shortcuts and validates YAML', () => {
   let defaultConfig = parseConfig(defaultConfigText())
   let defaults = defaultConfig.keyboard

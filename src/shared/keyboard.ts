@@ -1,4 +1,4 @@
-export type Shortcut = string | { action: string; when?: 'always' | 'pane-not-editing' }
+export type Shortcut = string | { action: string; when?: 'always' | 'pane-not-editing'; followUp?: Record<string, string>; timeoutMs?: number }
 export let shortcutAction = (binding: Shortcut) => typeof binding === 'string' ? binding : binding.action
 export let shortcutWhen = (binding: Shortcut) => typeof binding === 'string' ? 'always' : binding.when ?? 'always'
 export let shortcutMatchesContext = (binding: Shortcut, paneFocused: boolean, editing: boolean | undefined) => shortcutWhen(binding) === 'always' || (paneFocused && editing === false)
