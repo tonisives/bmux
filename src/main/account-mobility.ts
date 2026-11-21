@@ -2,11 +2,19 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { generateKeyPairSync, createPrivateKey, createPublicKey, diffieHellman, randomBytes, createHash, createCipheriv, createDecipheriv } from 'node:crypto'
 import { gzipSync, gunzipSync } from 'node:zlib'
+import type { ProfileProxy } from '../shared/types'
+import { accountFingerprint } from './locked-pane-inventory'
 import { writeAtomic } from './store'
 
-export type MobilityCommand = { id: string; account: string; phase: 'provision' | 'export' | 'import' | 'activate'; identity: Record<string, unknown>; seal: Record<string, unknown>; operation: { request: Record<string, unknown>; targetKey: string; platform: string; persona: string; label: string }; capsule?: string; expires: number }
+export type MobilityCommand = { id: string; account: string; phase: 'provision' | 'export' | 'import' | 'activate'; identity: Record<string, unknown>; seal: Record<string, unknown>; operation: { request: Record<string, unknown>; targetKey: string; proxyFingerprint?: string; platform: string; persona: string; label: string }; capsule?: string; expires: number }
 type Result = Record<string, unknown>
 type Encryption = { encrypt: (text: string) => Buffer; decrypt: (data: Buffer) => string; available: () => boolean }
+export let accountProxyPortable = (proxy: ProfileProxy, hostProxy?: ProfileProxy, verifiedFingerprint?: string) => {
+  let fingerprint = accountFingerprint(proxy), managed = !!hostProxy && accountFingerprint(hostProxy) === fingerprint
+  if (hostProxy && !managed) return false
+  if (verifiedFingerprint !== undefined) return managed && verifiedFingerprint === fingerprint
+  return !!proxy.route || !(/^(localhost|127\.|0\.|\[?::1)/i.test(proxy.host) || proxy.host.endsWith('.local'))
+}
 export let encryptAccountTransfer = (value: unknown, targetKey: string, context: string) => {
   let text = JSON.stringify(value)
   if (Buffer.byteLength(text) > 32_000_000) throw new Error('ACCOUNT_TRANSFER_TOO_LARGE')

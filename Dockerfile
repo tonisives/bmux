@@ -43,10 +43,13 @@ USER node
 EXPOSE 8788
 CMD ["node", "remote/server.mjs"]
 
-FROM base AS host
+FROM scratch AS host-files
 COPY --from=packaged /opt/bmux/release/runtime /opt/bmux
-RUN ln -s /opt/bmux/resources/bin/bmux.mjs /usr/local/bin/bmux \
-    && chown root:root chrome-sandbox && chmod 4755 chrome-sandbox
+COPY --from=packaged --chown=0:0 --chmod=4755 /opt/bmux/release/runtime/chrome-sandbox /opt/bmux/chrome-sandbox
+
+FROM base AS host
+COPY --from=host-files /opt/bmux /opt/bmux
+RUN ln -s /opt/bmux/resources/bin/bmux.mjs /usr/local/bin/bmux
 USER node
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s CMD node resources/scripts/host-health.mjs
 ENTRYPOINT ["tini", "--", "xvfb-run", "-a", "-s", "-screen 0 1280x900x24 -nolisten tcp", "bmux", "host"]

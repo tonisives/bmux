@@ -9,7 +9,7 @@ import { accountFingerprint, accountPaneIdentity } from './locked-pane-inventory
 import { assertAccountSeals, sealAccount } from './account-seals'
 import { id, nextPaneId, paneById, walkPanes } from './model'
 import { includedProxy } from './account-proxies'
-import { encryptAccountTransfer } from './account-mobility'
+import { accountProxyPortable, encryptAccountTransfer } from './account-mobility'
 import type { MobilityCommand } from './account-mobility'
 import { exportAccountStorage, importAccountStorage } from './account-storage'
 import { readRedditLedgers, writeRedditLedgers } from './account-reddit-state'
@@ -57,6 +57,8 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
     if (!seal || seal.account !== command.account || accountFingerprint(identity) !== accountFingerprint(accountPaneIdentity(model, identity.paneId)) || model.accountRetired?.[identity.connectionId] || model.accountStaged?.[identity.connectionId]) throw new Error('ACCOUNT_IDENTITY_CHANGED')
     let peers = walkPanes(model).filter(({ pane }) => paneConnectionId(pane) === identity.connectionId)
     if (peers.length !== 1) throw new Error('ACCOUNT_CONNECTION_SHARED')
+    let connection = connectionProfile(model, identity.connectionId), proxy = connection.proxy
+    if (!proxy || !accountProxyPortable(proxy, options.hostProxy, command.operation.proxyFingerprint)) throw new Error('ACCOUNT_PROXY_NOT_PORTABLE')
     let lease = options.acquire(identity.sessionId, 'account-move:' + command.id)
     let contents: WebContents | undefined, retired = false
     try {
@@ -66,15 +68,13 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       await contents.debugger.sendCommand('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 })
       let storage = await contents.executeJavaScriptInIsolatedWorld(998, [{ code: exportAccountStorage }])
       let cookies = await contents.session.cookies.get({}), { pane } = paneById(model, identity.paneId)
-      let profile = model.profiles.find(profile => profile.id === pane.profileId)!, connection = connectionProfile(model, identity.connectionId)
-      if (!connection.proxy || options.hostProxy && accountFingerprint(options.hostProxy) !== accountFingerprint(connection.proxy)) throw new Error('ACCOUNT_PROXY_NOT_PORTABLE')
-      if (!connection.proxy.route && (/^(localhost|127\.|0\.|\[?::1)/i.test(connection.proxy.host) || connection.proxy.host.endsWith('.local'))) throw new Error('ACCOUNT_PROXY_NOT_PORTABLE')
+      let profile = model.profiles.find(profile => profile.id === pane.profileId)!
       let configuration = await options.configure(command.operation.platform, profile.id)
       let reddit = command.operation.platform === 'reddit' ? {
         ledgers: await readRedditLedgers(options.directory, profile.id),
         hook: await options.socialHook.read('bmux.reddit', identity.connectionId),
       } : undefined
-      let capsule = encryptAccountTransfer({ reddit, account: command.account, seal, proxy: connection.proxy, credentials: connection.proxy.authenticated ? options.credentials.get(identity.connectionId) : undefined, profile: { name: profile.name, background: profile.background, device: profile.device }, pane: { url: pane.url, title: pane.title, zoom: pane.zoom, device: pane.device }, cookies, storage, configuration: configuration?.values }, command.operation.targetKey, command.id + ':' + command.account)
+      let capsule = encryptAccountTransfer({ reddit, account: command.account, seal, proxy, credentials: proxy.authenticated ? options.credentials.get(identity.connectionId) : undefined, profile: { name: profile.name, background: profile.background, device: profile.device }, pane: { url: pane.url, title: pane.title, zoom: pane.zoom, device: pane.device }, cookies, storage, configuration: configuration?.values }, command.operation.targetKey, command.id + ':' + command.account)
       guard(); lease.renew()
       // The ciphertext and retirement marker share one durable model write.
       writeAtomic(capsuleFile, capsule)
@@ -104,7 +104,7 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
   if (command.phase === 'import' && (!transfer || transfer.account !== command.account || transfer.seal.account !== command.account || transfer.seal.headersHash !== command.seal.headersHash || accountFingerprint(transfer.seal.identity) !== accountFingerprint(command.identity))) throw new Error('ACCOUNT_TRANSFER_CHANGED')
   let route = String(command.operation.request.route)
   let proxy = transfer?.proxy ?? (options.sharedProxyRoute === route && options.hostProxy ? options.hostProxy : includedProxy(route))
-  if (options.hostProxy && accountFingerprint(options.hostProxy) !== accountFingerprint(proxy)) throw new Error('ACCOUNT_HOST_PROXY_CONFLICT')
+  if (transfer ? !accountProxyPortable(proxy, options.hostProxy, command.operation.proxyFingerprint) : options.hostProxy && accountFingerprint(options.hostProxy) !== accountFingerprint(proxy)) throw new Error('ACCOUNT_HOST_PROXY_CONFLICT')
   await options.test(proxy, transfer?.credentials); guard()
   let existing = Object.values(model.accountSeals ?? {}).find(seal => seal.account === command.account && !model.accountRetired?.[seal.identity.connectionId])
   if (existing) throw new Error('ACCOUNT_ALREADY_PRESENT')

@@ -3,10 +3,11 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { generateKeyPairSync } from 'node:crypto'
-import { createAccountMobility, encryptAccountTransfer, decryptAccountTransfer } from '../src/main/account-mobility'
+import { accountProxyPortable, createAccountMobility, encryptAccountTransfer, decryptAccountTransfer } from '../src/main/account-mobility'
 import type { MobilityCommand } from '../src/main/account-mobility'
 import { includedProxy } from '../src/main/account-proxies'
-import { parseProfileProxy } from '../src/main/profile-proxy'
+import { accountFingerprint } from '../src/main/locked-pane-inventory'
+import { parseProfileProxy, requiredHostProxy } from '../src/main/profile-proxy'
 
 it('encrypts transfers for one destination and binds the account and operation', () => {
   let pair = generateKeyPairSync('x25519'), other = generateKeyPairSync('x25519')
@@ -40,4 +41,14 @@ it('accepts only the canonical endpoint of an included route', () => {
   expect(parseProfileProxy(proxy)).toEqual(proxy)
   expect(() => parseProfileProxy({ ...proxy, host: 'arbitrary.example' })).toThrow()
   expect(() => includedProxy('unknown')).toThrow()
+})
+it('moves a private required proxy only between hosts that report its exact fingerprint', () => {
+  let proxy = requiredHostProxy('http://nord-us.scraper.svc.cluster.local:8888')!
+  let fingerprint = accountFingerprint(proxy), other = { ...proxy, port: 8889 }
+  expect(accountProxyPortable(proxy, { ...proxy }, fingerprint)).toBe(true)
+  expect(accountProxyPortable(proxy, proxy)).toBe(false)
+  expect(accountProxyPortable(proxy, undefined, fingerprint)).toBe(false)
+  expect(accountProxyPortable(proxy, other, fingerprint)).toBe(false)
+  expect(accountProxyPortable(proxy, proxy, accountFingerprint(other))).toBe(false)
+  expect(accountProxyPortable(includedProxy('us-west'))).toBe(true)
 })
