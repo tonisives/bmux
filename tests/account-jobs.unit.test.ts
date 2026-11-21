@@ -7,12 +7,12 @@ import type { AccountJob } from '../src/main/account-jobs'
 
 let directories: string[] = [], hosts: ReturnType<typeof createAccountJobs>[] = []
 afterEach(async () => { for (let host of hosts.splice(0)) await host.close(); vi.useRealTimers(); for (let directory of directories.splice(0)) await fs.rm(directory, { recursive: true, force: true }) })
-let fixture = async () => {
+let fixture = async (exclusive = false) => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'account-jobs-')); directories.push(directory)
   let status = 'running', guard: (() => void) | undefined
   let handle = { renew: vi.fn(), release: vi.fn(), start: vi.fn((value: () => void) => { guard = value }), status: () => status, cancel: vi.fn() }
   let acquire = vi.fn(() => handle), changed = vi.fn()
-  let create = () => { let host = createAccountJobs({ directory, acquire, changed }); hosts.push(host); return host }
+  let create = () => { let host = createAccountJobs({ directory, acquire, changed, exclusive }); hosts.push(host); return host }
   let host = create(), valid = true
   let job: AccountJob = { id: '10000000-0000-4000-8000-000000000001', account: '20000000-0000-4000-8000-000000000001', identity: { sessionId: 's', windowId: 'w', paneId: '%1', profileId: 'p', connectionId: 'c', viewport: { width: 1200, height: 800 }, locked: true, network: 'proxy', settingsHash: 'saved' }, action: 'bmux.tiktok/publish-post', inputs: { text: 'Fixture' }, deadline: Date.now() + 60000 }
   return { host, create, job, acquire, handle, guard: () => guard!(), valid: () => valid, disconnect: () => { valid = false }, complete: () => { status = 'completed' } }
@@ -77,4 +77,17 @@ it('stops a running plugin at the fixed deadline without replaying it', async ()
   expect(f.handle.cancel).toHaveBeenCalledOnce()
   expect((await f.host.accept(f.job, f.valid)).status).toBe('interrupted')
   expect(f.handle.start).toHaveBeenCalledOnce()
+})
+
+it('shares a single job slot across different account profiles', async () => {
+  vi.useFakeTimers()
+  let f = await fixture(true)
+  let second = { ...f.job, id: '10000000-0000-4000-8000-000000000002', account: '20000000-0000-4000-8000-000000000002', identity: { ...f.job.identity, connectionId: 'another-connection' } }
+  expect((await f.host.accept(f.job, f.valid)).status).toBe('running')
+  expect((await f.host.accept(f.job, f.valid)).status).toBe('running')
+  await expect(f.host.accept(second, f.valid)).rejects.toThrow('CONTROL_HELD')
+  expect(await f.host.receipts()).toHaveLength(1)
+  f.complete(); await vi.advanceTimersByTimeAsync(1001)
+  expect((await f.host.accept(second, f.valid)).status).toBe('running')
+  expect(f.acquire).toHaveBeenCalledTimes(2)
 })

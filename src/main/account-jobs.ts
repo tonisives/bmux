@@ -7,7 +7,7 @@ export type AccountJob = { id: string; account: string; identity: AccountSeal['i
 export type AccountJobReceipt = { id: string; status: 'running' | 'succeeded' | 'failed' | 'interrupted' | 'cancelled'; error?: string }
 type Saved = AccountJobReceipt & { fingerprint: string; deadline: number }
 type Handle = { renew: () => void; release: () => void; start: (guard: () => void) => void | Promise<void>; status: () => string; cancel: () => void }
-type Options = { directory: string; acquire: (job: AccountJob) => Handle; changed: () => void }
+type Options = { directory: string; exclusive?: boolean; acquire: (job: AccountJob) => Handle; changed: () => void }
 
 export let createAccountJobs = (options: Options) => {
   let file = path.join(options.directory, 'account-job-receipts.json'), saved: Record<string, Saved> = {}, active = new Map<string, { handle: Handle; valid: () => boolean }>(), closed = false
@@ -40,6 +40,7 @@ export let createAccountJobs = (options: Options) => {
     if (existing) { if (existing.fingerprint !== 'cancelled' && existing.fingerprint !== fingerprint) throw new Error('ACCOUNT_JOB_CHANGED'); return receipt(existing) }
     if (job.deadline <= Date.now() || job.deadline > Date.now() + 180 * 60000) throw new Error('ACCOUNT_JOB_EXPIRED')
     if (Object.keys(saved).length >= 10000) throw new Error('ACCOUNT_JOURNAL_FULL')
+    if (options.exclusive && active.size) throw new Error('CONTROL_HELD')
     let handle = options.acquire(job)
     saved[job.id] = { id: job.id, status: 'running', fingerprint, deadline: job.deadline }
     try { await persist() } catch (error) { delete saved[job.id]; handle.release(); throw error }

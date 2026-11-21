@@ -24,6 +24,7 @@ type Options = {
   credentials: { get: (connection: string) => ProxyCredentials | undefined; set: (connection: string, credentials?: ProxyCredentials) => void }
   test: (proxy: ProfileProxy, credentials?: ProxyCredentials) => Promise<unknown>
   hostProxy?: ProfileProxy
+  sharedProxyRoute?: string
   interactiveOnly?: boolean
   configure: (platform: string, profile: string, operation?: AccountSettingsOperation) => Promise<AccountConfiguration | undefined>
 }
@@ -34,8 +35,8 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
   let guard = () => { if (!valid()) throw new Error('ACCOUNT_REQUEST_EXPIRED') }
   let remember = (result: Record<string, unknown>) => { model.accountHandoffs = { ...model.accountHandoffs, [command.id + ':' + command.phase]: result }; options.save(); return result }
   if (command.phase === 'activate') {
-    let seal = Object.values(model.accountSeals ?? {}).find(seal => seal.account === command.account)
-    if (!seal || model.accountRetired?.[seal.identity.connectionId]) throw new Error('ACCOUNT_TRANSFER_MISSING')
+    let seal = Object.values(model.accountSeals ?? {}).find(seal => seal.account === command.account && !model.accountRetired?.[seal.identity.connectionId])
+    if (!seal) throw new Error('ACCOUNT_TRANSFER_MISSING')
     assertAccountSeals(model); guard()
     if (model.accountStaged?.[seal.identity.connectionId] !== command.id) {
       if (model.accountHandoffs?.[command.id + ':activate']) return model.accountHandoffs[command.id + ':activate']
@@ -90,10 +91,11 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
   type Transfer = { account: string; seal: AccountSeal; proxy: ProfileProxy; credentials?: ProxyCredentials; configuration?: Record<string, unknown>; profile: Model['profiles'][number]; pane: Model['sessions'][number]['windows'][number]['panes'][number]; cookies: Electron.Cookie[]; storage: { origin: string } }
   let transfer = value as Transfer | undefined
   if (command.phase === 'import' && (!transfer || transfer.account !== command.account || transfer.seal.account !== command.account || transfer.seal.headersHash !== command.seal.headersHash || accountFingerprint(transfer.seal.identity) !== accountFingerprint(command.identity))) throw new Error('ACCOUNT_TRANSFER_CHANGED')
-  let proxy = transfer?.proxy ?? includedProxy(String(command.operation.request.route))
+  let route = String(command.operation.request.route)
+  let proxy = transfer?.proxy ?? (options.sharedProxyRoute === route && options.hostProxy ? options.hostProxy : includedProxy(route))
   if (options.hostProxy && accountFingerprint(options.hostProxy) !== accountFingerprint(proxy)) throw new Error('ACCOUNT_HOST_PROXY_CONFLICT')
   await options.test(proxy, transfer?.credentials); guard()
-  let existing = Object.values(model.accountSeals ?? {}).find(seal => seal.account === command.account)
+  let existing = Object.values(model.accountSeals ?? {}).find(seal => seal.account === command.account && !model.accountRetired?.[seal.identity.connectionId])
   if (existing) throw new Error('ACCOUNT_ALREADY_PRESENT')
   let profileId = 'profile_' + command.id.replaceAll('-', ''), sessionId = id('session'), windowId = id('win'), paneId = nextPaneId(model)
   if (model.profiles.some(profile => profile.id === profileId)) throw new Error('ACCOUNT_TRANSFER_CONFLICT')

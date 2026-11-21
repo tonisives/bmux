@@ -18,7 +18,7 @@ export let startAccountRelay = (runtime: Pick<ReturnType<typeof createRuntime>, 
       let browsing = control ? await control.inventory() : undefined
       if (stopped || current !== socket || current.readyState !== WebSocket.OPEN) return
       let executions = await runtime.accounts.jobs.receipts()
-      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), executions, actions: runtime.accounts.actions(), type: 'inventory', control: 3, transferKey: runtime.accounts.mobility.publicKey(), name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model).map(pane => ({ ...pane, device: runtime.accounts.deviceStatus(pane.key), proxy: runtime.accounts.proxyStatus(pane.key), controlled: runtime.accounts.controlled(pane.key) })) })
+      let message = JSON.stringify({ ...(browsing ? { browsing } : {}), executions, actions: runtime.accounts.actions(), sharedProxyRoute: process.env.BMUX_SHARED_ACCOUNT_PROXY_ROUTE || undefined, type: 'inventory', control: 3, transferKey: runtime.accounts.mobility.publicKey(), name: os.hostname().slice(0, 120), panes: lockedPaneInventory(runtime.model).map(pane => ({ ...pane, device: runtime.accounts.deviceStatus(pane.key), proxy: runtime.accounts.proxyStatus(pane.key), controlled: runtime.accounts.controlled(pane.key) })) })
       if (Buffer.byteLength(message) <= 262144) socket.send(message)
     } catch { current.close() } finally { reporting = false }
   }

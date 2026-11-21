@@ -181,6 +181,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let interactiveOnly = process.env.BMUX_INTERACTIVE_ONLY === 'true'
   if (interactiveOnly && (model.sessions.length !== 1 || model.sessions[0].windows.length !== 1 || model.sessions[0].windows[0].panes.length !== 1)) throw new Error('Included browser requires one session and one pane')
   let hostProxy = requiredHostProxy(process.env.BMUX_REQUIRED_PROXY)
+  let sharedProxyRoute = process.env.BMUX_SHARED_ACCOUNT_PROXY_ROUTE || undefined
+  if (sharedProxyRoute && (sharedProxyRoute !== 'us-west' || hostProxy?.host !== 'nord-us.scraper.svc.cluster.local' || hostProxy.protocol !== 'http' || hostProxy.port !== 8888)) throw new Error('Shared account host requires the US West gateway')
   let controls = createControlLeases()
   let attention = createAttentionRequests(path.join(dataDirectory,'remote-attention.json'))
   let viewportPanModes = new Set<string>()
@@ -1987,7 +1989,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let contents = live.contents
     let token = tabAutomation.get(tabId)
     if (token && !automation?.hasLease(token)) tabAutomation.delete(tabId)
-    return tab.keepAlive || session.private || remotePages.has(tabId) || remoteSizes.has(tabId) || tabIsVisible(tabId) || tabQueues.has(tabId) || tabAutomation.has(tabId) || agentInputDue(tabId)
+    return tab.keepAlive || session.private || remotePages.has(tabId) || remoteSizes.has(tabId) || tabIsVisible(tabId) || tabQueues.has(tabId) || tabAutomation.has(tabId) || agentInputDue(tabId) || !!fingerprintCaptures.get(tabId)?.size || !!controls.get(session.id)
       || live.disposed || !!live.closing || !!live.initialHistory && !live.initialHistory.cancelled || contents.isDestroyed() || contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()
       || [...permissions.values()].some(request => request.paneId === tabId) || downloads.some(download => download.profileId === pane.profileId && download.active)
   }
@@ -2035,7 +2037,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let checkIdleTabs = async () => {
     let minutes = configuration?.memory.idleUnloadMinutes ?? 0
     let limit = configuration?.memory.maxLoadedBackgroundPages ?? DEFAULT_MEMORY.maxLoadedBackgroundPages
-    if ((!minutes && !limit) || idleCheckRunning || shuttingDown) return
+    if ((!minutes && !limit && !sharedProxyRoute) || idleCheckRunning || shuttingDown) return
     idleCheckRunning = true
     try {
       let hidden = [...tabs].filter(([id, live]) => !remotePages.has(id) && !live.disposed && !live.contents.isDestroyed() && !tabIsVisible(id))
@@ -2044,13 +2046,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       hidden.sort(([a], [b]) => (positions.get(b) ?? Infinity) - (positions.get(a) ?? Infinity) || (lastTabUse.get(a) ?? 0) - (lastTabUse.get(b) ?? 0))
       let excess = limit ? Math.max(0, hidden.length - limit) : 0
       for (let [tabId, live] of hidden) {
-        if (remotePages.has(tabId) || recent().retained.has(tabId)) continue
+        if (remotePages.has(tabId)) continue
         let last = lastTabUse.get(tabId) ?? Date.now()
         let budget = excess > 0
-        if (!budget && (!minutes || Date.now() - last < minutes * 60_000)) continue
+        let managedIdle = !!sharedProxyRoute && !!model.accountSeals?.[tabId] && Date.now() - last >= 5 * 60_000
+        if (!managedIdle && recent().retained.has(tabId)) continue
+        if (!budget && !managedIdle && (!minutes || Date.now() - last < minutes * 60_000)) continue
         try {
-          if (!await canUnloadIdleTab(tabId, live, budget)) continue
-          if (tabs.get(tabId) !== live || unloadProtected(tabId, live) || lastTabUse.get(tabId) !== last || recent().retained.has(tabId)) continue
+          if (!await canUnloadIdleTab(tabId, live, budget || managedIdle)) continue
+          if (tabs.get(tabId) !== live || unloadProtected(tabId, live) || lastTabUse.get(tabId) !== last || !managedIdle && recent().retained.has(tabId)) continue
           let history = live.contents.navigationHistory
           let saved = { entries: history.getAllEntries(), index: history.getActiveIndex() }
           if (live.initialHistory?.cancelled && saved.index === live.initialHistory.blankIndex) {
@@ -4989,7 +4993,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let live = await ensureLiveTab(pane)
       capture = await createRemoteCapture({ ...options, contents:live.contents, closed:() => {
         let captures = fingerprintCaptures.get(pane)
-        if (capture && captures?.delete(capture) && !captures.size) fingerprintCaptures.delete(pane)
+        if (capture && captures?.delete(capture) && !captures.size) {
+          fingerprintCaptures.delete(pane)
+          lastTabUse.set(pane, Date.now())
+        }
         options.closed()
       } })
       let captures = fingerprintCaptures.get(pane) ?? new Set()
@@ -5061,7 +5068,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return remoteViewport(pane)
     },
   }
-  let accountJobs = createAccountJobs({ directory: dataDirectory, changed: publish, acquire: job => {
+  let accountJobs = createAccountJobs({ directory: dataDirectory, changed: publish, exclusive: !!sharedProxyRoute, acquire: job => {
     assertAccountSeals(model)
     let seal = model.accountSeals?.[job.identity.paneId], identity = accountPaneIdentity(model, job.identity.paneId)
     if (accountBlocked(job.identity.connectionId) || !seal || seal.account !== job.account || accountFingerprint(identity) !== accountFingerprint(job.identity)) throw new Error('ACCOUNT_IDENTITY_CHANGED')
@@ -5069,13 +5076,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!pane || !plugins?.accountActions(pane.platform).some(action => action.id === job.action)) throw new Error('ACCOUNT_ACTION_UNAVAILABLE')
     let owner = 'account-job:' + job.id, session = job.identity.sessionId, lease = remote.acquire(session, owner, false), runId: string | undefined
     let renew = () => { assertAccountSeals(model); if (accountFingerprint(accountPaneIdentity(model, job.identity.paneId)) !== accountFingerprint(job.identity)) throw new Error('ACCOUNT_IDENTITY_CHANGED'); controls.renew(session, owner, lease.generation) }
-    return { renew, release: () => { if (runId) scheduledActors.delete(runId); remote.release(session, owner) }, cancel: () => { if (runId) plugins?.cancel(runId) }, status: () => plugins?.runs().find(run => run.id === runId)?.status ?? 'failed', start: async guard => {
+    return { renew, release: () => { if (runId) scheduledActors.delete(runId); lastTabUse.set(pane.key, Date.now()); remote.release(session, owner) }, cancel: () => { if (runId) plugins?.cancel(runId) }, status: () => plugins?.runs().find(run => run.id === runId)?.status ?? 'failed', start: async guard => {
       let live = await ensureLiveTab(job.identity.paneId); await live.ready; guard(); live.contents.setAudioMuted(true)
       let run = await plugins!.accountRun(pane.platform, job.action, { paneId: pane.key }, job.inputs, guard)
       runId = run.id; scheduledActors.set(run.id, { actor: { owner, generation: lease.generation }, pane: pane.key, guard })
     } }
   } })
-  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ directory: dataDirectory, interactiveOnly, model, save: () => { writeModel(dataDirectory, model, bookmarkFile); if (process.platform !== 'win32') { let descriptor = fsSync.openSync(dataDirectory, 'r'); try { fsSync.fsyncSync(descriptor) } finally { fsSync.closeSync(descriptor) } }; save(); void scheduleVisuals(); publish() }, hostProxy, credentials: proxyCredentials,
+  let mobility = createAccountMobility(dataDirectory, credentialEncryption, applyAccountMobility({ directory: dataDirectory, interactiveOnly, model, save: () => { writeModel(dataDirectory, model, bookmarkFile); if (process.platform !== 'win32') { let descriptor = fsSync.openSync(dataDirectory, 'r'); try { fsSync.fsyncSync(descriptor) } finally { fsSync.closeSync(descriptor) } }; save(); void scheduleVisuals(); publish() }, hostProxy, sharedProxyRoute, credentials: proxyCredentials,
     configure: async (platform, profile, operation) => {
       if (!plugins?.accountActions(platform).some(action => action.id === `bmux.${platform}/simulate`)) return undefined
       return plugins.accountConfiguration(platform, profile, operation)
