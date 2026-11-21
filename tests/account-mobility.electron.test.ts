@@ -93,6 +93,19 @@ test('account migration restores login storage once and keeps the retired source
     }, move.command)
     expect(requests).toBe(before)
     expect(application.context().pages().some(page => page.url() === url)).toBe(false)
+    let restored = await application.evaluate(async (_electron, { target, origin, moved }) => {
+      let source = (globalThis as any).remoteLayoutRuntime, destination = (globalThis as any).createMobilityRuntime(target)
+      await destination.start(true)
+      source.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'restore' })
+      destination.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'restore' })
+      let command = { ...moved.command, id: '30000000-0000-4000-8000-000000000002', identity: moved.imported.identity, operation: { ...moved.command.operation, targetKey: source.accounts.mobility.publicKey() }, expires: Date.now() + 30000 }
+      let { capsule } = await destination.accounts.mobility.apply(command, () => true)
+      let result = await source.accounts.mobility.apply({ ...command, phase: 'import', capsule }, () => true)
+      await source.accounts.mobility.apply({ ...command, phase: 'activate' }, () => true)
+      return result
+    }, { target, origin, moved: move })
+    expect((restored as any).identity.settingsHash).toBe((provision.identity as any).settingsHash)
+    await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
   } finally {
     await closeTestApplication(application)
     for (let client of ws.clients) client.terminate()
