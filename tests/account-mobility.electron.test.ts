@@ -34,7 +34,7 @@ test('account migration restores login storage once and keeps the retired source
   })
   await new Promise<void>(resolve => gateway.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(gateway.address() as net.AddressInfo).port}`, url = `http://www.tiktok.com:${port}/`
-  let launch = () => electron.launch({ args: [path.join(output, 'main/main.js')], env: { ...process.env, BMUX_DATA_DIR: source, BMUX_CONFIG: path.join(source, 'config.yaml'), BMUX_PROXY_TEST_URL: 'http://proxy.fixture/ip' } })
+  let launch = () => electron.launch({ args: [path.join(output, 'main/main.js')], env: { ...process.env, BMUX_DATA_DIR: source, BMUX_CONFIG: path.join(source, 'config.yaml'), BMUX_PROXY_TEST_URL: 'http://proxy.fixture/ip', BMUX_HOST_CREDENTIAL_KEY_FILE: path.join(directory, 'fixture.key') } })
   let application = await launch()
   try {
     await expect.poll(() => application.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
