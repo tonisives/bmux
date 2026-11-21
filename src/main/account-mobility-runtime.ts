@@ -12,6 +12,9 @@ import { includedProxy } from './account-proxies'
 import { encryptAccountTransfer } from './account-mobility'
 import type { MobilityCommand } from './account-mobility'
 import { exportAccountStorage, importAccountStorage } from './account-storage'
+import { readRedditLedgers, writeRedditLedgers } from './account-reddit-state'
+import type { RedditReadLedger } from './account-reddit-state'
+import type { AccountSocialHook } from './social-hooks'
 import type { ProxyCredentials } from './profile-proxy'
 import type { AccountConfiguration, AccountSettingsOperation } from './account-relay-control'
 
@@ -25,6 +28,10 @@ type Options = {
   test: (proxy: ProfileProxy, credentials?: ProxyCredentials) => Promise<unknown>
   hostProxy?: ProfileProxy
   sharedProxyRoute?: string
+  socialHook: {
+    read: (plugin: string, profile: string) => Promise<AccountSocialHook | undefined>
+    write: (plugin: string, profile: string, hook: AccountSocialHook) => Promise<void>
+  }
   interactiveOnly?: boolean
   configure: (platform: string, profile: string, operation?: AccountSettingsOperation) => Promise<AccountConfiguration | undefined>
 }
@@ -63,7 +70,11 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       if (!connection.proxy || options.hostProxy && accountFingerprint(options.hostProxy) !== accountFingerprint(connection.proxy)) throw new Error('ACCOUNT_PROXY_NOT_PORTABLE')
       if (!connection.proxy.route && (/^(localhost|127\.|0\.|\[?::1)/i.test(connection.proxy.host) || connection.proxy.host.endsWith('.local'))) throw new Error('ACCOUNT_PROXY_NOT_PORTABLE')
       let configuration = await options.configure(command.operation.platform, profile.id)
-      let capsule = encryptAccountTransfer({ account: command.account, seal, proxy: connection.proxy, credentials: connection.proxy.authenticated ? options.credentials.get(identity.connectionId) : undefined, profile: { name: profile.name, background: profile.background, device: profile.device }, pane: { url: pane.url, title: pane.title, zoom: pane.zoom, device: pane.device }, cookies, storage, configuration: configuration?.values }, command.operation.targetKey, command.id + ':' + command.account)
+      let reddit = command.operation.platform === 'reddit' ? {
+        ledgers: await readRedditLedgers(options.directory, profile.id),
+        hook: await options.socialHook.read('bmux.reddit', identity.connectionId),
+      } : undefined
+      let capsule = encryptAccountTransfer({ reddit, account: command.account, seal, proxy: connection.proxy, credentials: connection.proxy.authenticated ? options.credentials.get(identity.connectionId) : undefined, profile: { name: profile.name, background: profile.background, device: profile.device }, pane: { url: pane.url, title: pane.title, zoom: pane.zoom, device: pane.device }, cookies, storage, configuration: configuration?.values }, command.operation.targetKey, command.id + ':' + command.account)
       guard(); lease.renew()
       // The ciphertext and retirement marker share one durable model write.
       writeAtomic(capsuleFile, capsule)
@@ -88,7 +99,7 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
     }
   }
   if (options.interactiveOnly) throw new Error('ACCOUNT_HOST_MODE_UNSUPPORTED')
-  type Transfer = { account: string; seal: AccountSeal; proxy: ProfileProxy; credentials?: ProxyCredentials; configuration?: Record<string, unknown>; profile: Model['profiles'][number]; pane: Model['sessions'][number]['windows'][number]['panes'][number]; cookies: Electron.Cookie[]; storage: { origin: string } }
+  type Transfer = { reddit?: { ledgers: RedditReadLedger[]; hook?: AccountSocialHook }; account: string; seal: AccountSeal; proxy: ProfileProxy; credentials?: ProxyCredentials; configuration?: Record<string, unknown>; profile: Model['profiles'][number]; pane: Model['sessions'][number]['windows'][number]['panes'][number]; cookies: Electron.Cookie[]; storage: { origin: string } }
   let transfer = value as Transfer | undefined
   if (command.phase === 'import' && (!transfer || transfer.account !== command.account || transfer.seal.account !== command.account || transfer.seal.headersHash !== command.seal.headersHash || accountFingerprint(transfer.seal.identity) !== accountFingerprint(command.identity))) throw new Error('ACCOUNT_TRANSFER_CHANGED')
   let route = String(command.operation.request.route)
@@ -146,6 +157,11 @@ export let applyAccountMobility = (options: Options) => async (command: Mobility
       let current = await options.configure(command.operation.platform, profileId)
       if (!current) throw new Error('ACCOUNT_BROWSING_PLUGIN_REQUIRED')
       await options.configure(command.operation.platform, profileId, { revision: current.revision, values: transfer.configuration })
+      guard()
+    }
+    if (transfer?.reddit && command.operation.platform === 'reddit') {
+      writeRedditLedgers(options.directory, profileId, transfer.reddit.ledgers)
+      if (transfer.reddit.hook) await options.socialHook.write('bmux.reddit', profileId, transfer.reddit.hook)
       guard()
     }
     options.credentials.set(profileId, transfer?.credentials)

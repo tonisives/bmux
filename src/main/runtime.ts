@@ -5087,6 +5087,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!plugins?.accountActions(platform).some(action => action.id === `bmux.${platform}/simulate`)) return undefined
       return plugins.accountConfiguration(platform, profile, operation)
     },
+    socialHook: {
+      read: async (plugin, profile) => socialHooks?.exportAccount(plugin, profile),
+      write: async (plugin, profile, hook) => {
+        if (!socialHooks) throw new Error('ACCOUNT_SOCIAL_HOOK_UNAVAILABLE')
+        await socialHooks.importAccount(plugin, profile, hook)
+      },
+    },
     acquire: (session, owner) => { let lease = remote.acquire(session, owner, false); return { renew: () => controls.renew(session, owner, lease.generation), release: () => remote.release(session, owner) } },
     contents: async pane => (await ensureLiveTab(pane)).contents, dispose: disposeTab,
     retire: connection => { let browser = electronSession.fromPartition('persist:' + connection); accountNetworkBlocks.add(browser); browser.webRequest.onBeforeRequest((_request, callback) => callback({ cancel: true })); void proxyRelays.close(connection) },

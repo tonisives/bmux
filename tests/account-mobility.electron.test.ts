@@ -33,7 +33,7 @@ test('account migration restores login storage once and keeps the retired source
     upstream.on('error', () => stream.destroy()); stream.on('error', () => upstream.destroy()); stream.on('close', () => upstream.destroy()); upstream.on('close', () => stream.destroy()); upstream.pipe(stream).pipe(upstream)
   })
   await new Promise<void>(resolve => gateway.listen(0, '127.0.0.1', resolve))
-  let origin = `http://127.0.0.1:${(gateway.address() as net.AddressInfo).port}`, url = `http://www.tiktok.com:${port}/`
+  let origin = `http://127.0.0.1:${(gateway.address() as net.AddressInfo).port}`, url = `http://www.reddit.com:${port}/`
   let launch = () => electron.launch({ args: [path.join(output, 'main/main.js')], env: { ...process.env, BMUX_DATA_DIR: source, BMUX_CONFIG: path.join(source, 'config.yaml'), BMUX_PROXY_TEST_URL: 'http://proxy.fixture/ip', BMUX_HOST_CREDENTIAL_KEY_FILE: path.join(directory, 'fixture.key') } })
   let application = await launch()
   try {
@@ -41,12 +41,13 @@ test('account migration restores login storage once and keeps the retired source
     let provision = await application.evaluate(async (_electron, origin) => {
       let runtime = (globalThis as any).remoteLayoutRuntime
       runtime.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'fixture' })
-      let command = { id: '10000000-0000-4000-8000-000000000001', account: '20000000-0000-4000-8000-000000000001', phase: 'provision', identity: null, seal: null, operation: { request: { route: 'us-west', width: 1200, height: 800 }, targetKey: runtime.accounts.mobility.publicKey(), platform: 'tiktok', persona: 'Fixture', label: 'Fixture' }, expires: Date.now() + 30000 }
+      let command = { id: '10000000-0000-4000-8000-000000000001', account: '20000000-0000-4000-8000-000000000001', phase: 'provision', identity: null, seal: null, operation: { request: { route: 'us-west', width: 1200, height: 800 }, targetKey: runtime.accounts.mobility.publicKey(), platform: 'reddit', persona: 'Fixture', label: 'Fixture' }, expires: Date.now() + 30000 }
       let receipt = await runtime.accounts.mobility.apply(command, () => true)
       if (!runtime.model.accountSeals[receipt.identity.paneId].userAgentMetadata) throw new Error('Client hints were not sealed')
       await runtime.accounts.mobility.apply(command, () => true)
       if (Object.values(runtime.model.accountSeals).length !== 1) throw new Error('Duplicate provision')
       await runtime.accounts.mobility.apply({ ...command, phase: 'activate' }, () => true)
+      await runtime.execute({ method: 'plugin.social-hooks.save', args: { id: 'bmux.reddit', profile: receipt.identity.connectionId, config: { enabled: false, url: 'https://fixture.invalid/receipt', auth: 'bearer', format: 'posts', header: 'authorization', secret: 'fixture-credential' } } })
       return receipt
     }, origin)
     await application.evaluate(async (_electron, { identity, url }) => {
@@ -60,12 +61,15 @@ test('account migration restores login storage once and keeps the retired source
       localStorage.setItem('login', 'fixture')
       await new Promise<void>((resolve, reject) => { let request = indexedDB.open('login', 1); request.onupgradeneeded = () => request.result.createObjectStore('tokens'); request.onerror = () => reject(request.error); request.onsuccess = () => { let db = request.result, tx = db.transaction('tokens', 'readwrite'); tx.objectStore('tokens').put({ token: 'fixture', at: new Date(123), bytes: new Uint8Array([1,2,3]) }, 'login'); tx.oncomplete = () => { db.close(); resolve() } } })
     })
+    let ledger = JSON.stringify({ day: '2026-11-21', communities: { example: ['post-id'] } })
+    await fs.mkdir(path.join(source, 'reddit-research'))
+    await fs.writeFile(path.join(source, 'reddit-research', (provision.identity as any).profileId + '-fixture-daily.json'), ledger)
     let move = await application.evaluate(async (_electron, { target, origin, provision }) => {
       let source = (globalThis as any).remoteLayoutRuntime, destination = (globalThis as any).createMobilityRuntime(target)
       ;(globalThis as any).mobilityTarget = destination
       await destination.start(true)
       destination.accounts.proxies.configure({ origin, token: 'fixture', host: 'fixture', generation: 'fixture' })
-      let command = { id: '30000000-0000-4000-8000-000000000001', account: '20000000-0000-4000-8000-000000000001', phase: 'export', identity: provision.identity, seal: provision.seal, operation: { request: {}, targetKey: destination.accounts.mobility.publicKey(), platform: 'tiktok', persona: 'Fixture', label: 'Fixture' }, expires: Date.now() + 30000 }
+      let command = { id: '30000000-0000-4000-8000-000000000001', account: '20000000-0000-4000-8000-000000000001', phase: 'export', identity: provision.identity, seal: provision.seal, operation: { request: {}, targetKey: destination.accounts.mobility.publicKey(), platform: 'reddit', persona: 'Fixture', label: 'Fixture' }, expires: Date.now() + 30000 }
       let result = await source.accounts.mobility.apply(command, () => true)
       let imported = await destination.accounts.mobility.apply({ ...command, phase: 'import', capsule: result.capsule }, () => true)
       await destination.accounts.mobility.apply({ ...command, phase: 'import', capsule: result.capsule }, () => true)
@@ -78,6 +82,10 @@ test('account migration restores login storage once and keeps the retired source
     }, provision.identity as any)).rejects.toThrow('ACCOUNT_HOST_INACTIVE')
     expect((move.imported as any).identity.settingsHash).toBe((provision.identity as any).settingsHash)
     expect((move.imported as any).seal).toEqual(provision.seal)
+    expect(await fs.readFile(path.join(target, 'reddit-research', (move.imported as any).identity.profileId + '-fixture-daily.json'), 'utf8')).toBe(ledger)
+    let hook = await application.evaluate(async (_electron, profile) => (globalThis as any).mobilityTarget.execute({ method: 'plugin.social-hooks.get', args: { id: 'bmux.reddit', profile } }), (move.imported as any).identity.connectionId)
+    expect(hook.config).toMatchObject({ url: 'https://fixture.invalid/receipt', hasSecret: true })
+    expect(hook.config).not.toHaveProperty('secret')
     await application.evaluate(async (_electron, command) => (globalThis as any).mobilityTarget.accounts.mobility.apply({ ...command, phase: 'activate' }, () => true), move.command)
     await expect.poll(() => application.context().pages().some(page => page.url() === url)).toBe(true)
     page = application.context().pages().find(page => page.url() === url)!

@@ -10,6 +10,7 @@ import { socialRedditSource } from './social-reddit-source'
 type Post = Record<string, unknown>
 export type SocialCapture = { runId: string; query: string; group?: string }
 type Job = { hook?: string; capture?: SocialCapture; id: string; plugin: string; profile: string; posts: Post[]; attempts: number; due: number; destination: string; failed?: boolean }
+export type AccountSocialHook = { config: SocialHookConfig; sent: number; recent: SocialHookReceipt[] }
 type Data = { excludedSearches?: Record<string, string[]>; configs: Record<string, SocialHookConfig>; jobs: Job[]; seen: Record<string, string>; recent: SocialHookReceipt[]; counts: Record<string, number>; migrated: string[] }
 type Options = { directory: string; encrypt: (text: string) => Buffer; decrypt: (data: Buffer) => string; available: () => boolean; targets: () => { contents: WebContents; profile: string; private: boolean }[]; enabled: (id: string) => boolean; changed: () => void; fetcher?: typeof fetch }
 export let socialHookNames = (value: unknown): string[] => {
@@ -137,7 +138,25 @@ export let createSocialHooks = (options: Options) => {
       data.recent = data.recent.slice(0,100); await persist(); options.changed()
     } finally { busy = false }
   }
-  return { ready,state,save,select,enqueue,tick, sent: (plugin:string) => Object.entries(data.counts).filter(([k]) => k.startsWith(plugin+':')).reduce((n,[,v]) => n+v,0), migrate: async (profile: string, settings: {apiKey?:string;endpoint?:string;log?:unknown[]}) => {
+  let exportAccount = async (plugin: string, profile: string): Promise<AccountSocialHook> => {
+    await ready
+    if (data.jobs.some(j => j.plugin === plugin && j.profile === profile && !j.failed)) throw new Error('ACCOUNT_DELIVERIES_PENDING')
+    let { secret, ...config } = effective(plugin,profile)
+    return {
+      config: { ...config, secret: secret ? options.decrypt(Buffer.from(secret, 'base64')) : '' },
+      sent: data.counts[key(plugin, profile)] ?? 0,
+      recent: data.recent.filter(receipt => receipt.plugin === plugin && receipt.profile === profile && !receipt.hook),
+    }
+  }
+  let importAccount = async (plugin: string, profile: string, transfer: AccountSocialHook) => {
+    await save(plugin, profile, transfer.config)
+    data.counts[key(plugin, profile)] = transfer.sent
+    data.recent = [...transfer.recent.map(receipt => ({ ...receipt, plugin, profile })),
+      ...data.recent.filter(receipt => receipt.plugin !== plugin || receipt.profile !== profile)]
+      .sort((a, b) => b.at - a.at).slice(0, 100)
+    await persist()
+  }
+  return { ready,state,save,select,enqueue,tick,exportAccount,importAccount, sent: (plugin:string) => Object.entries(data.counts).filter(([k]) => k.startsWith(plugin+':')).reduce((n,[,v]) => n+v,0), migrate: async (profile: string, settings: {apiKey?:string;endpoint?:string;log?:unknown[]}) => {
     await ready
     if (data.migrated.includes(profile)) return
     if (!settings.apiKey) throw new Error('TweetTrace credential unavailable')
