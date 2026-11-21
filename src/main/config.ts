@@ -28,6 +28,23 @@ import type { AgentFeedbackSettings } from '../shared/agent-feedback'
 import { DEFAULT_REMOTE_PREVIEWS, parseRemotePreviews } from '../shared/remote-preview-settings'
 import type { RemotePreviewSettings } from '../shared/remote-preview-settings'
 
+let parseShortcutAction = (value: unknown, key: string) => {
+  let action = typeof value === 'string' ? normalizeKeyAction(value) : undefined
+  if (!action || !KEY_ACTIONS.has(action) && !switchClientAction(action) && !pluginBinding(action)) throw new Error(`Unknown keyboard action for ${key}`)
+  return action
+}
+
+let parseFollowUp = (value: unknown, shortcut: string) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.keys(value).length) throw new Error(`followUp for ${shortcut} must be a nonempty mapping`)
+  let canonicalKeys = new Set<string>()
+  return Object.fromEntries(Object.entries(value).map(([key, action]) => {
+    let binding = parseBinding(key), canonical = JSON.stringify(binding)
+    if (['shiftleft', 'shiftright'].includes(binding.key) || canonicalKeys.has(canonical)) throw new Error(`Invalid follow-up key for ${shortcut}: ${key}`)
+    canonicalKeys.add(canonical)
+    return [key, parseShortcutAction(action, `${shortcut} then ${key}`)]
+  }))
+}
+
 export let DEFAULT_MEMORY: MemorySettings = { lazyRestore: true, idleUnloadMinutes: 0, maxLoadedBackgroundPages: 8 }
 type Settings = { browseRecording: { enabled: boolean; manual: boolean }; scrolling: ScrollingSettings; remotePreviews: RemotePreviewSettings; agentFeedback: AgentFeedbackSettings; automaticUpdates: boolean; keyboard: KeyboardConfig; clickMode: ClickModeSettings; accessibility: boolean; statusBar: StatusBarPosition; showBuildId: boolean; showTabCloseButtons: boolean; showDarkModeButton: boolean; vimEditing: boolean; searchApps: SearchApps; memory: MemorySettings; browser: BrowserSettings; plugins: PluginSettings; automation: AutomationSettings }
 
@@ -123,11 +140,15 @@ export let parseConfig = (text: string): Settings => {
       }
       if (action === null) { delete result[field][key]; continue }
       let object = field === 'shortcuts' && typeof action === 'object' && !Array.isArray(action) ? action as Record<string, unknown> : undefined
-      if (object && (Object.keys(object).some(key => !['action', 'when'].includes(key)) || (object.when !== undefined && (typeof object.when !== 'string' || !['always', 'pane-not-editing'].includes(object.when))))) throw new Error(`Invalid shortcut context for ${key}`)
-      let name = object ? object.action : action
-      if (typeof name === 'string') name = normalizeKeyAction(name)
-      if (typeof name !== 'string' || (!KEY_ACTIONS.has(name) && !switchClientAction(name) && name !== 'plugins' && !pluginBinding(name))) throw new Error(`Unknown keyboard action for ${key}`)
-      if (field === 'shortcuts' && object) result.shortcuts[key] = { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined }
+      if (object && (Object.keys(object).some(key => !['action', 'when', 'followUp', 'timeoutMs'].includes(key)) || (object.when !== undefined && (typeof object.when !== 'string' || !['always', 'pane-not-editing'].includes(object.when))))) throw new Error(`Invalid shortcut options for ${key}`)
+      let name = parseShortcutAction(object ? object.action : action, key)
+      if (field === 'shortcuts' && object) {
+        let binding = { action: name, when: object.when as 'always' | 'pane-not-editing' | undefined }
+        let followUp = object.followUp === undefined ? undefined : parseFollowUp(object.followUp, key)
+        let timeoutMs = object.timeoutMs as number | undefined
+        if (timeoutMs !== undefined && (!followUp || !Number.isInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 10000)) throw new Error(`timeoutMs for ${key} requires followUp and must be between 250 and 10000`)
+        result.shortcuts[key] = followUp ? { ...binding, followUp, timeoutMs: timeoutMs ?? result.prefixTimeoutMs } : binding
+      }
       else result[field][key] = name
     }
   }

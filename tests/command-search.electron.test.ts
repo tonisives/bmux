@@ -98,6 +98,11 @@ test.beforeAll(async () => {
       response.end('<!doctype html><title>Split page fixture</title><style>html{background:#234567;scrollbar-width:none}body{height:2400px}aside{position:fixed;inset:0 0 0 auto;width:20px;background:#60c080}</style><h1>Split page fixture</h1><aside></aside>')
       return
     }
+    if (request.url?.includes('/shortcut-follow-up')) {
+      response.writeHead(200, { 'Content-Type': 'text/html' })
+      response.end('<!doctype html><title>Shortcut fixture</title><input aria-label="Typing test">')
+      return
+    }
     response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<!doctype html><title>Command search fixture</title><style>body{background:#e8eef8;color:#173353;font:24px sans-serif;padding:32px}</style><h1>Command search fixture</h1><p>A visible native page behind the command finder.</p>')
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); url = `http://127.0.0.1:${(server.address() as any).port}/fixture`
@@ -1862,6 +1867,73 @@ test('switchc selects panes across sessions, preserves zoom with -Z and supports
     await rpc('switch-client', { client: original.id, session: original.sessionId })
     await rpc('select-window', { client: original.id, window: original.windowId })
     await rpc('kill-session', { session: target.id, confirm: true })
+  }
+})
+
+test('shortcut follow-ups switch sessions and let other keys reach the page', async () => {
+  let current = await state(), client = current.model.clients.find((item: any) => item.id === current.clientId)
+  let configFile = path.join(directory, 'config.yaml'), originalConfig = await fs.readFile(configFile, 'utf8'), config = parse(originalConfig)
+  let sessions: string[] = []
+  let makeSession = async (name: string) => {
+    let session = await rpc('new-session', { name })
+    sessions.push(session.id)
+    return session
+  }
+  let selectedSession = async () => (await state()).model.clients.find((item: any) => item.id === client.id).sessionId
+  let key = (keyCode: string, modifiers: Electron.KeyboardInputEvent['modifiers'] = []) => sendNativeKeys(application, [{ keyCode, modifiers }])
+  try {
+    let work = await makeSession('follow-up-work'), tasks = await makeSession('follow-up-tasks'), support = await makeSession('follow-up-support')
+    let workPane = work.windows[0].panes[0].id
+    let workUrl = `${url}/shortcut-follow-up`
+    config.keyboard.shortcuts['Cmd+G'] = {
+      action: 'switchc -t follow-up-work', timeoutMs: 2000,
+      followUp: { t: 'switchc -t follow-up-tasks', s: 'switchc -t follow-up-support' },
+    }
+    config.keyboard.shortcuts['Cmd+Shift+G'] = {
+      action: 'switchc -t missing-follow-up-session', timeoutMs: 2000,
+      followUp: { t: 'switchc -t follow-up-tasks' },
+    }
+    await fs.writeFile(configFile, stringify(config))
+    await expect.poll(async () => (await state()).keyboard.shortcuts['Cmd+G']).toMatchObject(config.keyboard.shortcuts['Cmd+G'])
+    await rpc('switch-client', { client: client.id, session: work.id })
+    await rpc('navigate', { pane: workPane, url: workUrl })
+    await expect.poll(() => application.context().pages().some(page => page.url() === workUrl)).toBe(true)
+    let workPage = application.context().pages().find(page => page.url() === workUrl)!
+    let input = workPage.getByRole('textbox', { name: 'Typing test' })
+    await expect(input).toBeVisible()
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
+    await rpc('focus-page', { client: client.id })
+
+    for (let [letter, destination] of [['t', tasks.id], ['s', support.id]]) {
+      await key('g', ['meta'])
+      await expect.poll(selectedSession).toBe(work.id)
+      await key(letter)
+      await expect.poll(selectedSession).toBe(destination)
+    }
+    await rpc('switch-client', { client: client.id, session: work.id })
+    await rpc('focus-page', { client: client.id })
+    await input.focus()
+    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(workUrl)
+    await key('g', ['meta'])
+    await input.press('a')
+    await input.press('t')
+    await expect(input).toHaveValue('at')
+
+    await key('g', ['meta'])
+    // This pause exercises the real expiry deadline.
+    await new Promise(resolve => setTimeout(resolve, 2100))
+    await input.press('t')
+    await expect(input).toHaveValue('att')
+
+    await key('g', ['meta', 'shift'])
+    await input.press('t')
+    await expect(input).toHaveValue('attt')
+    expect(await selectedSession()).toBe(work.id)
+  } finally {
+    await fs.writeFile(configFile, originalConfig)
+    await expect.poll(async () => (await state()).keyboard.shortcuts['Cmd+G']).toBeUndefined()
+    await rpc('switch-client', { client: client.id, session: client.sessionId })
+    for (let session of sessions) await rpc('kill-session', { session, confirm: true })
   }
 })
 

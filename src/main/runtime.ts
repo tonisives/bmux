@@ -428,6 +428,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let shuttingDown = false
   let prefixUntil = 0
   let pendingSequence: { key: string; clientId: string; contentsId: number; expires: number } | undefined
+  let pendingFollowUp: { clientId: string; bindings: Record<string, string>; expires: number } | undefined
   let pendingModifierShortcut: { binding: Shortcut; clientId: string; code: string; contentsId: number } | undefined
   let legacyPrefix: string | undefined
   let configuration: ReturnType<typeof createConfig> | undefined
@@ -1235,24 +1236,30 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let pane = client?.paneId ? paneById(model, client.paneId).pane : undefined
     let live = pane?.id ? tabs.get(pane.id) : undefined
     if (!client || !owner || client.id !== focusedClientId || !owner.window.isFocused() || !pane || !live || live.parent !== owner.window) return Promise.resolve(false)
-    prefixUntil = 0; pendingSequence = undefined; pendingModifierShortcut = undefined
+    prefixUntil = 0; pendingSequence = undefined; pendingModifierShortcut = undefined; pendingFollowUp = undefined
     return clickMode.activate(client.id, pane.id, live.contents, configuration?.clickMode ?? DEFAULT_CLICK_MODE)
   }
-  let dispatchShortcut = (action: string) => {
+  let dispatchShortcut = (action: string, binding?: Exclude<Shortcut, string>) => {
     let client = model.clients.find(client => client.id === focusedClientId)
     if (!client || automatedContents.has(webContents.getFocusedWebContents()?.id ?? -1)) return
     if (model.sessions.find(session => session.id === client.sessionId)?.remote && remoteWorkspaceShortcut(action)) return
     if (client.readOnly && !readOnlyAction(action)) return
     let focused = clients.get(client.id)!
-    let invoke = (command: Command) => { void execute(command, client.id).catch(reportError) }
+    let followUp = binding?.followUp && { clientId: client.id, bindings: binding.followUp, expires: Date.now() + (binding.timeoutMs ?? configuration?.keyboard.prefixTimeoutMs ?? DEFAULT_KEYBOARD.prefixTimeoutMs) }
+    if (followUp) pendingFollowUp = followUp
+    let onError = (error: unknown) => {
+      if (followUp && pendingFollowUp === followUp) pendingFollowUp = undefined
+      reportError(error)
+    }
+    let invoke = (command: Command) => { void execute(command, client.id).catch(onError) }
     let pane = client.paneId ? paneById(model, client.paneId).pane : undefined
     let tab = pane?.id
     let control = (name: string) => { pointerTarget = undefined; let chrome = name === 'address' && pane && !client.zoomedPaneId ? focused.floats.get(pane.id) ?? focused.chrome : focused.chrome; chrome.webContents.focus(); chrome.webContents.send('focus-control', name) }
     if (action === 'prefix') { prefixUntil = Date.now() + (configuration?.keyboard.prefixTimeoutMs ?? 1600); return }
-    if (action === 'vim-editor') { if (tab && !overlays.has(client.id)) void pageTools?.frameContexts(tab, `window.dispatchEvent(new Event('bmux:vim-editor'))`).catch(reportError); return }
-    if (action === 'click-mode') { void activateClickMode().catch(reportError); return }
+    if (action === 'vim-editor') { if (tab && !overlays.has(client.id)) void pageTools?.frameContexts(tab, `window.dispatchEvent(new Event('bmux:vim-editor'))`).catch(onError); return }
+    if (action === 'click-mode') { void activateClickMode().catch(onError); return }
     if ((action === 'toggle-dark' || action === 'toggle-adblock') && tab) { invoke({ method: 'browser.set', args: { tab, setting: action === 'toggle-dark' ? 'darkMode' : 'adblock', value: 'toggle', ...(action === 'toggle-dark' ? { scope: 'profile' } : {}) } }); return }
-    if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { reportError(error) }; return }
+    if (action.startsWith('plugin:')) { try { plugins?.run(action.slice(7), { clientId: client.id }, {}, true) } catch (error) { onError(error) }; return }
     let session = model.sessions.find(session => session.id === client.sessionId)!
     let window = session.windows.find(window => window.id === client.windowId)!
     if (action === 'close-pane' || (action === 'close-pane-or-window' && pane && window.floating?.some(item => item.paneId === pane.id))) {
@@ -1265,10 +1272,10 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (behavior === 'close-window') { invoke({ method: 'kill-window', args: { window: window.id, confirm: true } }); return }
     }
     if (['plugins', 'address', 'command', 'find', 'help', 'sessions', 'bookmark', 'bookmarks', 'history', 'activity', 'downloads', 'extensions', 'profiles', 'settings', 'rename-window', 'rename-session', 'move-window', 'select-window', 'close-pane', 'close-window', 'close-pane-or-window'].includes(action)) { control(action === 'close-pane-or-window' ? 'close-window' : action); return }
-    if (action === 'new-client') { void createClient(client.sessionId).catch(reportError); return }
+    if (action === 'new-client') { void createClient(client.sessionId).catch(onError); return }
     if (action === 'new-private-session') { invoke({ method: 'new-session', args: { client: client.id, private: true } }); return }
     if (['reload', 'hard-reload', 'stop', 'back', 'forward'].includes(action) && tab) { invoke({ method: action, args: { tab } }); return }
-    if (action.startsWith('scroll-') && tab) { void keyboardScrollTab(tab, action).catch(reportError); return }
+    if (action.startsWith('scroll-') && tab) { void keyboardScrollTab(tab, action).catch(onError); return }
     if (action.startsWith('zoom-') && tab) {
       let current = tabById(model, tab).tab.zoom
       invoke({ method: 'zoom', args: { tab, factor: action === 'zoom-reset' ? 1 : current + (action === 'zoom-in' ? .1 : -.1) } }); return
@@ -1281,10 +1288,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return
     }
     let line = action === 'split-right' ? 'split-window -h' : action === 'split-down' ? 'split-window -v' : windowNumber ? `select-window -t ${windowNumber}` : action
-    let command = parseCommandLine(line, state(client.id))
-    if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
-    invoke(command)
+    try {
+      let command = parseCommandLine(line, state(client.id))
+      if (command.method === 'select-pane-direction' || command.method === 'cycle-pane') command.args = { ...command.args, movePointer: true }
+      invoke(command)
+    } catch (error) { onError(error) }
   }
+  let dispatchBinding = (binding: Shortcut) => dispatchShortcut(shortcutAction(binding), typeof binding === 'string' ? undefined : binding)
   let closeFocusedWindow = () => {
     let focused = [...clients.values()].find(client => client.window.isFocused()) ?? (focusedClientId ? clients.get(focusedClientId) : undefined)
     focused?.window.close()
@@ -1292,7 +1302,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let refreshMenu = () => {
     let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
     let remote = model.sessions.some(session => session.id === model.clients.find(client => client.id === focusedClientId)?.sessionId && session.remote)
-    let items = Object.entries(keyboard.shortcuts).filter(([key, binding]) => key !== 'Escape' && !isModifierKeyBinding(key) && shortcutAction(binding) !== 'vim-editor').map(([key, binding]) => ({ label: shortcutAction(binding), enabled: !remote || !remoteWorkspaceShortcut(shortcutAction(binding)), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchShortcut(shortcutAction(binding)) }))
+    let items = Object.entries(keyboard.shortcuts).filter(([key, binding]) => key !== 'Escape' && !isModifierKeyBinding(key) && shortcutAction(binding) !== 'vim-editor').map(([key, binding]) => ({ label: shortcutAction(binding), enabled: !remote || !remoteWorkspaceShortcut(shortcutAction(binding)), accelerator: shortcutWhen(binding) === 'always' && !['Tab', 'Shift+Tab'].includes(key) ? key : undefined, click: () => dispatchBinding(binding) }))
     let nativeWindowItems = process.platform === 'darwin' ? [{ id: 'close-system-window', label: 'Close System Window', click: closeFocusedWindow }, { type: 'separator' as const }] : []
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'bmux', submenu: [{ role: 'about' }, { id: 'check-for-updates', label: 'Check for Updates...', visible: false }, { id: 'automatic-updates', label: 'Automatically Check for Updates', type: 'checkbox', visible: false }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
@@ -1304,6 +1314,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   }
   let refreshSettings = () => {
     pendingSequence = undefined
+    pendingFollowUp = undefined
     doubleTap.reset(); clickMode.cancel()
     filters?.refresh()
     pageTools?.reload()
@@ -1368,7 +1379,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       contents.setIgnoreMenuShortcuts(false)
       let focused = clients.get(focusedClientId)
       if (!focused || (focused.chrome.webContents !== contents && ![...focused.floats.values()].some(frame => frame.webContents === contents) && ![...tabs.values()].some(tab => (tab.contents === contents || tab.inputLock?.contents === contents) && tab.parent === focused.window))) return
-      if (dialogPrompts.has(focusedClientId)) { contents.setIgnoreMenuShortcuts(true); return }
+      if (dialogPrompts.has(focusedClientId)) { pendingFollowUp = undefined; contents.setIgnoreMenuShortcuts(true); return }
       if (clickMode.handle(focusedClientId, input)) { event.preventDefault(); return }
       let clickSettings = configuration?.clickMode ?? DEFAULT_CLICK_MODE
       let selected = model.clients.find(client => client.id === focusedClientId)?.paneId
@@ -1377,13 +1388,23 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (pendingModifierShortcut && (pendingModifierShortcut.clientId !== focusedClientId || pendingModifierShortcut.contentsId !== contents.id)) pendingModifierShortcut = undefined
       let keyboard = configuration?.keyboard ?? DEFAULT_KEYBOARD
       let client = model.clients.find(client => client.id === focusedClientId)!
-      if (client.keyTable && input.type === 'keyDown' && !['Shift', 'Control', 'Meta', 'Alt', 'CapsLock'].includes(input.key)) {
+      let ordinaryKeyDown = input.type === 'keyDown' && !['Shift', 'Control', 'Meta', 'Alt', 'CapsLock'].includes(input.key)
+      if (client.keyTable && ordinaryKeyDown) {
+        pendingFollowUp = undefined
         let table = client.keyTable
         client.keyTable = undefined
         let action = table === 'prefix' ? prefixAction(keyboard.prefixBindings, input) : prefixAction(keyboard.keyTables?.[table] ?? {}, input)
         event.preventDefault()
         if (action) dispatchShortcut(action)
         return
+      }
+      if (pendingFollowUp && ordinaryKeyDown) {
+        let pending = pendingFollowUp
+        pendingFollowUp = undefined
+        if (pending.clientId === client.id && Date.now() < pending.expires) {
+          let match = Object.entries(pending.bindings).find(([key]) => matchesBinding(key, input))
+          if (match) { event.preventDefault(); dispatchShortcut(match[1]); return }
+        }
       }
       if (client.readOnly && contents !== focused.chrome.webContents && ![...focused.floats.values()].some(frame => frame.webContents === contents)) {
         // Preserve only the prefix and switching/detach bindings on page content.
@@ -1397,7 +1418,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
           return
         }
         let entry = Object.entries(keyboard.shortcuts).find(([key]) => matchesBinding(key, input))
-        if (entry && readOnlyAction(shortcutAction(entry[1]))) dispatchShortcut(shortcutAction(entry[1]))
+        if (entry && readOnlyAction(shortcutAction(entry[1]))) dispatchBinding(entry[1])
         return
       }
       // Native Tab traversal remains available in dialogs and command prompts.
@@ -1411,11 +1432,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (modifierKey && input.type === 'keyUp') {
         let binding = pendingModifierShortcut?.code === input.code ? pendingModifierShortcut.binding : undefined
         pendingModifierShortcut = undefined
-        if (binding && matchesContext(binding, contents)) dispatchShortcut(shortcutAction(binding))
+        if (binding && matchesContext(binding, contents)) dispatchBinding(binding)
         return
       }
       if (pendingModifierShortcut && input.type === 'keyDown') pendingModifierShortcut = undefined
-      if (input.type !== 'keyDown' || ['Shift', 'Control', 'Meta', 'Alt', 'CapsLock'].includes(input.key)) return
+      if (!ordinaryKeyDown) return
       // The page can regain focus while a renderer control remains open. Let the
       // website receive Escape, but also give the renderer a chance to dismiss it.
       if (input.key === 'Escape' && contents !== focused.chrome.webContents) focused.chrome.webContents.send('focus-control', 'dismiss')
@@ -1443,7 +1464,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!entry || shortcutAction(entry[1]) === 'vim-editor' || !matchesContext(entry[1], contents) || (shortcutAction(entry[1]) === 'stop' && contents === focused.chrome.webContents)) return
       // Escape must also reach websites so they can dismiss dialogs and overlays.
       if (input.key !== 'Escape' || shortcutAction(entry[1]) !== 'stop') event.preventDefault()
-      dispatchShortcut(shortcutAction(entry[1]))
+      dispatchBinding(entry[1])
     })
     contents.on('before-mouse-event', (event, mouse) => {
       if (mouse.type === 'mouseDown') syncPageSelection(contents)
@@ -2754,12 +2775,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     window.on('hide', () => { void scheduleVisuals() })
     window.on('minimize', () => { void scheduleVisuals() })
     window.on('restore', () => { void scheduleVisuals() })
-    window.on('blur', () => { tabTooltip.setVisible(false); clickMode.cancelClient(client.id); doubleTap.reset(); if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; permissionFocusTarget = undefined; void scheduleVisuals() } })
+    window.on('blur', () => {
+      tabTooltip.setVisible(false); clickMode.cancelClient(client.id); doubleTap.reset()
+      if (pendingFollowUp?.clientId === client.id) pendingFollowUp = undefined
+      if (focusedClientId === client.id) { focusedClientId = null; pointerTarget = undefined; permissionFocusTarget = undefined; void scheduleVisuals() }
+    })
     window.on('close', () => {
       // Move browser views out before destroying the client so their native hosts survive.
       for (let [tabId, live] of tabs) if (live.parent === window) moveView(live, parkHost(tabById(model, tabId).pane.profileId))
     })
     window.on('closed', () => {
+      if (pendingFollowUp?.clientId === client.id) pendingFollowUp = undefined
       dialogPrompts.get(client.id)?.cancel()
       pageOverlays.delete(client.id); raisedOverlayChrome.delete(client.id)
       clients.delete(client.id)
