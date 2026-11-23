@@ -55,6 +55,21 @@ test('bookmark search preserves folder context without including unrelated sibli
   expect(bookmarks).toEqual(before)
 })
 
+test('bookmark search combines folder names and bookmark titles', () => {
+  let overview: Bookmark = { id: 'overview', title: 'Overview', url: 'https://example.test/overview' }
+  let sf: Bookmark = { id: 'sf', title: 'SF', children: [overview, { id: 'notes', title: 'Notes', url: 'https://example.test/notes' }] }
+  let work: Bookmark = { id: 'work', title: 'Work', children: [sf] }
+  let direct: Bookmark = { id: 'direct', title: 'SF Overview', url: 'https://example.test/direct' }
+  let entries = [work, direct, overview]
+  let filteredSF = { ...sf, children: [overview] }
+  let filteredWork = { ...work, children: [filteredSF] }
+
+  expect(searchBookmarks([sf, overview], 'sf over')).toEqual([filteredSF])
+  expect(searchBookmarks(entries, 'sf over')).toEqual([direct, filteredWork])
+  expect(searchBookmarks(entries, ' WORK  sf over ')).toEqual([filteredWork])
+  expect(searchBookmarks(entries, 'sf over', { preserveOrder: true })).toEqual([filteredWork, direct])
+})
+
 test('bookmark search finds page names and URLs without carrying a matching folder into every result', () => {
   let personal: Bookmark[] = [{ id: 'personal', title: 'Personal', children: [
     { id: 'sessions', title: 'Sessions', url: 'https://example.test/sessions' },

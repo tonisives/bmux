@@ -46,13 +46,14 @@ let pageMatch = (bookmark: Bookmark, query: string) => bestMatch([
   bookmark.url ? fieldMatch(query, bookmark.url, 1) : undefined,
 ])
 
-let searchBookmarkResults = (bookmarks: Bookmark[], query: string, preserveOrder: boolean): ScoredBookmark[] => {
+let searchBookmarkResults = (bookmarks: Bookmark[], query: string, preserveOrder: boolean, folderPath = ''): ScoredBookmark[] => {
   let results = bookmarks.flatMap(bookmark => {
+    let path = folderPath ? `${folderPath} ${bookmark.title}` : bookmark.title
     if (!bookmark.children) {
-      let match = pageMatch(bookmark, query)
+      let match = pageMatch(bookmark, query) ?? (folderPath ? fieldMatch(query, path, 0) : undefined)
       return match ? [{ bookmark, match }] : []
     }
-    let children = searchBookmarkResults(bookmark.children, query, preserveOrder), folderMatch = fieldMatch(query, bookmark.title, 2), match = bestMatch([
+    let children = searchBookmarkResults(bookmark.children, query, preserveOrder, path), folderMatch = fieldMatch(query, bookmark.title, 2), match = bestMatch([
       folderMatch,
       ...children.map(result => result.match),
     ])
