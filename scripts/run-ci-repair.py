@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local ClawTab job: serialize repairs and run Codex with approval review."""
 
+import fcntl
 import importlib.util
 import json
 import os
@@ -94,7 +95,7 @@ def send_agent_message(directory, result):
         print(f"Could not deliver repair agent message: {error}", file=sys.stderr)
 
 
-def run_agent(smoke, commit, result_dir):
+def run_agent(smoke, commit, result_dir, lock_fd):
     spec = importlib.util.spec_from_file_location("trigger_ci_repair", SOURCE_ROOT / "scripts/trigger-ci-repair.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -126,7 +127,9 @@ def run_agent(smoke, commit, result_dir):
         else:
             command.append(prompt)
         capacity = False
-        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as process:
+        # Keep the lock held if the wrapper dies while Codex is still running.
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              text=True, pass_fds=(lock_fd,)) as process:
             for line in process.stdout:
                 print(line, end="", flush=True)
                 try:
@@ -164,13 +167,13 @@ def main():
         commit = json.loads(last_repair.read_text())["commit"]
     if not smoke and not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("commit must be a full Git SHA; no interrupted repair is available to restart")
-    lock = worktrees / "ci-repair.lock"
     result = None
-    try:
-        lock.mkdir()
-    except FileExistsError:
-        raise RuntimeError("Another repair owns ci-repair.lock; no agent launched") from None
-    try:
+    # Leave the lock file in place so every run locks the same inode.
+    with (worktrees / "ci-repair.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("Another repair owns ci-repair.lock; no agent launched") from None
         directory = state_dir / ("smoke" if smoke else commit)
         directory.mkdir(exist_ok=True)
         completed = directory / "completed.json"
@@ -192,7 +195,7 @@ def main():
             if not smoke:
                 write_json(last_repair, {"commit": commit})
             try:
-                result = run_agent(smoke, commit, directory)
+                result = run_agent(smoke, commit, directory, lock.fileno())
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
                 send_agent_message(directory, {
                     "status": "blocked", "failed_run_url": "", "fix_commit": "",
@@ -201,12 +204,10 @@ def main():
                 raise
             send_agent_message(directory, result)
         write_json(completed, result)
-    finally:
-        lock.rmdir()
-    # The trusted wrapper writes ClawTab's result outside the agent's workspace.
-    result_file = os.environ.get("CLAWTAB_RESULT_FILE")
-    if result_file:
-        write_json(Path(result_file), result)
+        # The trusted wrapper writes ClawTab's result outside the agent's workspace.
+        result_file = os.environ.get("CLAWTAB_RESULT_FILE")
+        if result_file:
+            write_json(Path(result_file), result)
     print(json.dumps(result))
     print(f"CI repair result: {result['status']}")
 

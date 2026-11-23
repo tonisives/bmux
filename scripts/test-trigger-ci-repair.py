@@ -1,10 +1,11 @@
 import copy
+import fcntl
 import importlib.util
 import io
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 import os
 import tempfile
 
@@ -93,6 +94,7 @@ class RepairRequestTests(unittest.TestCase):
 class LocalRunnerTests(unittest.TestCase):
     result = {"status": "ok", "failed_run_url": "", "fix_commit": "", "verification_urls": [], "explanation": "verified"}
     session = "11111111-1111-4111-8111-111111111111"
+    lock_fd = 42
 
     def process(self, events, code):
         process = MagicMock()
@@ -101,16 +103,25 @@ class LocalRunnerTests(unittest.TestCase):
         process.wait.return_value = code
         return process
 
-    def test_existing_lock_prevents_launch_and_is_preserved(self):
+    def assert_lock_released(self, root):
+        with (root / ".worktrees/ci-repair.lock").open() as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_held_lock_prevents_launch_but_existing_file_allows_next_run(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             lock = root / ".worktrees/ci-repair.lock"
-            lock.mkdir(parents=True)
-            with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "true"}), patch.object(runner, "run_agent") as launch:
-                with self.assertRaisesRegex(RuntimeError, "Another repair"):
+            lock.parent.mkdir()
+            with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "true"}, clear=True), patch.object(runner, "run_agent", return_value=self.result) as launch:
+                with lock.open("a") as held:
+                    fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    with self.assertRaisesRegex(RuntimeError, "Another repair"):
+                        runner.main()
+                    launch.assert_not_called()
+                self.assertTrue(lock.is_file())
+                with patch("sys.stdout", new_callable=io.StringIO):
                     runner.main()
-                launch.assert_not_called()
-                self.assertTrue(lock.is_dir())
+                launch.assert_called_once()
 
     def test_stale_commit_prevents_launch_and_releases_lock(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -119,7 +130,7 @@ class LocalRunnerTests(unittest.TestCase):
             with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "false", "CLAWTAB_PARAM_COMMIT": "a" * 40, "CLAWTAB_RESULT_FILE": str(result)}), patch.object(runner.subprocess, "run"), patch.object(runner.subprocess, "check_output", return_value="b" * 40), patch.object(runner, "main_is_green", return_value=True), patch.object(runner, "run_agent") as launch:
                 runner.main()
                 launch.assert_not_called()
-                self.assertFalse((root / ".worktrees/ci-repair.lock").exists())
+                self.assert_lock_released(root)
                 self.assertEqual(json.loads(result.read_text())["status"], "skipped")
 
     def test_advanced_main_with_unresolved_checks_still_launches_repair(self):
@@ -127,7 +138,7 @@ class LocalRunnerTests(unittest.TestCase):
             root = Path(directory)
             with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "false", "CLAWTAB_PARAM_COMMIT": "a" * 40}, clear=True), patch.object(runner.subprocess, "run"), patch.object(runner.subprocess, "check_output", return_value="b" * 40), patch.object(runner, "main_is_green", return_value=False), patch.object(runner, "run_agent", return_value=self.result) as launch:
                 runner.main()
-            launch.assert_called_once_with(False, "a" * 40, root / ".worktrees/ci-repair-state" / ("a" * 40))
+            launch.assert_called_once_with(False, "a" * 40, root / ".worktrees/ci-repair-state" / ("a" * 40), ANY)
 
     def test_main_requires_successful_primary_ci_and_uses_latest_attempt(self):
         cases = [
@@ -172,13 +183,14 @@ class LocalRunnerTests(unittest.TestCase):
             with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "true"}), patch.object(runner, "run_agent", side_effect=RuntimeError("launch failed")):
                 with self.assertRaisesRegex(RuntimeError, "launch failed"):
                     runner.main()
-                self.assertFalse((root / ".worktrees/ci-repair.lock").exists())
+                self.assert_lock_released(root)
 
     def test_capacity_resumes_the_exact_session_with_approval_review(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             commands = []
             def launch(command, **kwargs):
+                self.assertEqual(kwargs["pass_fds"], (self.lock_fd,))
                 commands.append(command)
                 if len(commands) == 1:
                     return self.process([
@@ -188,7 +200,7 @@ class LocalRunnerTests(unittest.TestCase):
                 (root / "result.json").write_text(json.dumps(self.result))
                 return self.process([{"type": "thread.started", "thread_id": self.session}], 0)
             with patch.object(runner.subprocess, "Popen", side_effect=launch), patch.object(runner.time, "sleep") as sleep:
-                self.assertEqual(runner.run_agent(False, "a" * 40, root), self.result)
+                self.assertEqual(runner.run_agent(False, "a" * 40, root, self.lock_fd), self.result)
             self.assertNotIn("resume", commands[0])
             self.assertEqual(commands[1][-3:-1], ["resume", self.session])
             self.assertIn("--approve-for-me", commands[1])
@@ -204,7 +216,7 @@ class LocalRunnerTests(unittest.TestCase):
             events = [{"type": "thread.started", "thread_id": self.session}, {"type": "error", "message": "Selected model is at capacity."}]
             with patch.object(runner.subprocess, "Popen", side_effect=[self.process(events, 1) for _ in range(3)]) as launch, patch.object(runner.time, "sleep") as sleep:
                 with self.assertRaisesRegex(RuntimeError, "repair state retained"):
-                    runner.run_agent(False, "a" * 40, root)
+                    runner.run_agent(False, "a" * 40, root, self.lock_fd)
             self.assertEqual(launch.call_count, 3)
             self.assertEqual([call.args[0] for call in sleep.call_args_list], [30, 60])
             self.assertTrue((root / "session.json").exists())
@@ -214,7 +226,7 @@ class LocalRunnerTests(unittest.TestCase):
             process = self.process([{"type": "error", "message": "Automatic approval review rejected the action"}], 1)
             with patch.object(runner.subprocess, "Popen", return_value=process) as launch, patch.object(runner.time, "sleep") as sleep:
                 with self.assertRaisesRegex(RuntimeError, "Codex exited with status 1"):
-                    runner.run_agent(False, "a" * 40, Path(directory))
+                    runner.run_agent(False, "a" * 40, Path(directory), self.lock_fd)
             launch.assert_called_once()
             sleep.assert_not_called()
 
@@ -229,7 +241,7 @@ class LocalRunnerTests(unittest.TestCase):
                 (root / "result.json").write_text(json.dumps(self.result))
                 return self.process([], 0)
             with patch.object(runner.subprocess, "Popen", side_effect=launch):
-                self.assertEqual(runner.run_agent(False, "a" * 40, root), self.result)
+                self.assertEqual(runner.run_agent(False, "a" * 40, root, self.lock_fd), self.result)
 
     def test_restart_without_parameters_recovers_the_interrupted_commit_after_its_push(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -242,9 +254,9 @@ class LocalRunnerTests(unittest.TestCase):
             output = root / "result.json"
             with patch.object(runner, "ROOT", root), patch.dict(os.environ, {"CLAWTAB_PARAM_SMOKE": "false", "CLAWTAB_PARAM_COMMIT": "", "CLAWTAB_RESULT_FILE": str(output)}), patch.object(runner.subprocess, "run"), patch.object(runner.subprocess, "check_output", return_value="b" * 40), patch.object(runner, "run_agent", return_value=self.result) as launch:
                 runner.main()
-            launch.assert_called_once_with(False, "a" * 40, session)
+            launch.assert_called_once_with(False, "a" * 40, session, ANY)
             self.assertEqual(json.loads(output.read_text()), self.result)
-            self.assertFalse((root / ".worktrees/ci-repair.lock").exists())
+            self.assert_lock_released(root)
 
     def test_manual_run_without_trigger_result_file_saves_its_completed_result(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -48,8 +48,10 @@ change. The repair agent reports structured results through ClawTab.
 If the Mac is offline, the dispatch workflow fails. The existing trigger API does
 not automatically retry `no_device` requests; replaying the same commit reuses that
 terminal result. Inspect the trigger in ClawTab and start a manual repair once the
-Mac is online. An interrupted agent may leave `public/.worktrees/ci-repair.lock`;
-check that no repair is running before removing that directory.
+Mac is online. The runner uses an OS lock on `public/.worktrees/ci-repair.lock`.
+The file stays in place, and the lock releases when the wrapper and its Codex
+process exit. If upgrading from a version that used a directory at that path,
+confirm no repair is running, then remove the empty directory with `rmdir`.
 
 Use the workflow's manual dispatch with a failed run ID and `dry_run: true` to
 check eligibility without launching an agent. Dry runs retain all eligibility
