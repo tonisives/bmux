@@ -12,7 +12,7 @@ import { createBrowseRecorder } from './browse-recorder'
 import { DEFAULT_SCROLLING, parseScrolling } from '../shared/scrolling'
 import { navigateWindowHistory } from './window-navigation'
 import { arrangePanes, maximizePane } from './pane-layout'
-import { createAttentionRequests } from './remote-attention'
+import { createAttentionRequests, requiresTaskVerification } from './remote-attention'
 import { createRemoteManagement } from './remote-management'
 import { hostCredentialEncryption } from './host-credentials'
 import { createHash, randomUUID } from 'node:crypto'
@@ -2852,8 +2852,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     if (!page.ready || page.warning || !current() || live.contents.getURL() !== url || documents.get(pane.id) !== document || warnings().some(usage => !episodes.includes(episode(usage)))) return
     automationSafety?.resume(pane.profileId, page)
     for (let request of attention.active().filter(request => episodes.includes(request.episode))) {
-      if (request.originator) { if (request.status === 'pending') attention.acknowledge(request.pane, request.episode, request.revision, randomUUID()) }
-      else attention.resolve(request.pane, request.episode)
+      if (request.status === 'pending') attention.resolve(request.pane, request.episode)
     }
     publish()
   }
@@ -3128,7 +3127,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (!/^https?:\/\//.test(page.url)) throw new Error('Open the affected website before resuming automation')
       let result = automationSafety?.resume(pane.profileId, page)
       let episode = attention.active().find(item => item.pane === pane.id)
-      let acknowledgement = episode?.originator ? attention.acknowledge(pane.id,episode.episode,episode.revision,randomUUID()) : undefined
+      let acknowledgement = episode && requiresTaskVerification(episode) ? attention.acknowledge(pane.id,episode.episode,episode.revision,randomUUID()) : undefined
       if (!acknowledgement) attention.resolve(pane.id)
       publish(); return acknowledgement ?? result
     }
@@ -4956,7 +4955,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (episode && request) { let duplicate = attention.receipt(pane,episode,request); if (duplicate) return duplicate }
       let current = remote.attentions().find(item => item.pane === pane && (!episode || item.episode === episode))
       if (episode && !current || current && request && (current.revision !== revision || current.status !== 'pending')) throw new Error('ATTENTION_CHANGED')
-      if (current && attention.active().find(item => item.episode === current.episode)?.originator && (!request || !Number.isInteger(revision))) throw new Error('VERIFIED_RESUME_REQUIRED')
+      if (current && requiresTaskVerification(attention.active().find(item => item.episode === current.episode)) && (!request || !Number.isInteger(revision))) throw new Error('VERIFIED_RESUME_REQUIRED')
       let page = await inspectAutomationPage(pane)
       if (!/^https?:\/\//.test(page.url)) throw new Error('Open the affected website before resuming automation')
       controls.assert(target.session.id,owner,generation)
@@ -4964,7 +4963,6 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       automationSafety?.resume(target.pane.profileId,page)
       if (current && request && Number.isInteger(revision)) {
         let result = attention.acknowledge(pane,current.episode,revision!,request)
-        if (!attention.active().find(item => item.episode === current.episode)?.originator) attention.verify(pane,current.episode,result.attemptId,undefined,'verified')
         publish(); return result
       }
       attention.resolve(pane,episode); publish(); return { resumed:true }

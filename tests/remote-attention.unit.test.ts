@@ -67,6 +67,25 @@ it('recovers an interrupted verification as paused and rejects writes when durab
   } finally { fs.rmSync(directory,{recursive:true,force:true}) }
 })
 
+it('completes a checked browser warning even when the recorded plugin has ended', () => {
+  let directory = fs.mkdtempSync(path.join(os.tmpdir(),'bmux-attention-test-')), file = path.join(directory,'attention.json')
+  try {
+    let ledger = createAttentionRequests(file)
+    let warning = ledger.request('pane','session','warning','plugin:bmux.x','account-warning')
+    let legacy = ledger.request('other-pane','session','legacy','plugin:bmux.x','challenge')
+    ledger = createAttentionRequests(file)
+    expect(() => ledger.assert(warning.pane)).toThrow('paused')
+    let request = randomUUID()
+    let acknowledgement = ledger.acknowledge(warning.pane,warning.episode,warning.revision,request)
+    let restored = createAttentionRequests(file)
+    expect(restored.receipt(warning.pane,warning.episode,request)).toEqual(acknowledgement)
+    expect(restored.all()[0]).toMatchObject({ originator: 'plugin:bmux.x', status: 'resolved', attempts: [{ outcome: 'verified' }] })
+    expect(() => restored.assert(warning.pane)).not.toThrow()
+    restored.resolve(legacy.pane,legacy.episode)
+    expect(restored.active()).toEqual([])
+  } finally { fs.rmSync(directory,{recursive:true,force:true}) }
+})
+
 it('cancels a removed exact target without resolving another pane', async () => {
   let directory = fs.mkdtempSync(path.join(os.tmpdir(),'bmux-attention-test-'))
   try {

@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto'
 import type { RemoteAttentionAttempt, RemoteAttentionStatus, RemoteResumeAcknowledgement } from '../shared/remote-attention'
 
 export type AttentionRequest = { pane: string; session: string; episode: string; reason: 'help' | 'challenge' | 'account-warning' | 'rate-limit'; createdAt: number; resolvedAt?: number; revision: number; status: RemoteAttentionStatus; originator?: string; attempts: (RemoteAttentionAttempt & { revision: number })[] }
+export let requiresTaskVerification = (item?: Pick<AttentionRequest, 'reason' | 'originator'>) => item?.reason === 'help' && !!item.originator
+
 export let createAttentionRequests = (file: string) => {
   let requests: AttentionRequest[] = [], unreadable = false
   let listeners = new Set<() => void>()
@@ -51,11 +53,8 @@ export let createAttentionRequests = (file: string) => {
   let resolve = (pane: string, episode?: string) => {
     let active = requests.find(item => item.pane === pane && !item.resolvedAt)
     if (active && episode && active.episode !== episode) throw new Error('The help request changed. Refresh before resuming.')
-    if (active?.originator) throw new Error('The originating task must verify this help request')
-    if (active) {
-      let acknowledgement = acknowledge(pane, active.episode, active.revision, randomUUID())
-      verify(pane, active.episode, acknowledgement.attemptId, undefined, 'verified')
-    }
+    if (requiresTaskVerification(active)) throw new Error('The originating task must verify this help request')
+    if (active) acknowledge(pane, active.episode, active.revision, randomUUID())
   }
   let receipt = (pane: string, episode: string, requestId: string): RemoteResumeAcknowledgement | undefined => {
     if (unreadable) throw new Error('Attention ledger unreadable')
@@ -73,8 +72,15 @@ export let createAttentionRequests = (file: string) => {
     if (item.revision !== revision || item.status !== 'pending') throw new Error('ATTENTION_CHANGED')
     if (item.attempts.length >= 100) throw new Error('ATTENTION_ATTEMPT_LIMIT')
     return commit(() => {
-      let attempt = { id:randomUUID(), request:requestId, acknowledgedAt:Date.now(), revision:++item.revision }
+      let attempt: AttentionRequest['attempts'][number] = { id:randomUUID(), request:requestId, acknowledgedAt:Date.now(), revision:++item.revision }
       item.status = 'verifying'; item.attempts.push(attempt)
+      if (!requiresTaskVerification(item)) {
+        attempt.outcome = 'verified'
+        attempt.completedAt = attempt.acknowledgedAt
+        item.status = 'resolved'
+        item.resolvedAt = attempt.completedAt
+        item.revision++
+      }
       return { resumed:true, status:'verifying', episode, revision:attempt.revision, attemptId:attempt.id, acknowledgedAt:attempt.acknowledgedAt }
     })
   }
