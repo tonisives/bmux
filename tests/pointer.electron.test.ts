@@ -88,7 +88,10 @@ test('pane shortcuts move the macOS pointer into page content, including zoomed 
     await waitForLayout()
     await key('j')
     await expectPointer(lower.id)
+    // Pointer movement can finish before the reattached page renderer regains focus.
+    await waitForLayout()
     await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/lower`)
+    await expect.poll(() => rpc('eval', { tab: lower.id, expression: 'document.visibilityState === "visible" && document.hasFocus()' })).toBe(true)
     await key('Down', [])
     await expect.poll(() => rpc('eval', { tab: lower.id, expression: 'scrollY' })).toBeGreaterThan(0)
     await rpc('toggle-pane-zoom', { client: client.id })
