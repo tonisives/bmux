@@ -13,6 +13,7 @@ import { DEFAULT_REMOTE_PREVIEWS } from '../shared/remote-preview-settings'
 import type { RemotePreviewSettings } from '../shared/remote-preview-settings'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
+import { MediaDeviceTest, mediaDeviceLabel } from './MediaDeviceTest'
 import { NavigationFailure } from './NavigationFailure'
 import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
@@ -46,7 +47,7 @@ import { connectionLabels, initialSecurity } from '../shared/site-security'
 import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { HTMLAttributes, ChangeEvent, DragEvent, FocusEvent, FormEvent, KeyboardEvent, PointerEvent, MouseEvent, RefObject, ReactNode } from 'react'
-import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, Pane, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
+import type { Bookmark, BookmarkParameters, Bridge, DevicePersona, DevicePlatform, DevicePreset, Download, HistoryEntry, InternalWindow, Layout, MediaDevice, Pane, Permission, Profile, PublicState, RemoteSessionListing, Snapshot } from '../shared/types'
 import type { PluginInfo, PluginPrompt, PluginParameter } from '../shared/plugins'
 import type { RemoteHost, RemoteSession, RemoteWindow } from '../shared/remote-sessions'
 import type { RemoteComputer } from '../shared/remote-account'
@@ -83,7 +84,7 @@ type AgentDetails = { profileId: string; host: string; jobs: string[] } | { pane
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; warning?: AutomationWarning; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { label: string; title: string; closed?: boolean; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; mediaDevices?: MediaDevice[]; warning?: AutomationWarning; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { label: string; title: string; closed?: boolean; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
@@ -332,12 +333,21 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIC
 let permissionNotices = (state: PublicState, run: UIContext['run']): Notification[] => state.permissions.filter(request => !state.dismissedPermissions?.includes(request.id)).map(request => {
   let label = permissionPaneLabel(state.model, request.paneId) ?? request.paneId
   let selected = selection(state).pane?.id === request.paneId
-  return { id: request.id, text: `${selected ? 'This pane' : label} requests ${request.permission} on ${request.origin}.`, actions: [
+  let permission = request.mediaDevices ? `${mediaDeviceLabel(request.mediaDevices)} access` : request.permission
+  return { id: request.id, text: `${selected ? 'This pane' : label} requests ${permission} on ${request.origin}.`, mediaDevices: request.mediaDevices, actions: [
     ...(selected ? [] : [{ label: 'Go to pane', title: label, run: () => { void run('permission.visit', { id: request.id }) } }]),
     { label: 'Deny', run: () => { void run('permission.respond', { id: request.id, allow: false }) } },
     { label: 'Allow', run: () => { void run('permission.respond', { id: request.id, allow: true }) } },
   ], dismiss: () => { void run('permission.dismiss', { ids: [request.id] }) } }
 })
+
+let useMediaPreparation = () => {
+  let { run } = useUI()
+  return useCallback(async (device: MediaDevice) => {
+    let result = await run('permission.media.prepare', { device }) as { allowed: boolean } | undefined
+    return result?.allowed === true
+  }, [run])
+}
 
 let automationActors = (state: PublicState, usage: AutomationSafetyState['profiles'][number]) => {
   let panes = state.model.sessions.flatMap(session => session.windows.flatMap(window => window.panes))
@@ -517,6 +527,7 @@ let NotificationAgents = ({ actors }: { actors: AutomationActor[] }) => {
 
 let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; collapseAlerts: () => void }) => {
   let { state, run, show } = useUI()
+  let prepareMedia = useMediaPreparation()
   let [resetting, setResetting] = useState(false)
   let automation = notices.filter(notice => notice.profileId)
   let openSettings = () => show('anti-bot-settings')
@@ -534,6 +545,7 @@ let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; col
       {notice.agents && <NotificationAgents actors={notice.agents} />}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
       {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
+      {notice.mediaDevices && <MediaDeviceTest devices={notice.mediaDevices} prepare={prepareMedia} buttonClassName={css.notificationAction} />}
     </div>)}
     {automation.length > 0 && <div className={`${css.notification} ${css.notificationGeneral}`} role="group" aria-label="Bot settings">
       <span className={css.notificationText}>Bots · all agents and profiles</span>
@@ -1603,6 +1615,8 @@ let SiteInformation = () => {
   if (!tab) return <p>Open a page to see its connection.</p>
   let security = state.security?.[tab.id] ?? initialSecurity(tab.url)
   let origin = (() => { try { let parsed = new URL(security.url); return parsed.origin === 'null' ? parsed.protocol : parsed.origin } catch { return security.url } })()
+  let tools = state.browserTools?.tabs[tab.id]
+  let resetMedia = () => { void run('permission.media.reset', { tab: tab.id, origin }) }
   let certificate = security.certificate
   let date = (seconds: number) => Number.isFinite(seconds) ? new Date(seconds * 1000).toLocaleString() : 'Unavailable'
   let clearSiteData = async () => {
@@ -1620,6 +1634,7 @@ let SiteInformation = () => {
     {security.status === 'mixed' && <p>This page includes or requests content over an unencrypted connection.</p>}
     {certificate && <dl><dt>Subject</dt><dd>{certificate.subject || 'Unavailable'}</dd><dt>Issuer</dt><dd>{certificate.issuer || 'Unavailable'}</dd><dt>Valid from</dt><dd>{date(certificate.validFrom)}</dd><dt>Valid until</dt><dd>{date(certificate.validTo)}</dd>{certificate.protocol && <><dt>Protocol</dt><dd>{certificate.protocol}</dd></>}</dl>}
     {/^https?:\/\//i.test(origin) && <button onClick={clearSiteData} disabled={busy}>{busy ? 'Clearing…' : 'Clear cookies and site data'}</button>}
+    {tools?.origin === origin && tools.hasMediaPermissions && <button onClick={resetMedia}>Reset camera and mic permissions and reload</button>}
     {notice?.tab === tab.id && notice.url === tab.url && <p role="status">Cookies and site data cleared. Page reloaded.</p>}
   </section>
 }
@@ -4021,7 +4036,7 @@ let PermissionRow = ({ permission }: { permission: Permission }) => {
   let visit = async () => { if (await run('permission.visit', { id: permission.id, pane: permission.paneId }) !== undefined) dismiss() }
   let deny = () => { void run('permission.respond', { id: permission.id, allow: false }) }
   let allow = () => { void run('permission.respond', { id: permission.id, allow: true }) }
-  return <div className={css.row}>{permission.origin}: {permission.permission}<div>{!selected && <button onClick={visit} title={paneLabel} disabled={!paneLabel}>Go to pane</button>}<button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
+  return <div className={css.row}>{permission.origin}: {permission.mediaDevices ? mediaDeviceLabel(permission.mediaDevices) : permission.permission}<div>{!selected && <button onClick={visit} title={paneLabel} disabled={!paneLabel}>Go to pane</button>}<button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
 }
 let downloadSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 let DownloadManager = () => {
@@ -4148,6 +4163,7 @@ let SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
   { tab: 'general', label: 'Private session search app', section: 'Search apps', keywords: 'search engine', target: '[name="searchApps.private"]' },
   { tab: 'general', label: 'Vim editing', section: 'Text editing', keywords: 'URL address rename tabs sessions normal insert motions website fields Ctrl E', target: '[name="vimEditing"]' },
   { tab: 'general', label: 'Allow page inspection', section: 'Accessibility', keywords: 'screen readers', target: '[name="accessibility"]' },
+  { tab: 'general', label: 'Test devices', section: 'Camera and microphone', keywords: 'video call audio mic input volume', target: '[data-setting-id="media-devices"]' },
   { tab: 'general', label: 'Default browser', section: 'Default browser', target: '[data-setting-id="default-browser"]' },
   { tab: 'appearance', label: 'Status bar', section: 'Browser layout', keywords: 'top bottom', target: '[name="statusBar"]' },
   { tab: 'appearance', label: 'Window close buttons', section: 'Browser layout', target: '[name="showTabCloseButtons"]' },
@@ -4171,6 +4187,7 @@ let BuildInformation = () => {
 }
 let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting: (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; makeDefault: () => void; matches?: Set<string> }) => {
   let { state } = useUI()
+  let prepareMedia = useMediaPreparation()
   let show = (target: string) => !matches || matches.has(target)
   return <>
     {show('[data-setting-id="build-info"]') && <BuildInformation />}
@@ -4186,6 +4203,9 @@ let GeneralSettings = ({ changeSetting, makeDefault, matches }: { changeSetting:
     {show('[name="accessibility"]') && <section className={css.settingsGroup} aria-label="Accessibility"><h3>Accessibility</h3>
       <label className={css.settingsRow}><span>Allow page inspection</span><input type="checkbox" name="accessibility" checked={state.accessibility === true} onChange={changeSetting} /></label>
       <p className={css.settingsHint}>Lets screen readers and other accessibility tools inspect page controls.</p>
+    </section>}
+    {show('[data-setting-id="media-devices"]') && <section className={css.settingsGroup} data-setting-id="media-devices" aria-label="Camera and microphone"><h3>Camera and microphone</h3>
+      <MediaDeviceTest devices={['video', 'audio']} prepare={prepareMedia} buttonClassName={css.settingsDefaultBrowser} />
     </section>}
     {show('[data-setting-id="default-browser"]') && <section className={css.settingsGroup} aria-label="Default browser"><h3>Default browser</h3>
       <button data-setting-id="default-browser" className={css.settingsDefaultBrowser} onClick={makeDefault}>Make bmux the default browser</button>
