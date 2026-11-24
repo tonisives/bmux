@@ -1,0 +1,4 @@
+.devices { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; margin-block: 4px; }
+.device { display: grid; gap: 4px; width: min(100%, 180px); }
+.device video { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: 4px; background: #111318; transform: scaleX(-1); }
+.device meter { width: 100%; height: 12px; }
