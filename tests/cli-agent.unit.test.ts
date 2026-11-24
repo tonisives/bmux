@@ -42,6 +42,7 @@ test('browser, creation and RPC commands retain explicit targets', () => withCon
   expect(await invoke(['dom', '-t', '%3'], undefined, { BMUX_AGENT_CONTEXT: 'tiktok' })).toMatchObject({ args: { agentContext: 'tiktok' } })
   expect(await invoke(['dom', '-t', '%3', '--agent-type', 'tmux', '--agent-data', '{"sessionId":"$1","windowId":"@2","paneId":"%42"}'])).toMatchObject({ args: { agentType: 'tmux', agentData: { sessionId: '$1', windowId: '@2', paneId: '%42' } } })
   expect(await invoke(['lock-viewport', '-t', 'work:3', '--width', '1512', '--height', '900'])).toEqual({ method: 'lock-viewport', args: { window: 'work:3', width: '1512', height: '900' } })
+  for (let method of ['lock-window', 'unlock-window']) expect(await invoke([method, '-t', 'work:3'])).toEqual({ method, args: { window: 'work:3' } })
   expect(await invoke(['new-window', '-t', 'work', '--agent-id=worker'])).toEqual({ method: 'new-window', args: { session: 'work', agentId: 'worker' } })
   expect(await invoke(['kill-session', '-t', 'work notes', '--confirm'])).toEqual({ method: 'kill-session', args: { session: 'work notes', confirm: true } })
   expect(await invoke(['kill-session', '--session', '$2'])).toEqual({ method: 'kill-session', args: { session: '$2' } })
