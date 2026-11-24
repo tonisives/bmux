@@ -30,13 +30,13 @@ import { copyConnectionCookies } from './connection-cookies'
 import { createFilePickers } from './file-pickers'
 import { deviceSafeAreaInsets, deviceSafeAreaScript } from './device-safe-areas'
 import { deviceScreenShape } from '../shared/device-frame'
-import { app, BaseWindow, BrowserWindow, View, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net, nativeImage } from 'electron'
+import { app, BaseWindow, BrowserWindow, View, WebContentsView, session as electronSession, shell, dialog, Menu, webContents, safeStorage, screen, clipboard, net, nativeImage, systemPreferences } from 'electron'
 import type { DownloadItem, WebContents } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
+import type { Bounds, Client, Command, DialogPrompt, MessageDialogOptions, DevicePersona, Download, FindResult, InternalWindow, MediaDevice, Model, Pane, Permission, PublicState, Snapshot, WorkspaceSession } from '../shared/types'
 import { cloneWindow, id, mapLayout, newPane, newSession, newWindow, paneById, paneInDirection, reassignConflictingPaneIds, removeSession, repairClientSelections, resolve, resolveWindow, selectClientWindow, splitLayout, tabById, updateAutomaticWindowName, walkPanes } from './model'
-import { bookmarksPath, readModel, writeModel } from './store'
+import { bookmarksPath, readModel, writeAtomic, writeModel } from './store'
 import { importBrave, braveDirectory } from './brave'
 import fsSync from 'node:fs'
 import { switchClient } from './switch-client'
@@ -254,7 +254,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let isAutomationCommand = (sourceClientId?: string) => !sourceClientId && !remoteActor.getStore() && !humanInput.getStore()
   let controlObservation = new Set(['state', 'status', 'list-sessions', 'list-clients', 'list-windows', 'list-panes', 'profile.list', 'browser.status', 'automation.status', 'dom', 'screenshot', 'remote.attention-wait', 'client.tooltip'])
   let checkControl = (method: string, args: Record<string, unknown>, sourceClientId?: string) => {
-    if (controlObservation.has(method)) return
+    if (controlObservation.has(method) || method === 'permission.media.prepare') return
     let actor = remoteActor.getStore()
     let paneId = args.tab ?? args.pane
     if (method === 'agent.focus' && typeof paneId === 'string' && !currentPane(paneId)) return
@@ -409,6 +409,32 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let findResults: Record<string, FindResult> = {}
   let permissions = new Map<string, PendingPermission>()
   let permissionGrants = new Map<string, boolean>()
+  let mediaTabs = new Set<string>()
+  let permissionScope = (profileId: string, privateSessionId?: string) => privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
+  let mediaGrant = (key: string, device: MediaDevice) => permissionGrants.get(`${key}:${device}`) ?? permissionGrants.get(key)
+  let mediaAuthorization = Promise.resolve()
+  let authorizeMedia = (devices: MediaDevice[]) => {
+    if (process.platform !== 'darwin' || app.commandLine.hasSwitch('use-fake-device-for-media-stream')) return Promise.resolve(true)
+    let request = mediaAuthorization.then(async () => {
+      let allowed = true
+      for (let device of devices) {
+        let kind: 'microphone' | 'camera' = device === 'audio' ? 'microphone' : 'camera'
+        let status = systemPreferences.getMediaAccessStatus(kind)
+        let granted = status === 'granted' || status === 'not-determined' && await systemPreferences.askForMediaAccess(kind)
+        allowed = allowed && granted
+      }
+      return allowed
+    })
+    mediaAuthorization = request.then(() => undefined, () => undefined)
+    return request
+  }
+  let resetTabMedia = (paneId: string) => {
+    mediaTabs.delete(paneId)
+    for (let [requestId, request] of permissions) if (request.paneId === paneId && request.mediaDevices) {
+      permissions.delete(requestId)
+      request.reply(false)
+    }
+  }
   let downloads: Download[] = []
   let downloadItems = new Map<string, DownloadItem>()
   let downloadPaths = new Set<string>()
@@ -464,8 +490,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     filters: filters.status(), scripts: pageTools?.list() ?? [],
     tabs: Object.fromEntries([...tabs].map(([tabId, live]) => {
       let url = live.contents.isDestroyed() ? '' : live.contents.getURL()
-      let { pane } = tabById(model, tabId)
-      return [tabId, { origin: pageOrigin(url), error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), siteDefaults: siteSettings(browserSettings(), pane.profileId, url), ...siteSettings(browserSettings(), pane.profileId, url), ...(pane.adblock === undefined ? {} : { adblock: pane.adblock }), ...filters!.counts(tabId) }]
+      let { pane, session } = tabById(model, tabId)
+      let origin = pageOrigin(url)
+      let key = `${permissionScope(pane.profileId, session.private ? session.id : undefined)}|${origin}|media`
+      let hasMediaPermissions = Boolean(origin) && (mediaGrant(key, 'audio') !== undefined || mediaGrant(key, 'video') !== undefined)
+      return [tabId, { origin, hasMediaPermissions, error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), siteDefaults: siteSettings(browserSettings(), pane.profileId, url), ...siteSettings(browserSettings(), pane.profileId, url), ...(pane.adblock === undefined ? {} : { adblock: pane.adblock }), ...filters!.counts(tabId) }]
     })),
   } : undefined
   let socialHooks: ReturnType<typeof createSocialHooks> | undefined
@@ -554,6 +583,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let remotePreviewsEnabled = false
   let settingsFile = path.join(dataDirectory, 'settings.json')
   let grantFile = path.join(dataDirectory, 'permissions.json')
+  let savePermissionGrants = () => writeAtomic(grantFile, JSON.stringify([...permissionGrants].filter(([key]) => !key.startsWith('private:'))))
   let readSettings = async () => {
     try { let settings = JSON.parse(await fs.readFile(settingsFile, 'utf8')); if (typeof settings.prefixKey === 'string') legacyPrefix = `Ctrl+${settings.prefixKey.toUpperCase()}` } catch { /* Defaults on first launch. */ }
     try { permissionGrants = new Map(JSON.parse(await fs.readFile(grantFile, 'utf8'))) } catch { /* Default deny until requested. */ }
@@ -873,19 +903,44 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     profileNetworkReady.set(key, ready)
     void ready.catch(() => undefined)
     let ownerId = model.profiles.find(owner => owner.id === profileId || owner.connections?.some(connection => connection.id === profileId))!.id
-    let permissionScope = privateSessionId ? `private:${privateSessionId}:${ownerId}` : ownerId
+    let scope = permissionScope(ownerId, privateSessionId)
     filters?.attach(session, ownerId)
     session.setPermissionCheckHandler((_contents, permission, origin, details) => {
+      if (permission === 'media') {
+        let device = details.mediaType
+        let mediaOrigin = pageOrigin(details.securityOrigin ?? origin)
+        return !!mediaOrigin && (device === 'audio' || device === 'video') && mediaGrant(`${scope}|${mediaOrigin}|media`, device) === true
+      }
       let normalizedOrigin = URL.canParse(origin) ? new URL(origin).origin : origin
-      let known = permissionGrants.get(`${permissionScope}|${normalizedOrigin}|${permission}`)
+      let known = permissionGrants.get(`${scope}|${normalizedOrigin}|${permission}`)
       if (known !== undefined) return known
       // A native file handle requires user selection. Reading an individual
       // upload must not grant directory access or permission to modify files.
       return permission === 'fileSystem' && details.fileAccessType === 'readable' && details.isDirectory === false
     })
     session.setPermissionRequestHandler((contents, permission, reply, details) => {
-      let origin = details.requestingUrl ? new URL(details.requestingUrl).origin : new URL(contents.getURL()).origin
-      let grantKey = `${permissionScope}|${origin}|${permission}`
+      let requestUrl = details.requestingUrl || contents.getURL()
+      if (permission === 'media') {
+        let media = details as Electron.MediaAccessPermissionRequest
+        let origin = pageOrigin(media.securityOrigin ?? requestUrl)
+        let devices = [...new Set(media.mediaTypes ?? [])].filter(device => device === 'audio' || device === 'video')
+        let paneId = [...tabs].find(([, live]) => live.contents === contents && !live.disposed)?.[0]
+        if (!origin || !devices.length || !paneId) { reply(false); return }
+        let grantKey = `${scope}|${origin}|media`
+        if (devices.some(device => mediaGrant(grantKey, device) === false)) { reply(false); return }
+        let mediaDevices = devices.filter(device => mediaGrant(grantKey, device) === undefined)
+        let respond = (allowed: boolean) => {
+          if (allowed) mediaTabs.add(paneId)
+          reply(allowed)
+        }
+        if (!mediaDevices.length) { respond(true); return }
+        let request = { id: id('permission'), profileId: ownerId, origin, permission, paneId, reply: respond, privateSessionId, mediaDevices }
+        permissions.set(request.id, request)
+        publish()
+        return
+      }
+      let origin = URL.canParse(requestUrl) ? new URL(requestUrl).origin : 'null'
+      let grantKey = `${scope}|${origin}|${permission}`
       let known = permissionGrants.get(grantKey)
       if (known !== undefined) { reply(known); return }
       let tabId = [...tabs].find(([, live]) => live.contents.id === contents.id)?.[0] ?? ''
@@ -1660,6 +1715,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
       if (!mainFrame || inPlace) return
       requestedHistoryUrl = url
+      resetTabMedia(tabId)
       scriptTouchedTabs.delete(tabId)
       if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url)
       live.pendingUrl = url
@@ -1680,7 +1736,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       findResults[tabId] = { ...current, matches: result.matches, activeMatchOrdinal: result.activeMatchOrdinal, finalUpdate: result.finalUpdate }
       publish()
     })
-    contents.on('render-process-gone', () => { delete findResults[tabId]; automatedNavigations.delete(tabId) })
+    contents.on('render-process-gone', () => { resetTabMedia(tabId); delete findResults[tabId]; automatedNavigations.delete(tabId) })
     contents.on('did-fail-load', (_event, code, _description, _url, mainFrame) => { if (mainFrame && code !== -3) automatedNavigations.delete(tabId) })
     contents.on('destroyed', () => { if (tabs.get(tabId) === live) { automatedNavigations.delete(tabId); activeAgents.delete(tabId); agentInputOverrides.remove(tabId); agentUnlockTimers.get(tabId)?.(); agentUnlockTimers.delete(tabId) } })
     let invalidate = () => { clickMode.cancelTab(tabId); documents.set(tabId, (documents.get(tabId) ?? 0) + 1); plugins?.invalidate(tabId) }
@@ -2010,7 +2066,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let contents = live.contents
     let token = tabAutomation.get(tabId)
     if (token && !automation?.hasLease(token)) tabAutomation.delete(tabId)
-    return tab.keepAlive || session.private || remotePages.has(tabId) || remoteSizes.has(tabId) || tabIsVisible(tabId) || tabQueues.has(tabId) || tabAutomation.has(tabId) || agentInputDue(tabId) || !!fingerprintCaptures.get(tabId)?.size || !!controls.get(session.id)
+    return tab.keepAlive || mediaTabs.has(tabId) || session.private || remotePages.has(tabId) || remoteSizes.has(tabId) || tabIsVisible(tabId) || tabQueues.has(tabId) || tabAutomation.has(tabId) || agentInputDue(tabId) || !!fingerprintCaptures.get(tabId)?.size || !!controls.get(session.id)
       || live.disposed || !!live.closing || !!live.initialHistory && !live.initialHistory.cancelled || contents.isDestroyed() || contents.isLoading() || contents.isCurrentlyAudible() || contents.isDevToolsOpened()
       || [...permissions.values()].some(request => request.paneId === tabId) || downloads.some(download => download.profileId === pane.profileId && download.active)
   }
@@ -2221,6 +2277,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       automationPointerTabs.delete(tabId)
     }
     if (!model.sessions.some(session => session.remote && session.windows.some(window => window.panes.some(pane => pane.id === tabId)))) remotePages.delete(tabId)
+    resetTabMedia(tabId)
     for (let [requestId, request] of permissions) if (request.paneId === tabId) { request.reply(false); permissions.delete(requestId) }
     delete security[tabId]
     clearNavigationError(tabId)
@@ -4403,14 +4460,48 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       return { sessionId: session.id, windowId: window.id, paneId: pane.id }
     }
     if (method === 'permission.list') return state().permissions
+    if (method === 'permission.media.prepare') {
+      if (!sourceClientId || !clients.has(sourceClientId)) throw new Error('Trusted permission UI required')
+      let { device } = args
+      if (device !== 'audio' && device !== 'video') throw new Error('Invalid media device')
+      return { allowed: await authorizeMedia([device]) }
+    }
+    if (method === 'permission.media.reset') {
+      if (!sourceClientId || !clients.has(sourceClientId)) throw new Error('Trusted permission UI required')
+      let tabId = required(args, 'tab')
+      let { pane, session } = tabById(model, tabId)
+      let contents = tabs.get(tabId)?.contents
+      if (!contents || contents.isDestroyed()) throw new Error('Site changed')
+      let origin = pageOrigin(contents.getURL())
+      if (!origin || origin !== args.origin) throw new Error('Site changed')
+      let key = `${permissionScope(pane.profileId, session.private ? session.id : undefined)}|${origin}|media`
+      for (let name of [key, `${key}:audio`, `${key}:video`]) permissionGrants.delete(name)
+      if (!session.private) savePermissionGrants()
+      contents.reload()
+      publish()
+      return null
+    }
     if (method === 'permission.respond') {
       let request = permissions.get(required(args, 'id'))
       if (!request) throw new Error('Permission request no longer exists')
       let allowed = args.allow === true
-      permissionGrants.set(`${request.privateSessionId ? `private:${request.privateSessionId}:` : ''}${request.profileId}|${request.origin}|${request.permission}`, allowed)
-      request.reply(allowed); permissions.delete(request.id)
-      if (!request.privateSessionId) await fs.writeFile(grantFile, JSON.stringify([...permissionGrants].filter(([key]) => !key.startsWith('private:'))), { mode: 0o600 })
-      publish(); return { allowed }
+      let grantKey = `${permissionScope(request.profileId, request.privateSessionId)}|${request.origin}|${request.permission}`
+      if (request.mediaDevices) {
+        if (!sourceClientId || !clients.has(sourceClientId)) throw new Error('Trusted permission UI required')
+        allowed = allowed && await authorizeMedia(request.mediaDevices)
+        if (permissions.get(request.id) !== request) return { allowed: false }
+        // A system denial leaves the site eligible to ask again after access is restored.
+        if (allowed || args.allow !== true) for (let device of request.mediaDevices) permissionGrants.set(`${grantKey}:${device}`, allowed)
+      } else permissionGrants.set(grantKey, allowed)
+      permissions.delete(request.id)
+      request.reply(allowed)
+      publish()
+      if (!request.privateSessionId) savePermissionGrants()
+      if (request.mediaDevices && args.allow === true && !allowed) {
+        let device = request.mediaDevices.length === 2 ? 'camera and microphone' : request.mediaDevices[0] === 'audio' ? 'microphone' : 'camera'
+        throw new Error(`Allow ${device} access for bmux in System Settings > Privacy & Security.`)
+      }
+      return { allowed }
     }
     if (method === 'downloads') return args.profile ? downloads.filter(item => item.profileId === required(args, 'profile')) : downloads
     if (['download.pause', 'download.resume', 'download.cancel', 'download.reveal'].includes(method)) {
