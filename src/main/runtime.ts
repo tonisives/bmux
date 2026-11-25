@@ -493,8 +493,8 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let { pane, session } = tabById(model, tabId)
       let origin = pageOrigin(url)
       let key = `${permissionScope(pane.profileId, session.private ? session.id : undefined)}|${origin}|media`
-      let hasMediaPermissions = Boolean(origin) && (mediaGrant(key, 'audio') !== undefined || mediaGrant(key, 'video') !== undefined)
-      return [tabId, { origin, hasMediaPermissions, error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), siteDefaults: siteSettings(browserSettings(), pane.profileId, url), ...siteSettings(browserSettings(), pane.profileId, url), ...(pane.adblock === undefined ? {} : { adblock: pane.adblock }), ...filters!.counts(tabId) }]
+      let mediaPermissions = origin ? { audio: mediaGrant(key, 'audio'), video: mediaGrant(key, 'video') } : undefined
+      return [tabId, { origin, mediaPermissions, error: pageTools?.error(tabId), profileDefaults: siteSettings(browserSettings(), pane.profileId, ''), siteDefaults: siteSettings(browserSettings(), pane.profileId, url), ...siteSettings(browserSettings(), pane.profileId, url), ...(pane.adblock === undefined ? {} : { adblock: pane.adblock }), ...filters!.counts(tabId) }]
     })),
   } : undefined
   let socialHooks: ReturnType<typeof createSocialHooks> | undefined
@@ -3216,7 +3216,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     if (method === 'site-info.open' || method === 'pane.control') {
       let control = method === 'site-info.open' ? 'site-info' : required(args, 'control')
-      if (!['site-info', 'profiles', 'extensions', 'proxy', 'adblock-popup', 'dark-mode-popup'].includes(control)) throw new Error('Invalid pane control')
+      if (!['site-info', 'camera-access', 'microphone-access', 'profiles', 'extensions', 'proxy', 'adblock-popup', 'dark-mode-popup'].includes(control)) throw new Error('Invalid pane control')
       if (!sourceClientId) throw new Error('Trusted UI required')
       let client = resolve(model.clients, sourceClientId, 'Client')
       let { pane, window } = paneById(model, args.pane ?? client.paneId)
@@ -4479,18 +4479,33 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       if (device !== 'audio' && device !== 'video') throw new Error('Invalid media device')
       return { allowed: (await authorizeMedia([device])).length === 0 }
     }
-    if (method === 'permission.media.reset') {
+    if (method === 'permission.media.reset' || method === 'permission.media.set') {
       if (!sourceClientId || !clients.has(sourceClientId)) throw new Error('Trusted permission UI required')
       let tabId = required(args, 'tab')
       let { pane, session } = tabById(model, tabId)
-      let contents = tabs.get(tabId)?.contents
-      if (!contents || contents.isDestroyed()) throw new Error('Site changed')
-      let origin = pageOrigin(contents.getURL())
-      if (!origin || origin !== args.origin) throw new Error('Site changed')
+      let live = tabs.get(tabId)
+      let origin = live && !live.disposed && !live.contents.isDestroyed() ? pageOrigin(live.contents.getURL()) : ''
+      if (!live || !origin || origin !== args.origin) throw new Error('Site changed')
       let key = `${permissionScope(pane.profileId, session.private ? session.id : undefined)}|${origin}|media`
+      if (method === 'permission.media.set') {
+        let { device } = args, allowed = args.allow === true
+        if (device !== 'audio' && device !== 'video') throw new Error('Invalid media device')
+        let assertCurrentSite = () => {
+          let client = model.clients.find(client => client.id === sourceClientId)
+          if (client?.paneId !== tabId || tabs.get(tabId) !== live || live.disposed || live.contents.isDestroyed() || pageOrigin(live.pendingUrl ?? live.contents.getURL()) !== origin) throw new Error('Site changed')
+        }
+        assertCurrentSite()
+        let blocked = allowed ? await authorizeMedia([device]) : []
+        assertCurrentSite()
+        if (blocked.length) return { allowed: false, blocked }
+        permissionGrants.set(`${key}:${device}`, allowed)
+        if (!session.private) savePermissionGrants()
+        publish()
+        return { allowed }
+      }
       for (let name of [key, `${key}:audio`, `${key}:video`]) permissionGrants.delete(name)
       if (!session.private) savePermissionGrants()
-      contents.reload()
+      live.contents.reload()
       publish()
       return null
     }

@@ -1,3 +1,5 @@
+import type { MediaDevice } from './types'
+
 export type DarkMode = 'off' | 'dark' | 'system'
 export type SiteSettings = { adblock?: boolean; darkMode?: DarkMode }
 export type ProfileTools = SiteSettings & { sites: Record<string, SiteSettings> }
@@ -14,7 +16,7 @@ export type BlockedRequest = { host: string; type: string; time: number }
 export type BrowserToolsState = {
   defaults: Required<SiteSettings>
   filters: { updatedAt: number; updating: boolean; error?: string; network: number; cosmetic: number }
-  tabs: Record<string, { origin: string; hasMediaPermissions?: boolean; adblock: boolean; darkMode: DarkMode; profileDefaults: Required<SiteSettings>; siteDefaults?: Required<SiteSettings>; error?: string; blocked: number; recent: BlockedRequest[] }>
+  tabs: Record<string, { origin: string; mediaPermissions?: Partial<Record<MediaDevice, boolean>>; adblock: boolean; darkMode: DarkMode; profileDefaults: Required<SiteSettings>; siteDefaults?: Required<SiteSettings>; error?: string; blocked: number; recent: BlockedRequest[] }>
   scripts: { id: string; name: string; enabled: boolean; error?: string }[]
 }
 export let DEFAULT_BROWSER: BrowserSettings = { adblock: true, darkMode: 'off', autoUpdateFilters: true, rules: [], profiles: {}, userscripts: [] }

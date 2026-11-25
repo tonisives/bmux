@@ -2,3 +2,4 @@
 .indicator:hover, .indicator:focus-visible { opacity: 1; background: #ffffff12; outline: none; }
 .indicator svg { width: 16px; height: 16px; }
 .indicator[data-connection="certificate-error"], .indicator[data-connection="mixed"], .indicator[data-connection="insecure"] { color: #e6ac73; opacity: 1; }
+.indicator[data-media-status="Blocked"], .indicator[data-media-status="Review request"] { color: #e6ac73; opacity: 1; }
