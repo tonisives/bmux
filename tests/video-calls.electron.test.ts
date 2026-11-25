@@ -8,7 +8,7 @@ import { initialModel } from '../src/main/model'
 import { closeTestApplication } from './electron-fixture'
 
 type CaptureResult = { tracks?: string[]; error?: string }
-type FixtureWindow = Window & { capture?: CaptureResult; previewTrack?: MediaStreamTrack; microphoneTrack?: MediaStreamTrack }
+type FixtureWindow = Window & { capture?: CaptureResult; previewTrack?: MediaStreamTrack; microphoneTrack?: MediaStreamTrack; preflight?: PermissionState; preflightClicks?: number }
 
 let requestCapture = (page: Page | Frame, constraints: MediaStreamConstraints) => page.evaluate(constraints => {
   let fixture = window as FixtureWindow
@@ -27,7 +27,7 @@ test('video calls test devices and grant camera and microphone independently', a
   let server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html' })
     response.end(`<!doctype html><title>Video call fixture</title><h1>Video call fixture</h1>
-      <button id="camera">Turn on camera</button><button id="microphone">Turn on microphone</button>
+      <button id="camera">Turn on camera</button><button id="microphone">Turn on microphone</button><button id="preflight">Check camera</button>
       <script>
         async function turnOn(constraints) {
           delete window.capture
@@ -39,6 +39,12 @@ test('video calls test devices and grant camera and microphone independently', a
         }
         document.querySelector('#camera').onclick = () => turnOn({ video: true })
         document.querySelector('#microphone').onclick = () => turnOn({ audio: true })
+        document.querySelector('#preflight').onclick = async () => {
+          delete window.capture
+          window.preflightClicks = (window.preflightClicks || 0) + 1
+          window.preflight = (await navigator.permissions.query({ name: 'camera' })).state
+          if (window.preflight === 'granted') await turnOn({ video: true })
+        }
       </script>`)
   })
   let application: ElectronApplication | undefined
@@ -74,12 +80,27 @@ test('video calls test devices and grant camera and microphone independently', a
 
     let siteInfo = chrome.getByRole('button', { name: /^Site information:/ })
     let information = chrome.getByRole('dialog', { name: 'Site information', exact: true })
+    let permissions = chrome.getByRole('dialog', { name: 'Permissions', exact: true })
+    let openPermissions = async () => {
+      await siteInfo.click()
+      await information.getByRole('button', { name: 'Permissions', exact: true }).click()
+    }
     let camera = prompt('camera')
-    await siteInfo.click()
-    await information.getByRole('button', { name: 'Camera access', exact: true }).click()
-    await expect(camera).toContainText(origin)
-    await chrome.keyboard.press('Escape')
-    await expect(camera).toBeHidden()
+    await openPermissions()
+    await expect(permissions).toContainText(origin)
+    let cameraRow = permissions.getByRole('button', { name: 'Camera Ask', exact: true })
+    await cameraRow.click()
+    let inlineCamera = permissions.getByLabel('Camera preview', { exact: true })
+    await expect.poll(() => inlineCamera.evaluate(video => (video as HTMLVideoElement).videoWidth)).toBeGreaterThan(0)
+    await expect(permissions.getByRole('combobox', { name: 'Camera', exact: true }).locator('option')).toHaveCount(3)
+    await inlineCamera.evaluate(video => { (window as FixtureWindow).previewTrack = ((video as HTMLVideoElement).srcObject as MediaStream).getVideoTracks()[0] })
+    await permissions.getByRole('button', { name: 'Microphone Ask', exact: true }).click()
+    await expect.poll(() => chrome.evaluate(() => (window as FixtureWindow).previewTrack?.readyState)).toBe('ended')
+    await expect.poll(() => permissions.getByRole('meter', { name: 'Microphone level' }).evaluate(element => (element as HTMLMeterElement).value)).toBeGreaterThan(0)
+    await expect(permissions.locator('button[aria-expanded] svg').first()).toBeVisible()
+    await chrome.screenshot({ path: 'artifacts/site-permissions.png' })
+    await permissions.getByRole('button', { name: 'Back', exact: true }).click()
+    await information.getByRole('button', { name: 'Close', exact: true }).click()
     expect(await permissionStates()).toEqual(['denied', 'denied'])
 
     await page.getByRole('button', { name: 'Turn on camera', exact: true }).click()
@@ -155,10 +176,10 @@ test('video calls test devices and grant camera and microphone independently', a
     await expect.poll(() => captureResult(page)).toEqual({ tracks: ['audio', 'video'] })
     expect(await rpc('permission.list')).toEqual([])
 
-    await siteInfo.click()
-    let reset = information.getByRole('button', { name: 'Reset camera and mic permissions and reload', exact: true })
+    await openPermissions()
+    let reset = permissions.getByRole('button', { name: 'Reset camera and mic permissions and reload', exact: true })
     await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), reset.click()])
-    await chrome.keyboard.press('Escape')
+    await permissions.getByRole('button', { name: 'Close', exact: true }).click()
     expect(await grants()).toEqual([])
     let frameUrl = `${origin}/microphone`
     await page.evaluate(url => {
@@ -187,7 +208,7 @@ test('video calls test devices and grant camera and microphone independently', a
     await both.getByRole('button', { name: 'Deny', exact: true }).click()
     await expect.poll(() => captureResult(page)).toEqual({ error: 'NotAllowedError' })
     await expect.poll(() => captureResult(frame)).toEqual({ error: 'NotAllowedError' })
-    await page.getByRole('button', { name: 'Turn on microphone', exact: true }).click()
+    await requestCapture(page, { audio: true })
     await expect.poll(() => captureResult(page)).toEqual({ error: 'NotAllowedError' })
     expect(await rpc('permission.list')).toEqual([])
     await expect(microphone).toBeHidden()
@@ -205,6 +226,26 @@ test('video calls test devices and grant camera and microphone independently', a
     await expect.poll(() => captureResult(page)).toEqual({ tracks: ['audio'] })
     expect(await grants()).toEqual(expect.arrayContaining([[`${profile.id}|${origin}|media:audio`, true], [`${profile.id}|${origin}|media:video`, false]]))
 
+    let clickPreflight = async () => {
+      let bounds = await page.getByRole('button', { name: 'Check camera', exact: true }).boundingBox()
+      expect(bounds).toBeTruthy()
+      let point = { x: Math.round(bounds!.x + bounds!.width / 2), y: Math.round(bounds!.y + bounds!.height / 2) }
+      await expect.poll(() => application!.evaluate(({ webContents }, url) => webContents.getAllWebContents().find(contents => contents.getURL() === url)?.isFocused(), otherPage)).toBe(true)
+      await application!.evaluate(({ webContents }, { url, point }) => {
+        let contents = webContents.getAllWebContents().find(contents => contents.getURL() === url)!
+        contents.sendInputEvent({ ...point, type: 'mouseDown', button: 'left', clickCount: 1 })
+        contents.sendInputEvent({ ...point, type: 'mouseUp', button: 'left', clickCount: 1 })
+      }, { url: otherPage, point })
+    }
+    await clickPreflight()
+    await expect(camera).toBeVisible()
+    expect(await page.evaluate(() => (window as FixtureWindow).preflight)).toBe('denied')
+    expect(await captureResult(page)).toBeUndefined()
+    await camera.getByRole('button', { name: 'Allow', exact: true }).click()
+    await expect(camera).toBeHidden()
+    await clickPreflight()
+    await expect.poll(() => captureResult(page)).toEqual({ tracks: ['video'] })
+    expect(await page.evaluate(() => (window as FixtureWindow).preflightClicks)).toBe(2)
   } finally {
     await closeTestApplication(application)
     server.closeAllConnections()

@@ -3,7 +3,7 @@ import type { SyntheticEvent } from 'react'
 import { flushSync } from 'react-dom'
 import type { MediaDevice } from '../shared/types'
 import { CloseButton } from './CloseButton'
-import { MediaDeviceTest, mediaDeviceLabel } from './MediaDeviceTest'
+import { MediaDeviceTest, mediaDeviceLabel, mediaSystemAccessMessage } from './MediaDeviceTest'
 import css from './MessageDialog.module.css'
 import mediaCss from './MediaDeviceTest.module.css'
 
@@ -31,7 +31,7 @@ export let MediaPermissionDialog = ({ origin, devices, pending, saved, prepare, 
     flushSync(() => setBusy(true))
     try {
       let result = await respond(allow) as { blocked?: MediaDevice[] } | undefined
-      if (result?.blocked?.length) setError(`Allow ${mediaDeviceLabel(result.blocked)} access for bmux in System Settings → Privacy & Security.`)
+      if (result?.blocked?.length) setError(mediaSystemAccessMessage(result.blocked))
     } catch (failure) {
       setError((failure instanceof Error ? failure.message : String(failure)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ''))
     } finally {

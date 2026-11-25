@@ -149,6 +149,7 @@ let removeRemoteFrame = (live: LiveTab) => {
   if (focused && live.parent.isFocused()) live.contents.focus()
 }
 type PendingPermission = Permission & { replies: ((allowed: boolean) => void)[]; privateSessionId?: string }
+type MediaInteraction = { paneId: string; origin: string; expires: number; checked: Set<MediaDevice>; requested: boolean }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let focusWindow = async (window: BaseWindow) => {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -410,6 +411,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let permissions = new Map<string, PendingPermission>()
   let permissionGrants = new Map<string, boolean>()
   let mediaTabs = new Set<string>()
+  let mediaInteractions = new WeakMap<WebContents, MediaInteraction>()
   let permissionScope = (profileId: string, privateSessionId?: string) => privateSessionId ? `private:${privateSessionId}:${profileId}` : profileId
   let mediaGrant = (key: string, device: MediaDevice) => permissionGrants.get(`${key}:${device}`) ?? permissionGrants.get(key)
   let mediaAuthorization = Promise.resolve()
@@ -428,12 +430,39 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     mediaAuthorization = request.then(() => undefined, () => undefined)
     return request
   }
+  let mediaAllowed = (key: string, device: MediaDevice) => mediaGrant(key, device) === true && mediaAccessStatus(device) === 'granted'
+  let paneHasMediaInput = (paneId: string, contents: WebContents) => {
+    let live = tabs.get(paneId), client = model.clients.find(client => client.id === focusedClientId)
+    let owner = client && clients.get(client.id)
+    return !!live && live.contents === contents && !live.disposed && !contents.isDestroyed() &&
+      client?.paneId === paneId && owner?.window === live.parent && live.parent.isFocused() &&
+      live.view.getVisible() && !overlays.has(client.id) && !automatedContents.has(contents.id)
+  }
+  let recentMediaInteraction = (contents: WebContents, origin: string) => {
+    let interaction = mediaInteractions.get(contents)
+    return interaction?.origin === origin && interaction.expires > Date.now() && paneHasMediaInput(interaction.paneId, contents) && pageOrigin(contents.getURL()) === origin ? interaction : undefined
+  }
+  let pendingMediaPermission = (paneId: string, origin: string) => [...permissions.values()].find(request => request.paneId === paneId && request.origin === origin && request.mediaDevices)
+  let queueMediaPermission = (target: Pick<PendingPermission, 'paneId' | 'origin' | 'profileId' | 'privateSessionId'>, devices: MediaDevice[], reply?: (allowed: boolean) => void, reopen = false) => {
+    let request = pendingMediaPermission(target.paneId, target.origin)
+    if (!request) {
+      request = { ...target, id: id('permission'), permission: 'media', replies: [], mediaDevices: devices }
+      permissions.set(request.id, request)
+    } else {
+      let additions = devices.filter(device => !request!.mediaDevices?.includes(device))
+      if (additions.length) request.mediaDevices = [...request.mediaDevices!, ...additions]
+    }
+    if (reply) request.replies.push(reply)
+    if (reopen && focusedClientId) clients.get(focusedClientId)?.dismissedPermissions.delete(request.id)
+    publish()
+  }
+  let answerPermission = (request: PendingPermission, allowed: boolean) => {
+    permissions.delete(request.id)
+    for (let reply of request.replies) reply(allowed)
+  }
   let resetTabMedia = (paneId: string) => {
     mediaTabs.delete(paneId)
-    for (let [requestId, request] of permissions) if (request.paneId === paneId && request.mediaDevices) {
-      permissions.delete(requestId)
-      for (let reply of request.replies) reply(false)
-    }
+    for (let request of permissions.values()) if (request.paneId === paneId && request.mediaDevices) answerPermission(request, false)
   }
   let downloads: Download[] = []
   let downloadItems = new Map<string, DownloadItem>()
@@ -905,11 +934,26 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let ownerId = model.profiles.find(owner => owner.id === profileId || owner.connections?.some(connection => connection.id === profileId))!.id
     let scope = permissionScope(ownerId, privateSessionId)
     filters?.attach(session, ownerId)
-    session.setPermissionCheckHandler((_contents, permission, origin, details) => {
+    session.setPermissionCheckHandler((contents, permission, origin, details) => {
       if (permission === 'media') {
         let device = details.mediaType
         let mediaOrigin = pageOrigin(details.securityOrigin ?? origin)
-        return !!mediaOrigin && (device === 'audio' || device === 'video') && mediaGrant(`${scope}|${mediaOrigin}|media`, device) === true && mediaAccessStatus(device) === 'granted'
+        if (!mediaOrigin || (device !== 'audio' && device !== 'video')) return false
+        let grantKey = `${scope}|${mediaOrigin}|media`
+        if (mediaAllowed(grantKey, device)) return true
+        // Electron reports undecided checks as denied. A page may check on a button
+        // click and stop before getUserMedia, so offer consent after that check.
+        let interaction = contents && details.isMainFrame && !details.securityOrigin && recentMediaInteraction(contents, mediaOrigin)
+        if (contents && interaction && !interaction.requested && !interaction.checked.has(device)) {
+          interaction.checked.add(device)
+          if (interaction.checked.size === 1) setTimeout(() => {
+            if (interaction.requested || recentMediaInteraction(contents, mediaOrigin) !== interaction) return
+            mediaInteractions.delete(contents)
+            let devices = [...interaction.checked].filter(device => !mediaAllowed(grantKey, device))
+            if (devices.length) queueMediaPermission({ paneId: interaction.paneId, origin: mediaOrigin, profileId: ownerId, privateSessionId }, devices, undefined, true)
+          }, 100).unref()
+        }
+        return false
       }
       let normalizedOrigin = URL.canParse(origin) ? new URL(origin).origin : origin
       let known = permissionGrants.get(`${scope}|${normalizedOrigin}|${permission}`)
@@ -927,25 +971,17 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         let paneId = [...tabs].find(([, live]) => live.contents === contents && !live.disposed)?.[0]
         if (!origin || !devices.length || !paneId) { reply(false); return }
         let grantKey = `${scope}|${origin}|media`
-        if (devices.some(device => mediaGrant(grantKey, device) === false)) { reply(false); return }
-        let mediaDevices = devices.filter(device => mediaGrant(grantKey, device) !== true || mediaAccessStatus(device) !== 'granted')
+        let interaction = media.isMainFrame && recentMediaInteraction(contents, origin)
+        let pending = pendingMediaPermission(paneId, origin)
+        if (!interaction && devices.some(device => mediaGrant(grantKey, device) === false && !pending?.mediaDevices?.includes(device))) { reply(false); return }
+        if (interaction) interaction.requested = true
+        let mediaDevices = devices.filter(device => !mediaAllowed(grantKey, device))
         let respond = (allowed: boolean) => {
           if (allowed) mediaTabs.add(paneId)
           reply(allowed)
         }
         if (!mediaDevices.length) { respond(true); return }
-        let pending = [...permissions.values()].find(request => request.paneId === paneId && request.origin === origin && request.mediaDevices)
-        let pendingDevices = pending?.mediaDevices
-        if (pending && pendingDevices) {
-          let newDevices = mediaDevices.filter(device => !pendingDevices.includes(device))
-          if (newDevices.length) pending.mediaDevices = [...pendingDevices, ...newDevices]
-          pending.replies.push(respond)
-          publish()
-          return
-        }
-        let request = { id: id('permission'), profileId: ownerId, origin, permission, paneId, replies: [respond], privateSessionId, mediaDevices }
-        permissions.set(request.id, request)
-        publish()
+        queueMediaPermission({ paneId, origin, profileId: ownerId, privateSessionId }, mediaDevices, respond, !!interaction)
         return
       }
       let origin = URL.canParse(requestUrl) ? new URL(requestUrl).origin : 'null'
@@ -1724,6 +1760,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     contents.on('did-start-navigation', (_event, url, inPlace, mainFrame) => {
       if (!mainFrame || inPlace) return
       requestedHistoryUrl = url
+      mediaInteractions.delete(contents)
       resetTabMedia(tabId)
       scriptTouchedTabs.delete(tabId)
       if (!session.private) navigationCrashMarker.mark(pane.id, tabId, url)
@@ -1800,6 +1837,13 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     }
     contents.on('before-input-event', (_event, input) => { if (input.type === 'keyDown') recordActivity() })
     contents.on('before-mouse-event', (_event, input) => { if (input.type === 'mouseDown' || input.type === 'mouseMove' && (input.movementX || input.movementY)) recordActivity() })
+    let noteMediaInput = () => {
+      if (!paneHasMediaInput(tabId, contents)) return
+      let origin = pageOrigin(contents.getURL())
+      if (origin) mediaInteractions.set(contents, { paneId: tabId, origin, expires: Date.now() + 1000, checked: new Set(), requested: false })
+    }
+    contents.on('before-mouse-event', (event, input) => { if (!event.defaultPrevented && input.type === 'mouseUp' && input.button === 'left') noteMediaInput() })
+    contents.on('before-input-event', (event, input) => { if (!event.defaultPrevented && !input.isAutoRepeat && (input.type === 'keyDown' && input.key === 'Enter' || input.type === 'keyUp' && input.key === ' ')) noteMediaInput() })
     contents.on('input-event', (_event, input) => { if (input.type === 'mouseWheel') recordActivity() })
     let update = (pageTitle?: string) => {
       if (live.disposed || contents.isDestroyed() || internalBootstrap()) return
@@ -4499,6 +4543,15 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         assertCurrentSite()
         if (blocked.length) return { allowed: false, blocked }
         permissionGrants.set(`${key}:${device}`, allowed)
+        let pending = pendingMediaPermission(tabId, origin)
+        if (pending?.mediaDevices?.includes(device)) {
+          if (!allowed) answerPermission(pending, false)
+          else {
+            let remaining = pending.mediaDevices.filter(device => !mediaAllowed(key, device))
+            if (remaining.length) pending.mediaDevices = remaining
+            else answerPermission(pending, true)
+          }
+        }
         if (!session.private) savePermissionGrants()
         publish()
         return { allowed }
@@ -4524,8 +4577,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
         }
         for (let device of devices) permissionGrants.set(`${grantKey}:${device}`, allowed)
       } else permissionGrants.set(grantKey, allowed)
-      permissions.delete(request.id)
-      for (let reply of request.replies) reply(allowed)
+      answerPermission(request, allowed)
       publish()
       if (!request.privateSessionId) savePermissionGrants()
       return { allowed }
