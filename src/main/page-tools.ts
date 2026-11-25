@@ -5,6 +5,8 @@ import { createRequire } from 'node:module'
 import type { WebContents } from 'electron'
 import { matchesUrl, pageOrigin, siteSettings } from '../shared/browser-tools'
 import type { BrowserSettings, BrowserToolsState, UserScript } from '../shared/browser-tools'
+import type { MediaDevice } from '../shared/types'
+import { mediaControlSource } from './media-control'
 import { createKeyboardFocus } from './keyboard-focus'
 import { cosmeticTokens, createFrameCosmetics } from './frame-cosmetics'
 import { DEFAULT_KEYBOARD, shortcutAction } from '../shared/keyboard'
@@ -18,7 +20,7 @@ let styleDocument = () => {
   return { promise, resolve }
 }
 type Target = { focus: ReturnType<typeof createKeyboardFocus>; contents: WebContents; profileId: string; registrations: string[]; registeredSources?: string; ready: Promise<void>; closed: boolean; version: number; styles: Partial<Record<'ads' | 'users', { css: string; key?: string }>>; styleWork: Promise<void>; styleDocument: ReturnType<typeof styleDocument>; frames?: ReturnType<typeof createFrameCosmetics>; busy?: boolean; error?: string; timer?: ReturnType<typeof setInterval> }
-type Options = { directory: string; settings: () => BrowserSettings; vimEditing?: () => boolean; clipboard?: (text?: string) => Promise<string>; keyboard?: () => KeyboardConfig; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
+type Options = { directory: string; settings: () => BrowserSettings; vimEditing?: () => boolean; clipboard?: (text?: string) => Promise<string>; mediaControl?: (tabId: string, contents: WebContents, origin: string, devices: MediaDevice[]) => void; keyboard?: () => KeyboardConfig; changed: () => void; visible: (contentsId: number) => boolean; adblock?: (contentsId: number) => boolean | undefined; styles: (url: string, ids: string[], classes: string[]) => string }
 let require = createRequire(import.meta.url)
 let reader = fs.readFileSync(require.resolve('darkreader'), 'utf8')
 let world = 'bmux:appearance'
@@ -26,6 +28,7 @@ let world = 'bmux:appearance'
 export let createPageTools = (options: Options) => {
   let targets = new Map<string, Target>(), scripts: Script[] = [], watched = new Set<string>(), closed = false
   let keyboardSource = (target: Target) => `${target.focus.source};
+${options.mediaControl ? mediaControlSource : ''}
 (() => {
   let apply = () => {
     if (!globalThis.bmuxPageVim) { ${pageVim}\n }
@@ -164,6 +167,7 @@ export let createPageTools = (options: Options) => {
     target.registeredSources = undefined
     await send(target, 'Page.enable', { enableFileChooserOpenedEvent: true })
     await target.frames?.start()
+    if (options.mediaControl) await send(target, 'Runtime.addBinding', { name: 'bmuxMediaControl', executionContextName: 'bmux:keyboard-focus' })
     // Keep ownership until Chromium acknowledges removal. A failed refresh must
     // not leave an old userscript installed but absent from our next cleanup.
     while (target.registrations.length) {
@@ -236,6 +240,13 @@ export let createPageTools = (options: Options) => {
       target.frames = createFrameCosmetics({ contents, clipboard: options.clipboard, get focusSource() { return keyboardSource(target) }, send: (method, params, sessionId) => send(target, method, params, sessionId), enabled: () => !!pageOrigin(contents.getURL()) && (options.adblock?.(contents.id) ?? siteSettings(options.settings(), profileId, contents.getURL()).adblock), styles: options.styles })
       targets.set(tabId, target)
       contents.debugger.on('detach', () => { target.registeredSources = undefined })
+      contents.debugger.on('message', (_event, method, params, sessionId) => {
+        if (!options.mediaControl || target.closed || sessionId || method !== 'Runtime.bindingCalled' || params.name !== 'bmuxMediaControl' || typeof params.payload !== 'string' || params.payload.length > 1024) return
+        try {
+          let [origin, ...devices] = JSON.parse(params.payload) as [string, ...MediaDevice[]]
+          if (typeof origin === 'string' && devices.length && devices.length <= 2 && devices.every(device => device === 'audio' || device === 'video')) options.mediaControl(tabId, contents, origin, devices)
+        } catch { /* Ignore incomplete signals from discarded documents. */ }
+      })
       // A newly-created WebContents has no renderer to answer Page.enable yet.
       // Bootstrap only about:blank, then register before any website navigation.
       target.ready = (bootstrap ? contents.loadURL('about:blank').catch(() => undefined) : Promise.resolve()).then(() => register(target)).catch(() => { if (!target.closed) target.error = 'Page tools could not initialize. Reload scripts to retry.' }).finally(options.changed)
