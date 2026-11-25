@@ -729,7 +729,7 @@ let PageIcon = ({ paneId }: { paneId?: string }) => {
 }
 let WindowLockIcon = () => <svg className={css.windowLock} viewBox="0 0 16 16" role="img" aria-label="Locked"><rect x="3" y="7" width="10" height="7" rx="1" /><path d="M5 7V5a3 3 0 0 1 6 0v2" /></svg>
 let ViewportLockIcon = () => <svg className={css.windowLock} viewBox="0 0 16 16" role="img" aria-label="Viewport locked"><path d="M1.5 5.5v-4h4m5 0h4v4m0 5v4h-4m-5 0h-4v-4M5 5h6v6H5z" /></svg>
-let WindowIcons = ({ window, paneId }: { window: InternalWindow; paneId?: string }) => <><PageIcon paneId={paneId} />{window.locked && <WindowLockIcon />}{window.lockedViewports && <ViewportLockIcon />}</>
+let WindowLocks = ({ window }: { window: InternalWindow }) => <>{window.locked && <WindowLockIcon />}{window.lockedViewports && <ViewportLockIcon />}</>
 let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; index: number; active: boolean; now: number }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
@@ -764,9 +764,10 @@ let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; in
   let menu = (event: MouseEvent<HTMLElement>) => { event.preventDefault(); if (!remote) void run('window.menu', { window: window.id }) }
   return <span className={css.windowTab} data-window-id={window.id} data-pinned={window.pinned === true} data-locked={window.locked === true} data-viewport-locked={!!window.lockedViewports} data-automatic={window.automaticName === true && !window.pinned} data-selected={active} title={window.name} onContextMenu={menu}>
     <button onClick={select} onMouseEnter={showTooltip} onMouseLeave={hideTooltip} onDragStart={hideTooltip} className={css.windowSelect} data-active={active} aria-pressed={active} aria-label={window.pinned ? window.name : label} title={window.name} draggable={!remote}>
-      <WindowIcons window={window} paneId={tabId} />
+      <PageIcon paneId={tabId} />
       {!window.pinned && <span className={css.windowLabel}>{label}</span>}
       {!window.pinned && visitedAt && <time className={css.windowActivity} data-age={activityAge(visitedAt, now)} dateTime={new Date(visitedAt).toISOString()} title={`Last activity ${new Date(visitedAt).toLocaleString()}`}>{compactActivityLabel(visitedAt, now)}</time>}
+      <WindowLocks window={window} />
     </button>
     {playing.length > 0 && <button type="button" onClick={toggleAudio} className={css.windowAudio} aria-label={`${muted ? 'Unmute' : 'Mute'} window ${window.name}`} title={`${muted ? 'Unmute' : 'Mute'} window ${window.name}`} data-muted={muted}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10l-4-3H2z" />{muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5c1.5 1 1.5 5 0 6m2-8c3 2 3 8 0 10" />}</svg></button>}
     {!window.pinned && state.showTabCloseButtons === true && <button onClick={close} disabled={remote || window.locked} className={css.windowClose} aria-label={`Close ${window.name}`} title={window.locked ? 'Unlock window to close' : `Close ${window.name}`}><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
