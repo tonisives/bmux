@@ -2144,7 +2144,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
             try {
               if (await closeLiveTab(tabId) && tabs.get(tabId) === live) {
                 idleUnloaded.add(tabId)
-                disposeTab(tabId)
+                disposeTab(tabId, { keepFavicon: true })
                 excess--
                 void scheduleVisuals()
               } else idleHistory.delete(tabId)
@@ -2243,7 +2243,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     void closing.finally(() => { if (live.closing === closing) live.closing = undefined })
     return closing
   }
-  let disposeTab = (tabId: string) => {
+  let disposeTab = (tabId: string, { keepFavicon = false } = {}) => {
     proxyNavigationRecovery.clear(tabId)
     viewportPanModes.delete(tabId)
     previewRefresh.remove(tabId)
@@ -2284,7 +2284,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     delete loading[tabId]
     delete audio[tabId]
     audibleMedia.delete(tabId)
-    if (!idleUnloaded.has(tabId)) delete favicons[tabId]
+    if (!keepFavicon) delete favicons[tabId]
     faviconRevisions.delete(tabId)
     delete findResults[tabId]
     lastTabUse.delete(tabId)
