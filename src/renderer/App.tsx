@@ -14,6 +14,7 @@ import type { RemotePreviewSettings } from '../shared/remote-preview-settings'
 import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
 import { MediaDeviceTest, mediaDeviceLabel } from './MediaDeviceTest'
+import { MediaPermissionDialog } from './MediaPermissionDialog'
 import { NavigationFailure } from './NavigationFailure'
 import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
@@ -84,7 +85,7 @@ type AgentDetails = { profileId: string; host: string; jobs: string[] } | { pane
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
 type BookmarkDestination = { profileId: string; folderId: string }
 type AddressSelection = { start: number; end: number; direction: 'forward' | 'backward' | 'none' }
-type Notification = { id: string; text: string; mediaDevices?: MediaDevice[]; warning?: AutomationWarning; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { label: string; title: string; closed?: boolean; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
+type Notification = { id: string; text: string; warning?: AutomationWarning; detectedAt?: number; cooldown?: { retryAfter: string; minutes: number }; profileId?: string; agents?: AutomationActor[]; dismiss?: () => void; actions?: { label: string; title?: string; disabled?: boolean; run: () => void }[]; paneLinks?: { label: string; title: string; closed?: boolean; run: () => void }[]; siteExclusion?: { profileId: string; host: string } }
 type BrowserExtension = ExtensionDetails & { id: string; name: string; version: string; path: string; enabled: boolean; hasPopup: boolean; hasOptions: boolean; error?: string }
 type ExtensionList = { extensions: BrowserExtension[]; available: Pick<BrowserExtension, 'name' | 'version' | 'path'>[]; errors: { path: string; error: string }[] }
 type BookmarkView = { scroll?: number; folders?: Record<string, boolean> }
@@ -156,12 +157,12 @@ export let App = () => {
     })
     return () => { unsubscribe(); unsubscribeOverlay(); controls() }
   }, [accept, show, dismiss])
-  let management = control === 'rename-window' || control === 'rename-session' || control === 'move-window' || control === 'select-window' || control === 'close-pane' || control === 'close-window'
-  let prompt = management || control === 'address' || control === 'command' || control === 'find'
-  let panel = control && !prompt ? control : null
-  let keepPages = ((control === 'address' && addressSuggestionsVisible) || (panel === 'profiles' && !sessionsBehind)) && !state?.pluginPrompt
-  useOverlayFocus(state, control, panel, historyPopup, addressSuggestionsVisible, keepPages, run)
-  useControlDismiss(control, state?.pluginPrompt ? dismiss : panelBack?.run ?? dismiss, !!state?.dialogPrompt)
+  let panel = isPanel(control) ? control : null
+  let prompt = !!control && !panel
+  let mediaRequest = state && !control && !historyPopup && !state.dialogPrompt && !state.pluginPrompt ? selectedMediaPermission(state) : undefined
+  let keepPages = (!!mediaRequest || (control === 'address' && addressSuggestionsVisible) || (panel === 'profiles' && !sessionsBehind)) && !state?.pluginPrompt
+  useOverlayFocus(state, control, panel, historyPopup, addressSuggestionsVisible, keepPages, mediaRequest?.id, run)
+  useControlDismiss(control, state?.pluginPrompt ? dismiss : panelBack?.run ?? dismiss, !!state?.dialogPrompt || !!mediaRequest)
   useAddressTabSwitch(control, state?.clientId, run)
   useEffect(() => { if (!state?.configError) setDismissedConfigError('') }, [state?.configError])
   if (!state) return <div className={css.empty}>{message || 'Starting…'}</div>
@@ -174,7 +175,7 @@ export let App = () => {
     ...(!prompt && control !== 'address' && message ? [{ id: 'message', text: message, dismiss: () => setMessage('') }] : []),
     ...(state.configError && state.configError !== dismissedConfigError ? [{ id: 'config', text: state.configError, dismiss: () => setDismissedConfigError(state.configError!) }] : []),
     ...(state.startupNotice && state.startupNotice !== dismissedStartupNotice ? [{ id: 'startup', text: state.startupNotice, dismiss: () => setDismissedStartupNotice(state.startupNotice!) }] : []),
-    ...permissionNotices(state, run), ...proxyFailureNotices(state, window, show, run), ...(!alertsCollapsed ? agentAlerts : []),
+    ...permissionNotices(state, mediaRequest?.id, run), ...proxyFailureNotices(state, window, show, run), ...(!alertsCollapsed ? agentAlerts : []),
   ]
   let respondToDialog = (response: number) => run('dialog.respond', { id: state.dialogPrompt?.id, response })
   let context = { panelBack, settingsTarget, setSettingsTarget, agentDetails, setAgentDetails, initialPlugin, settingsMemory, state, control, historyPopup, setHistoryPopup, bookmarkDestination, addressFocusVersion, setAddressSuggestionsVisible, message, onMessage: setMessage, run, show, dismiss, revealPage, allBookmarkProfiles, setAllBookmarkProfiles, bookmarkSearches, rememberBookmarkSearch, bookmarkSelections, rememberBookmarkSelection, bookmarkViews, rememberBookmarkView, acknowledgeDownload, acknowledgedDownloads }
@@ -187,6 +188,7 @@ export let App = () => {
     {sessionsBehind && panel && <SecondaryPanel type={panel} closeToSessions={closeToSessions} hidden={!!state.pluginPrompt} />}
     {state.pluginPrompt && !((panel === 'plugins' || panel === 'extensions') && !sessionsBehind && state.pluginPrompt.kind === 'form') && <Panel key={state.pluginPrompt.kind === 'form' ? state.pluginPrompt.runId : state.pluginPrompt.id} type="plugin-dialog" />}
     {state.dialogPrompt && <MessageDialog key={state.dialogPrompt.id} prompt={state.dialogPrompt} respond={respondToDialog} />}
+    {mediaRequest?.mediaDevices && <MediaPermissionPrompt key={mediaRequest.id} request={mediaRequest} devices={mediaRequest.mediaDevices} />}
   </div></Context.Provider>
 }
 
@@ -205,21 +207,21 @@ let usePanelHistory = (current: PanelLocation, restore: (parent: PanelLocation) 
   return { panelBack, location, setPanelHistory, sessionsBehind: history.some(parent => parent.control === 'sessions'), closeToSessions: history.at(-1)?.control === 'sessions' }
 }
 
-let useOverlayFocus = (state: PublicState | null, control: Control | null, panel: Control | null, historyPopup: HistoryPopup | null, addressSuggestionsVisible: boolean, keepPages: boolean, run: UIContext['run']) => {
+let useOverlayFocus = (state: PublicState | null, control: Control | null, panel: Control | null, historyPopup: HistoryPopup | null, addressSuggestionsVisible: boolean, keepPages: boolean, mediaRequestId: string | undefined, run: UIContext['run']) => {
   let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false), previousPluginPrompt = useRef(false)
   useEffect(() => {
     if (!state?.clientId) return
     let restoreFocus = previousDialogPrompt.current || previousPluginPrompt.current || previousHistoryPopup.current || ['command', 'agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
-    previousDialogPrompt.current = !!state.dialogPrompt; previousPluginPrompt.current = !!state.pluginPrompt
+    previousDialogPrompt.current = !!state.dialogPrompt || !!mediaRequestId; previousPluginPrompt.current = !!state.pluginPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
     let cancelled = false
     // Child layout effects publish the selected page's bounds before it receives focus.
-    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!state.pluginPrompt || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible), keepPages }).then(() => {
-      if (!cancelled && !control && !state.dialogPrompt && !state.pluginPrompt && restoreFocus) void run('focus-page', { client: state.clientId })
+    void run('client.overlay', { client: state.clientId, visible: !!state.dialogPrompt || !!state.pluginPrompt || !!mediaRequestId || !!panel || control === 'command' || !!historyPopup || (control === 'address' && addressSuggestionsVisible), keepPages }).then(() => {
+      if (!cancelled && !control && !state.dialogPrompt && !state.pluginPrompt && !mediaRequestId && restoreFocus) void run('focus-page', { client: state.clientId })
     })
     return () => { cancelled = true }
-  }, [panel, control, historyPopup, addressSuggestionsVisible, keepPages, state?.clientId, state?.dialogPrompt?.id, state?.pluginPrompt?.id, run])
+  }, [panel, control, historyPopup, addressSuggestionsVisible, keepPages, mediaRequestId, state?.clientId, state?.dialogPrompt?.id, state?.pluginPrompt?.id, run])
 }
 
 let BrowserStatus = ({ collapsedAlerts, expandAlerts }: { collapsedAlerts: Notification[]; expandAlerts: () => void }) => {
@@ -330,11 +332,20 @@ let proxyFailureNotices = (state: PublicState, window: InternalWindow, show: UIC
   return [{ id: `proxy:${profileId}`, text: `Proxy for ${name} could not connect. Pages using it are paused. ${failure.error}`, actions: [{ label: failure.retrying ? 'Retrying…' : 'Retry', disabled: failure.retrying, run: () => { void run('profile.proxy.retry', { profile: profileId }) } }, { label: 'Proxy settings', run: () => { void show('proxy', pane.id) } }] }]
 })
 
-let permissionNotices = (state: PublicState, run: UIContext['run']): Notification[] => state.permissions.filter(request => !state.dismissedPermissions?.includes(request.id)).map(request => {
+let selectedMediaPermission = (state: PublicState) => {
+  let paneId = selection(state).pane?.id
+  return state.permissions.find(request => request.mediaDevices && request.paneId === paneId && !state.dismissedPermissions?.includes(request.id))
+}
+
+let permissionNotices = (state: PublicState, mediaRequestId: string | undefined, run: UIContext['run']): Notification[] => state.permissions.filter(request => request.mediaDevices ? request.id !== mediaRequestId : !state.dismissedPermissions?.includes(request.id)).map(request => {
   let label = permissionPaneLabel(state.model, request.paneId) ?? request.paneId
   let selected = selection(state).pane?.id === request.paneId
-  let permission = request.mediaDevices ? `${mediaDeviceLabel(request.mediaDevices)} access` : request.permission
-  return { id: request.id, text: `${selected ? 'This pane' : label} requests ${permission} on ${request.origin}.`, mediaDevices: request.mediaDevices, actions: [
+  let source = selected ? 'This pane' : label
+  if (request.mediaDevices) return {
+    id: request.id, text: `${source} requests ${mediaDeviceLabel(request.mediaDevices)} access on ${request.origin}.`,
+    actions: [{ label: 'Review', title: label, run: () => { void run('permission.visit', { id: request.id }) } }],
+  }
+  return { id: request.id, text: `${source} requests ${request.permission} on ${request.origin}.`, actions: [
     ...(selected ? [] : [{ label: 'Go to pane', title: label, run: () => { void run('permission.visit', { id: request.id }) } }]),
     { label: 'Deny', run: () => { void run('permission.respond', { id: request.id, allow: false }) } },
     { label: 'Allow', run: () => { void run('permission.respond', { id: request.id, allow: true }) } },
@@ -347,6 +358,14 @@ let useMediaPreparation = () => {
     let result = await run('permission.media.prepare', { device }) as { allowed: boolean } | undefined
     return result?.allowed === true
   }, [run])
+}
+
+let MediaPermissionPrompt = ({ request, devices }: { request: Permission; devices: MediaDevice[] }) => {
+  let { run } = useUI()
+  let prepare = useMediaPreparation()
+  let defer = () => { void run('permission.dismiss', { ids: [request.id] }) }
+  let respond = (allow: boolean) => bridge.command({ method: 'permission.respond', args: { id: request.id, allow } })
+  return <MediaPermissionDialog origin={request.origin} devices={devices} prepare={prepare} respond={respond} defer={defer} />
 }
 
 let automationActors = (state: PublicState, usage: AutomationSafetyState['profiles'][number]) => {
@@ -527,7 +546,6 @@ let NotificationAgents = ({ actors }: { actors: AutomationActor[] }) => {
 
 let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; collapseAlerts: () => void }) => {
   let { state, run, show } = useUI()
-  let prepareMedia = useMediaPreparation()
   let [resetting, setResetting] = useState(false)
   let automation = notices.filter(notice => notice.profileId)
   let openSettings = () => show('anti-bot-settings')
@@ -545,7 +563,6 @@ let Notifications = ({ notices, collapseAlerts }: { notices: Notification[]; col
       {notice.agents && <NotificationAgents actors={notice.agents} />}
       {notice.paneLinks?.map(link => <NotificationPaneLink key={link.title} {...link} />)}
       {notice.dismiss && <button type="button" onClick={notice.dismiss} aria-label="Dismiss notification" title="Dismiss notification"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>}
-      {notice.mediaDevices && <MediaDeviceTest devices={notice.mediaDevices} prepare={prepareMedia} buttonClassName={css.notificationAction} />}
     </div>)}
     {automation.length > 0 && <div className={`${css.notification} ${css.notificationGeneral}`} role="group" aria-label="Bot settings">
       <span className={css.notificationText}>Bots · all agents and profiles</span>
@@ -4035,9 +4052,10 @@ let PermissionRow = ({ permission }: { permission: Permission }) => {
   let paneLabel = permissionPaneLabel(state.model, permission.paneId)
   let selected = selection(state).pane?.id === permission.paneId
   let visit = async () => { if (await run('permission.visit', { id: permission.id, pane: permission.paneId }) !== undefined) dismiss() }
+  if (permission.mediaDevices) return <div className={css.row}>{permission.origin}: {mediaDeviceLabel(permission.mediaDevices)}<button onClick={visit}>Review</button></div>
   let deny = () => { void run('permission.respond', { id: permission.id, allow: false }) }
   let allow = () => { void run('permission.respond', { id: permission.id, allow: true }) }
-  return <div className={css.row}>{permission.origin}: {permission.mediaDevices ? mediaDeviceLabel(permission.mediaDevices) : permission.permission}<div>{!selected && <button onClick={visit} title={paneLabel} disabled={!paneLabel}>Go to pane</button>}<button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
+  return <div className={css.row}>{permission.origin}: {permission.permission}<div>{!selected && <button onClick={visit} title={paneLabel} disabled={!paneLabel}>Go to pane</button>}<button onClick={deny}>Deny</button><button onClick={allow}>Allow</button></div></div>
 }
 let downloadSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 let DownloadManager = () => {

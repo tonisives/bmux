@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { ElectronApplication, Frame, Page } from '@playwright/test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -10,7 +10,7 @@ import { closeTestApplication } from './electron-fixture'
 type CaptureResult = { tracks?: string[]; error?: string }
 type FixtureWindow = Window & { capture?: CaptureResult; previewTrack?: MediaStreamTrack; microphoneTrack?: MediaStreamTrack }
 
-let requestCapture = (page: Page, constraints: MediaStreamConstraints) => page.evaluate(constraints => {
+let requestCapture = (page: Page | Frame, constraints: MediaStreamConstraints) => page.evaluate(constraints => {
   let fixture = window as FixtureWindow
   delete fixture.capture
   void navigator.mediaDevices.getUserMedia(constraints).then(stream => {
@@ -20,7 +20,7 @@ let requestCapture = (page: Page, constraints: MediaStreamConstraints) => page.e
   }, (error: DOMException) => { fixture.capture = { error: error.name } })
 }, constraints)
 
-let captureResult = (page: Page) => page.evaluate(() => (window as FixtureWindow).capture)
+let captureResult = (page: Page | Frame) => page.evaluate(() => (window as FixtureWindow).capture)
 
 test('video calls test devices and grant camera and microphone independently', async () => {
   let directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bmux-video-calls-'))
@@ -53,10 +53,10 @@ test('video calls test devices and grant camera and microphone independently', a
     await address.fill(target); await address.press('Enter')
     let page = await browserPage(target)
     await expect(page.getByRole('heading')).toHaveText('Video call fixture')
-    let notice = (text: string) => chrome.getByLabel('Notifications').getByRole('status').filter({ hasText: text })
+    let prompt = (devices: string) => chrome.getByRole('dialog', { name: `Allow ${devices} access?`, exact: true })
 
     await requestCapture(page, { video: true })
-    let camera = notice('requests camera access')
+    let camera = prompt('camera')
     await expect(camera).toContainText(origin)
     await camera.getByRole('button', { name: 'Test camera', exact: true }).click()
     let preview = camera.getByLabel('Camera preview', { exact: true })
@@ -96,7 +96,7 @@ test('video calls test devices and grant camera and microphone independently', a
       }
     })
     await requestCapture(page, { video: true, audio: true })
-    let microphone = notice('requests microphone access')
+    let microphone = prompt('microphone')
     await microphone.getByRole('button', { name: 'Test microphone', exact: true }).click()
     let meter = microphone.getByRole('meter', { name: 'Microphone level' })
     let microphoneInput = microphone.getByRole('combobox', { name: 'Microphone', exact: true })
@@ -104,9 +104,25 @@ test('video calls test devices and grant camera and microphone independently', a
     await expect.poll(() => chrome.evaluate(() => (window as FixtureWindow).microphoneTrack?.getSettings().deviceId)).toBe(alternateMicrophone[0])
     await expect(microphone.getByText('Speak to check your level.')).toBeVisible()
     await expect.poll(() => meter.evaluate(element => (element as HTMLMeterElement).value), { timeout: 10_000 }).toBeGreaterThan(0)
+    if (process.platform === 'darwin') {
+      await application.evaluate(({ app, systemPreferences }) => {
+        let hasSwitch = app.commandLine.hasSwitch.bind(app.commandLine)
+        app.commandLine.hasSwitch = name => name !== 'use-fake-device-for-media-stream' && hasSwitch(name)
+        systemPreferences.getMediaAccessStatus = type => type === 'microphone' ? 'denied' : 'granted'
+      })
+      await microphone.getByRole('button', { name: 'Allow', exact: true }).click()
+      await expect(microphone.getByRole('alert')).toHaveText('Allow microphone access for bmux in System Settings → Privacy & Security.')
+      expect(await captureResult(page)).toBeUndefined()
+      expect(await grants()).toEqual([[`${profile.id}|${origin}|media:video`, true]])
+      await expect.poll(() => chrome.evaluate(() => (window as FixtureWindow).microphoneTrack?.readyState)).toBe('ended')
+      await application.evaluate(({ systemPreferences }) => { systemPreferences.getMediaAccessStatus = () => 'granted' })
+    }
     await microphone.getByRole('button', { name: 'Allow', exact: true }).click()
     await expect.poll(() => captureResult(page)).toEqual({ tracks: ['audio', 'video'] })
     expect(await grants()).toContainEqual([`${profile.id}|${origin}|media:audio`, true])
+    let permissionStates = await page.evaluate(() => Promise.all(['camera', 'microphone'].map(async name =>
+      (await navigator.permissions.query({ name: name as PermissionName })).state)))
+    expect(permissionStates).toEqual(['granted', 'granted'])
 
     await rpc('navigate', { pane: pane.id, url: otherPage })
     page = await browserPage(otherPage)
@@ -120,10 +136,33 @@ test('video calls test devices and grant camera and microphone independently', a
     await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), reset.click()])
     await chrome.keyboard.press('Escape')
     expect(await grants()).toEqual([])
-    await requestCapture(page, { video: true, audio: true })
-    let both = notice('requests camera and microphone access')
+    let frameUrl = `${origin}/microphone`
+    await page.evaluate(url => {
+      let iframe = document.createElement('iframe')
+      iframe.src = url
+      document.body.append(iframe)
+    }, frameUrl)
+    await expect(page.frameLocator('iframe').getByRole('heading')).toHaveText('Video call fixture')
+    let frame = page.frame({ url: frameUrl })!
+    await requestCapture(page, { video: true })
+    await expect(camera).toBeVisible()
+    await requestCapture(frame, { audio: true })
+    let both = prompt('camera and microphone')
+    await expect(both).toBeVisible()
+    expect(await rpc('permission.list')).toMatchObject([{ paneId: pane.id, mediaDevices: ['video', 'audio'] }])
+    await chrome.keyboard.press('Escape')
+    await expect(both).toBeHidden()
+    expect(await captureResult(page)).toBeUndefined()
+    await chrome.getByLabel('Notifications').getByRole('button', { name: 'Review', exact: true }).click()
+    await both.getByRole('button', { name: 'Test devices', exact: true }).click()
+    await expect(both.getByRole('combobox', { name: 'Camera', exact: true }).locator('option')).toHaveCount(3)
+    await expect(both.getByRole('combobox', { name: 'Microphone', exact: true }).getByRole('option', { name: 'Fake Audio Input 2', exact: true })).toHaveCount(1)
+    await expect.poll(() => both.getByLabel('Camera preview').evaluate(element => (element as HTMLVideoElement).videoWidth)).toBeGreaterThan(0)
+    await expect.poll(() => both.getByRole('meter', { name: 'Microphone level' }).evaluate(element => (element as HTMLMeterElement).value)).toBeGreaterThan(0)
+    await chrome.screenshot({ path: 'artifacts/media-permission-popup.png' })
     await both.getByRole('button', { name: 'Deny', exact: true }).click()
     await expect.poll(() => captureResult(page)).toEqual({ error: 'NotAllowedError' })
+    await expect.poll(() => captureResult(frame)).toEqual({ error: 'NotAllowedError' })
     await requestCapture(page, { audio: true })
     await expect.poll(() => captureResult(page)).toEqual({ error: 'NotAllowedError' })
     expect(await rpc('permission.list')).toEqual([])

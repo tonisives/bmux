@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { MediaDevice } from '../shared/types'
 import css from './MediaDeviceTest.module.css'
@@ -30,7 +30,7 @@ let DevicePreview = ({ device, prepare }: { device: MediaDevice; prepare: (devic
     setStatus('Starting…')
     setDeviceId(nextDeviceId)
   }
-  useEffect(() => {
+  useLayoutEffect(() => {
     let stopped = false
     let disconnected = false
     let stream: MediaStream | undefined
