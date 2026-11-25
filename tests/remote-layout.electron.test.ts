@@ -111,6 +111,7 @@ test('viewport lock keeps split pages fixed across resizing, client handoff and 
     await expect(tab.getByRole('img', { name: 'Locked', exact: true })).toBeVisible()
     await expect(tab.getByRole('img', { name: 'Viewport locked', exact: true })).toBeVisible()
     await rpc('toggle-window-pin', { window: client.windowId })
+    await expect(tab).toHaveAttribute('data-pinned', 'true')
     for (let icon of await tab.getByRole('img').all()) {
       let rect = (await icon.boundingBox())!, bounds = (await tab.boundingBox())!
       expect(rect.x).toBeGreaterThanOrEqual(bounds.x)
