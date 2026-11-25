@@ -149,7 +149,7 @@ let removeRemoteFrame = (live: LiveTab) => {
   if (focused && live.parent.isFocused()) live.contents.focus()
 }
 type PendingPermission = Permission & { replies: ((allowed: boolean) => void)[]; privateSessionId?: string }
-type MediaInteraction = { paneId: string; origin: string; expires: number; checked: Set<MediaDevice>; requested: boolean }
+type MediaInteraction = { paneId: string; origin: string; expires: number; requested: boolean }
 let sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 let focusWindow = async (window: BaseWindow) => {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -459,6 +459,21 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
   let answerPermission = (request: PendingPermission, allowed: boolean) => {
     permissions.delete(request.id)
     for (let reply of request.replies) reply(allowed)
+  }
+  let promptMediaControl = (paneId: string, contents: WebContents, origin: string, devices: MediaDevice[]) => {
+    let interaction = recentMediaInteraction(contents, origin)
+    if (!interaction || interaction.paneId !== paneId || interaction.requested) return
+    // Give a real capture request priority. Some site controls stop at a
+    // cached denial without requesting a stream.
+    setTimeout(() => {
+      if (interaction.requested || recentMediaInteraction(contents, origin) !== interaction) return
+      mediaInteractions.delete(contents)
+      let { pane, session } = paneById(model, paneId)
+      let privateSessionId = session.private ? session.id : undefined
+      let key = `${permissionScope(pane.profileId, privateSessionId)}|${origin}|media`
+      let missing = [...new Set(devices)].filter(device => !mediaAllowed(key, device))
+      if (missing.length) queueMediaPermission({ paneId, origin, profileId: pane.profileId, privateSessionId }, missing, undefined, true)
+    }, 100).unref()
   }
   let resetTabMedia = (paneId: string) => {
     mediaTabs.delete(paneId)
@@ -934,26 +949,11 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let ownerId = model.profiles.find(owner => owner.id === profileId || owner.connections?.some(connection => connection.id === profileId))!.id
     let scope = permissionScope(ownerId, privateSessionId)
     filters?.attach(session, ownerId)
-    session.setPermissionCheckHandler((contents, permission, origin, details) => {
+    session.setPermissionCheckHandler((_contents, permission, origin, details) => {
       if (permission === 'media') {
         let device = details.mediaType
         let mediaOrigin = pageOrigin(details.securityOrigin ?? origin)
-        if (!mediaOrigin || (device !== 'audio' && device !== 'video')) return false
-        let grantKey = `${scope}|${mediaOrigin}|media`
-        if (mediaAllowed(grantKey, device)) return true
-        // Electron reports undecided checks as denied. A page may check on a button
-        // click and stop before getUserMedia, so offer consent after that check.
-        let interaction = contents && details.isMainFrame && !details.securityOrigin && recentMediaInteraction(contents, mediaOrigin)
-        if (contents && interaction && !interaction.requested && !interaction.checked.has(device)) {
-          interaction.checked.add(device)
-          if (interaction.checked.size === 1) setTimeout(() => {
-            if (interaction.requested || recentMediaInteraction(contents, mediaOrigin) !== interaction) return
-            mediaInteractions.delete(contents)
-            let devices = [...interaction.checked].filter(device => !mediaAllowed(grantKey, device))
-            if (devices.length) queueMediaPermission({ paneId: interaction.paneId, origin: mediaOrigin, profileId: ownerId, privateSessionId }, devices, undefined, true)
-          }, 100).unref()
-        }
-        return false
+        return !!mediaOrigin && (device === 'audio' || device === 'video') && mediaAllowed(`${scope}|${mediaOrigin}|media`, device)
       }
       let normalizedOrigin = URL.canParse(origin) ? new URL(origin).origin : origin
       let known = permissionGrants.get(`${scope}|${normalizedOrigin}|${permission}`)
@@ -1840,7 +1840,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     let noteMediaInput = () => {
       if (!paneHasMediaInput(tabId, contents)) return
       let origin = pageOrigin(contents.getURL())
-      if (origin) mediaInteractions.set(contents, { paneId: tabId, origin, expires: Date.now() + 1000, checked: new Set(), requested: false })
+      if (origin) mediaInteractions.set(contents, { paneId: tabId, origin, expires: Date.now() + 1000, requested: false })
     }
     contents.on('before-mouse-event', (event, input) => { if (!event.defaultPrevented && input.type === 'mouseUp' && input.button === 'left') noteMediaInput() })
     contents.on('before-input-event', (event, input) => { if (!event.defaultPrevented && !input.isAutoRepeat && (input.type === 'keyDown' && input.key === 'Enter' || input.type === 'keyUp' && input.key === ' ')) noteMediaInput() })
@@ -4906,7 +4906,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
       let url = entry[1].pendingUrl ?? entry[1].contents.getURL()
       return { tabId: entry[0], adblock: tabById(model, entry[0]).pane.adblock, url: pageOrigin(url) ? url : tabById(model, entry[0]).tab.url }
     } })
-    pageTools = createPageTools({ clipboard: textClipboard, keyboard: () => configuration!.keyboard, vimEditing: () => configuration!.vimEditing, adblock: contentsId => {
+    pageTools = createPageTools({ clipboard: textClipboard, mediaControl: promptMediaControl, keyboard: () => configuration!.keyboard, vimEditing: () => configuration!.vimEditing, adblock: contentsId => {
       let entry = [...tabs].find(([, live]) => !live.contents.isDestroyed() && live.contents.id === contentsId)
       return entry ? tabById(model, entry[0]).pane.adblock : undefined
     }, visible: contentsId => [...tabs.values()].some(live => !live.contents.isDestroyed() && live.contents.id === contentsId && !live.parent.isDestroyed() && live.parent.isVisible()), directory: path.dirname(configuration.path), settings: browserSettings, changed: publish, styles: (url, ids, classes) => filters!.styles(url, ids, classes) })

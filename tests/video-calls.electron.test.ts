@@ -27,7 +27,7 @@ test('video calls test devices and grant camera and microphone independently', a
   let server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'text/html' })
     response.end(`<!doctype html><title>Video call fixture</title><h1>Video call fixture</h1>
-      <button id="camera">Turn on camera</button><button id="microphone">Turn on microphone</button><button id="preflight">Check camera</button>
+      <button id="camera">Turn on camera</button><button id="microphone">Turn on microphone</button><button id="preflight">Allow camera</button>
       <script>
         async function turnOn(constraints) {
           delete window.capture
@@ -39,10 +39,12 @@ test('video calls test devices and grant camera and microphone independently', a
         }
         document.querySelector('#camera').onclick = () => turnOn({ video: true })
         document.querySelector('#microphone').onclick = () => turnOn({ audio: true })
+        let queryCamera = () => navigator.permissions.query({ name: 'camera' }).then(result => result.state)
+        let cachedCameraState = queryCamera()
         document.querySelector('#preflight').onclick = async () => {
           delete window.capture
           window.preflightClicks = (window.preflightClicks || 0) + 1
-          window.preflight = (await navigator.permissions.query({ name: 'camera' })).state
+          window.preflight = await (window.preflightClicks === 1 ? cachedCameraState : queryCamera())
           if (window.preflight === 'granted') await turnOn({ video: true })
         }
       </script>`)
@@ -227,7 +229,7 @@ test('video calls test devices and grant camera and microphone independently', a
     expect(await grants()).toEqual(expect.arrayContaining([[`${profile.id}|${origin}|media:audio`, true], [`${profile.id}|${origin}|media:video`, false]]))
 
     let clickPreflight = async () => {
-      let bounds = await page.getByRole('button', { name: 'Check camera', exact: true }).boundingBox()
+      let bounds = await page.getByRole('button', { name: 'Allow camera', exact: true }).boundingBox()
       expect(bounds).toBeTruthy()
       let point = { x: Math.round(bounds!.x + bounds!.width / 2), y: Math.round(bounds!.y + bounds!.height / 2) }
       await expect.poll(() => application!.evaluate(({ webContents }, url) => webContents.getAllWebContents().find(contents => contents.getURL() === url)?.isFocused(), otherPage)).toBe(true)
