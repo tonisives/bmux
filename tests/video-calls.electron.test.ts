@@ -8,7 +8,7 @@ import { initialModel } from '../src/main/model'
 import { closeTestApplication } from './electron-fixture'
 
 type CaptureResult = { tracks?: string[]; error?: string }
-type FixtureWindow = Window & { capture?: CaptureResult; previewTrack?: MediaStreamTrack }
+type FixtureWindow = Window & { capture?: CaptureResult; previewTrack?: MediaStreamTrack; microphoneTrack?: MediaStreamTrack }
 
 let requestCapture = (page: Page, constraints: MediaStreamConstraints) => page.evaluate(constraints => {
   let fixture = window as FixtureWindow
@@ -38,7 +38,7 @@ test('video calls test devices and grant camera and microphone independently', a
     let config = path.join(directory, 'config.yaml')
     await fs.writeFile(config, 'keyboard: {}\nbrowser:\n  autoUpdateFilters: false\n')
     application = await electron.launch({
-      args: [process.cwd(), '--use-fake-device-for-media-stream'],
+      args: [process.cwd(), '--use-fake-device-for-media-stream=device-count=2'],
       env: { ...process.env, BMUX_DATA_DIR: directory, BMUX_CONFIG: config, BMUX_BACKGROUND: '0' },
     })
     let browserPage = async (url: string | RegExp) => {
@@ -61,6 +61,19 @@ test('video calls test devices and grant camera and microphone independently', a
     await camera.getByRole('button', { name: 'Test camera', exact: true }).click()
     let preview = camera.getByLabel('Camera preview', { exact: true })
     await expect.poll(() => preview.evaluate(video => (video as HTMLVideoElement).videoWidth)).toBeGreaterThan(0)
+    let initialCameraId = await preview.evaluate(video => {
+      let fixture = window as FixtureWindow
+      let track = ((video as HTMLVideoElement).srcObject as MediaStream).getVideoTracks()[0]
+      fixture.previewTrack = track
+      return track.getSettings().deviceId
+    })
+    let cameraInput = camera.getByRole('combobox', { name: 'Camera', exact: true })
+    await expect(cameraInput.locator('option')).toHaveCount(3)
+    let alternateCamera = await cameraInput.evaluate((input, initialId) =>
+      [...(input as HTMLSelectElement).options].find(option => option.value && option.value !== initialId)!.value, initialCameraId)
+    await cameraInput.selectOption(alternateCamera)
+    await expect.poll(() => preview.evaluate(video => ((video as HTMLVideoElement).srcObject as MediaStream | null)?.getVideoTracks()[0].getSettings().deviceId)).toBe(alternateCamera)
+    await expect.poll(() => chrome.evaluate(() => (window as FixtureWindow).previewTrack?.readyState)).toBe('ended')
     await preview.evaluate(video => {
       (window as FixtureWindow).previewTrack = ((video as HTMLVideoElement).srcObject as MediaStream).getVideoTracks()[0]
     })
@@ -72,10 +85,23 @@ test('video calls test devices and grant camera and microphone independently', a
     let grants = async () => JSON.parse(await fs.readFile(path.join(directory, 'permissions.json'), 'utf8'))
     expect(await grants()).toEqual([[`${profile.id}|${origin}|media:video`, true]])
 
+    await chrome.evaluate(() => {
+      let media = navigator.mediaDevices
+      let capture = media.getUserMedia.bind(media)
+      media.getUserMedia = async constraints => {
+        let stream = await capture(constraints)
+        let microphone = stream.getAudioTracks()[0]
+        if (microphone) (window as FixtureWindow).microphoneTrack = microphone
+        return stream
+      }
+    })
     await requestCapture(page, { video: true, audio: true })
     let microphone = notice('requests microphone access')
     await microphone.getByRole('button', { name: 'Test microphone', exact: true }).click()
     let meter = microphone.getByRole('meter', { name: 'Microphone level' })
+    let microphoneInput = microphone.getByRole('combobox', { name: 'Microphone', exact: true })
+    let alternateMicrophone = await microphoneInput.selectOption({ label: 'Fake Audio Input 2' })
+    await expect.poll(() => chrome.evaluate(() => (window as FixtureWindow).microphoneTrack?.getSettings().deviceId)).toBe(alternateMicrophone[0])
     await expect(microphone.getByText('Speak to check your level.')).toBeVisible()
     await expect.poll(() => meter.evaluate(element => (element as HTMLMeterElement).value), { timeout: 10_000 }).toBeGreaterThan(0)
     await microphone.getByRole('button', { name: 'Allow', exact: true }).click()
