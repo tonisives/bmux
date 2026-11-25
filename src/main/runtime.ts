@@ -2284,7 +2284,7 @@ export let createRuntime = (dataDirectory: string, settingsChanged = () => {}, a
     delete loading[tabId]
     delete audio[tabId]
     audibleMedia.delete(tabId)
-    delete favicons[tabId]
+    if (!idleUnloaded.has(tabId)) delete favicons[tabId]
     faviconRevisions.delete(tabId)
     delete findResults[tabId]
     lastTabUse.delete(tabId)

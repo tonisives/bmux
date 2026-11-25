@@ -13,13 +13,18 @@ test('background page limit unloads older applications and restores them without
   let holdOldRestore = false
   let heldOld = new Set<http.ServerResponse>()
   let server = http.createServer((request, response) => {
+    if (request.url === '/favicon.svg') {
+      response.writeHead(200, { 'Content-Type': 'image/svg+xml' })
+      response.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="green"/></svg>')
+      return
+    }
     if (holdOldRestore && request.url === '/old') {
       heldOld.add(response)
       response.once('close', () => heldOld.delete(response))
       return
     }
     response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store', 'Set-Cookie': 'fixture=retained; Path=/' })
-    response.end('<!doctype html><title>Page budget fixture</title><h1>Page budget fixture</h1><input id="draft" value=""><div contenteditable="true"></div><div id="rich-draft" contenteditable="true"></div><script>window.loadedAt=Date.now()</script>')
+    response.end('<!doctype html><title>Page budget fixture</title><link rel="icon" href="/favicon.svg"><h1>Page budget fixture</h1><input id="draft" value=""><div contenteditable="true"></div><div id="rich-draft" contenteditable="true"></div><script>window.loadedAt=Date.now()</script>')
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   let origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -51,6 +56,10 @@ test('background page limit unloads older applications and restores them without
     let old = await create('old')
     await navigate(old.pane.id, `${origin}/old-second`)
     await expect.poll(() => old.page.url()).toBe(`${origin}/old-second`)
+    let oldTab = chrome.locator(`[data-window-id="${old.window.id}"]`)
+    let favicon = oldTab.locator('img')
+    await expect(favicon).toHaveAttribute('src', /^data:image\/svg\+xml;base64,/)
+    let icon = (await favicon.getAttribute('src'))!
     let bot = await create('background-profile', 'bot')
     let kept = await create('kept')
     await rpc('pane.keep-alive', { pane: kept.pane.id, enabled: true })
@@ -67,6 +76,21 @@ test('background page limit unloads older applications and restores them without
     await rpc('settings.set', { key: 'memory.maxLoadedBackgroundPages', value: 5 })
     let live = async (pane: string) => (await rpc('memory')).current.panes.find((item: any) => item.paneId === pane).webContentsId
     await expect.poll(() => live(old.pane.id)).toBeNull()
+    await expect(favicon).toHaveAttribute('src', icon)
+    await rpc('lock-window', { window: old.window.id })
+    await rpc('toggle-window-pin', { window: old.window.id })
+    await expect(oldTab).toHaveAttribute('data-pinned', 'true')
+    let lock = oldTab.getByRole('img', { name: 'Locked', exact: true })
+    await expect(lock).toBeVisible()
+    await expect(favicon).toHaveAttribute('src', icon)
+    let tabBounds = (await oldTab.boundingBox())!
+    let iconBounds = (await favicon.boundingBox())!
+    let lockBounds = (await lock.boundingBox())!
+    expect(iconBounds.x).toBeGreaterThanOrEqual(tabBounds.x)
+    expect(lockBounds.x).toBeGreaterThanOrEqual(iconBounds.x + iconBounds.width)
+    expect(lockBounds.x + lockBounds.width).toBeLessThanOrEqual(tabBounds.x + tabBounds.width)
+    await rpc('toggle-window-pin', { window: old.window.id })
+    await rpc('unlock-window', { window: old.window.id })
     expect(await live(bot.pane.id)).not.toBeNull()
     expect(await live(newest.pane.id)).not.toBeNull()
     let busy = command('eval', { pane: bot.pane.id, expression: 'new Promise(resolve => { window.releaseBudget = () => resolve("finished") })' })

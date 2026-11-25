@@ -729,7 +729,7 @@ let PageIcon = ({ paneId }: { paneId?: string }) => {
 }
 let WindowLockIcon = () => <svg className={css.windowLock} viewBox="0 0 16 16" role="img" aria-label="Locked"><rect x="3" y="7" width="10" height="7" rx="1" /><path d="M5 7V5a3 3 0 0 1 6 0v2" /></svg>
 let ViewportLockIcon = () => <svg className={css.windowLock} viewBox="0 0 16 16" role="img" aria-label="Viewport locked"><path d="M1.5 5.5v-4h4m5 0h4v4m0 5v4h-4m-5 0h-4v-4M5 5h6v6H5z" /></svg>
-let WindowIcons = ({ window, paneId }: { window: InternalWindow; paneId?: string }) => <>{!window.locked && !window.lockedViewports && <PageIcon paneId={paneId} />}{window.locked && <WindowLockIcon />}{window.lockedViewports && <ViewportLockIcon />}</>
+let WindowIcons = ({ window, paneId }: { window: InternalWindow; paneId?: string }) => <><PageIcon paneId={paneId} />{window.locked && <WindowLockIcon />}{window.lockedViewports && <ViewportLockIcon />}</>
 let StatusWindow = ({ window, index, active, now }: { window: InternalWindow; index: number; active: boolean; now: number }) => {
   let { state, run } = useUI()
   let client = state.model.clients.find(client => client.id === state.clientId)
