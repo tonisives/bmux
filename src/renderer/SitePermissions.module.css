@@ -1,0 +1,11 @@
+.permissions { display: grid; gap: 8px; }
+.permissions > p { margin: 0 0 4px; color: #aab4bf; overflow-wrap: anywhere; }
+.permission { background: #1f252d; border: 1px solid #363f49; border-radius: 6px; }
+.permission .row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; text-align: left; }
+.row svg { flex: 0 0 16px; width: 16px; height: 16px; }
+.row[aria-expanded="true"] svg:last-child { transform: rotate(90deg); }
+.status { margin-left: auto; color: #aab4bf; }
+.details { padding: 4px 8px 8px; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.permissions .reset { justify-self: start; text-align: left; }
+.details .error { color: #e6a69c; }

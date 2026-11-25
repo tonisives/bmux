@@ -15,6 +15,7 @@ import { profileDeletionReason } from '../shared/profile-management'
 import { MessageDialog } from './MessageDialog'
 import { MediaDeviceTest, mediaDeviceLabel } from './MediaDeviceTest'
 import { MediaPermissionDialog } from './MediaPermissionDialog'
+import { SitePermissions } from './SitePermissions'
 import { NavigationFailure } from './NavigationFailure'
 import { AgentFeedbackSettings, FeedbackTabIcon } from './AgentFeedbackSettings'
 import type { FeedbackSection } from './AgentFeedbackSettings'
@@ -80,7 +81,7 @@ import type { PluginProxyProvider, PluginProxyRegion } from '../shared/plugins'
 import type { ExtensionDetails } from '../shared/extension-details'
 
 type ManagementControl = 'rename-window' | 'rename-session' | 'move-window' | 'select-window' | 'close-pane' | 'close-window'
-type Control = ManagementControl | MediaControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings' | 'bot-limits'
+type Control = ManagementControl | MediaControl | 'address' | 'command' | 'find' | 'help' | 'sessions' | 'bookmark' | 'bookmarks' | 'history' | 'activity' | 'downloads' | 'extensions' | 'profiles' | 'proxy' | 'settings' | 'plugins' | 'plugin-dialog' | 'site-info' | 'site-permissions' | 'adblock-popup' | 'dark-mode-popup' | 'agent-info' | 'anti-bot-settings' | 'bot-limits'
 type PanelLocation = { control: Control | null; initialPlugin: BuiltinTool | null; bookmarkDestination: BookmarkDestination | null; agentDetails: AgentDetails }
 type AgentDetails = { profileId: string; host: string; jobs: string[] } | { paneId: string } | { actors: AutomationActor[] } | { windowId: string } | { sessionId: string }
 type HistoryPopup = { tabId: string; direction: 'back' | 'forward' }
@@ -211,7 +212,7 @@ let useOverlayFocus = (state: PublicState | null, control: Control | null, panel
   let previousControl = useRef<Control | null>(null), previousHistoryPopup = useRef(false), previousDialogPrompt = useRef(false), previousPluginPrompt = useRef(false)
   useEffect(() => {
     if (!state?.clientId) return
-    let restoreFocus = previousDialogPrompt.current || previousPluginPrompt.current || previousHistoryPopup.current || ['command', 'agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
+    let restoreFocus = previousDialogPrompt.current || previousPluginPrompt.current || previousHistoryPopup.current || ['command', 'agent-info', 'anti-bot-settings', 'adblock-popup', 'dark-mode-popup', 'plugins', 'site-info', 'site-permissions', 'sessions', 'bookmark', 'bookmarks', 'history', 'find', 'downloads', 'extensions', 'activity', 'profiles', 'proxy'].includes(previousControl.current ?? '')
     previousDialogPrompt.current = !!state.dialogPrompt || !!mediaRequestId; previousPluginPrompt.current = !!state.pluginPrompt
     previousControl.current = control
     previousHistoryPopup.current = !!historyPopup
@@ -1526,7 +1527,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
     next.click(); next.focus()
   }
   let sessionPicker = type === 'sessions'
-  let title = ['plugins', 'extensions'].includes(type) && state.pluginPrompt?.kind === 'form' ? 'Plugin' : sessionPicker ? 'Sessions' : type === 'bot-limits' ? 'Session limits' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
+  let title = ['plugins', 'extensions'].includes(type) && state.pluginPrompt?.kind === 'form' ? 'Plugin' : sessionPicker ? 'Sessions' : type === 'bot-limits' ? 'Session limits' : type === 'agent-info' ? 'Agent information' : type === 'anti-bot-settings' ? 'Bot settings' : type === 'site-info' ? 'Site information' : type === 'site-permissions' ? 'Permissions' : type === 'plugin-dialog' ? 'Plugin' : type === 'profiles' ? 'Profile' : type === 'proxy' ? 'Proxy' : type.charAt(0).toUpperCase() + type.slice(1)
   let dismissBackground = (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) leave() }
   let keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && (detailBack || type === 'plugin-dialog')) { event.preventDefault(); event.stopPropagation(); leave() }
@@ -1542,6 +1543,7 @@ let Panel = ({ type, hidden = false, inactive = false, closeToParent = false }: 
       {type === 'plugins' && <PluginList browsingPrompt={!hidden && state.pluginPrompt?.kind === 'form'} />}
       {type === 'plugin-dialog' && state.pluginPrompt && (state.pluginPrompt.kind === 'form' ? <PluginList browsingPrompt /> : <PluginDialog key={state.pluginPrompt.id} />)}
       {type === 'site-info' && <SiteInformation />}
+      {type === 'site-permissions' && <SitePermissionSettings />}
       {type === 'agent-info' && <AgentInformation />}
       {type === 'anti-bot-settings' && <GeneralBotSettings />}
       {type === 'bot-limits' && <SessionLimitSettings />}
@@ -1658,9 +1660,7 @@ let SiteInformation = () => {
   let security = state.security?.[tab.id] ?? initialSecurity(tab.url)
   let origin = (() => { try { let parsed = new URL(security.url); return parsed.origin === 'null' ? parsed.protocol : parsed.origin } catch { return security.url } })()
   let tools = state.browserTools?.tabs[tab.id]
-  let openCamera = () => show(mediaControls.video)
-  let openMicrophone = () => show(mediaControls.audio)
-  let resetMedia = () => { void run('permission.media.reset', { tab: tab.id, origin }) }
+  let openPermissions = () => show('site-permissions')
   let certificate = security.certificate
   let date = (seconds: number) => Number.isFinite(seconds) ? new Date(seconds * 1000).toLocaleString() : 'Unavailable'
   let clearSiteData = async () => {
@@ -1678,13 +1678,20 @@ let SiteInformation = () => {
     {security.status === 'mixed' && <p>This page includes or requests content over an unencrypted connection.</p>}
     {certificate && <dl><dt>Subject</dt><dd>{certificate.subject || 'Unavailable'}</dd><dt>Issuer</dt><dd>{certificate.issuer || 'Unavailable'}</dd><dt>Valid from</dt><dd>{date(certificate.validFrom)}</dd><dt>Valid until</dt><dd>{date(certificate.validTo)}</dd>{certificate.protocol && <><dt>Protocol</dt><dd>{certificate.protocol}</dd></>}</dl>}
     {/^https?:\/\//i.test(origin) && <button onClick={clearSiteData} disabled={busy}>{busy ? 'Clearing…' : 'Clear cookies and site data'}</button>}
-    {tools?.origin && tools.origin === origin && <>
-      <button type="button" onClick={openCamera}>Camera access</button>
-      <button type="button" onClick={openMicrophone}>Microphone access</button>
-      {Object.values(tools.mediaPermissions ?? {}).some(value => value !== undefined) && <button onClick={resetMedia}>Reset camera and mic permissions and reload</button>}
-    </>}
+    {tools?.origin && tools.origin === origin && <button className={css.listRow} type="button" onClick={openPermissions}>Permissions</button>}
     {notice?.tab === tab.id && notice.url === tab.url && <p role="status">Cookies and site data cleared. Page reloaded.</p>}
   </section>
+}
+let SitePermissionSettings = () => {
+  let { state, run } = useUI()
+  let { tab } = selection(state)
+  let prepare = useMediaPreparation()
+  let site = tab && state.browserTools?.tabs[tab.id]
+  if (!tab || !site?.origin) return <p>Open a website to manage its permissions.</p>
+  let args = { tab: tab.id, origin: site.origin }
+  let decide = (device: MediaDevice, allow: boolean) => bridge.command({ method: 'permission.media.set', args: { ...args, device, allow } }) as Promise<{ blocked?: MediaDevice[] }>
+  let reset = () => { void run('permission.media.reset', args) }
+  return <SitePermissions key={`${tab.id}:${site.origin}`} origin={site.origin} decisions={site.mediaPermissions} prepare={prepare} decide={decide} reset={reset} />
 }
 let ExtensionInfoIcon = () => <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 9v5m0-8v.5" /></svg>
 let ExtensionsContent = ({ browsingPrompt = false }: { browsingPrompt?: boolean }) => {

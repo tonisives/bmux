@@ -5,8 +5,10 @@ import css from './MediaDeviceTest.module.css'
 
 export let mediaDeviceLabel = (devices: MediaDevice[]) => devices.length === 2 ? 'camera and microphone' : devices[0] === 'audio' ? 'microphone' : 'camera'
 
-export let MediaDeviceTest = ({ devices, prepare, buttonClassName }: { devices: MediaDevice[]; prepare: (device: MediaDevice) => Promise<boolean>; buttonClassName?: string }) => {
-  let [testing, setTesting] = useState(false)
+export let mediaSystemAccessMessage = (devices: MediaDevice[]) => `Allow ${mediaDeviceLabel(devices)} access for bmux in System Settings → Privacy & Security.`
+
+export let MediaDeviceTest = ({ devices, prepare, buttonClassName, startTesting = false }: { devices: MediaDevice[]; prepare: (device: MediaDevice) => Promise<boolean>; buttonClassName?: string; startTesting?: boolean }) => {
+  let [testing, setTesting] = useState(startTesting)
   let toggleTest = () => setTesting(active => !active)
   return <>
     <button type="button" className={buttonClassName} aria-expanded={testing} onClick={toggleTest}>
