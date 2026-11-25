@@ -637,7 +637,11 @@ test('locked windows protect tabs and sessions through menus, commands and close
     await runCommand('lock-window')
     await expect(prompt()).toHaveCount(0)
     await expect(tab).toHaveAttribute('data-locked', 'true')
-    await expect(tab.getByRole('img', { name: 'Locked', exact: true })).toBeVisible()
+    let lock = tab.getByRole('img', { name: 'Locked', exact: true })
+    await expect(lock).toBeVisible()
+    let labelBounds = (await tab.getByText(/locked-window/).boundingBox())!, lockBounds = (await lock.boundingBox())!
+    expect(lockBounds.x).toBeGreaterThanOrEqual(labelBounds.x + labelBounds.width)
+    await chrome.screenshot({ path: info.outputPath('window-lock-after-title.png') })
     await expect(close).toBeDisabled()
     await expect(rpc('kill-window', { window: window.id, confirm: true })).rejects.toThrow('Window is locked')
     await expect(rpc('kill-pane', { pane: window.panes[0].id, confirm: true })).rejects.toThrow('Window is locked')
