@@ -4,7 +4,7 @@ import { VimMode } from './VimMode'
 import { VimCursor } from './VimCursor'
 import vimCss from './VimCursor.module.css'
 import { useAddressVim } from './useAddressVim'
-import { ConnectionIndicator } from './ConnectionIndicator'
+import { ConnectionIndicator, MediaAccessButtons } from './ConnectionIndicator'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent, PointerEvent } from 'react'
 import type { Bridge, FloatingPane as Placement, PublicState, ViewportSize } from '../shared/types'
@@ -90,6 +90,7 @@ export let FloatingPane = () => {
       <button type="button" onClick={reload} aria-label="Reload" disabled={remote && !remote.controlling}>↻</button>
       <div className={css.urlBar}>
         {tab && !remote && <ConnectionIndicator security={state?.security?.[tab.id]} url={state?.security?.[tab.id]?.url ?? tab.url} open={siteInfo} />}
+        {tab && !remote && state && <MediaAccessButtons state={state} tabId={tab.id} open={control => { void run('pane.control', { control }) }} />}
         {vim.enabled && <VimMode mode={vim.mode} label="URL editing mode" />}<div className={vimCss.field}><input ref={input} data-vim-mode={vim.mode} value={address} readOnly={!!remote && !remote.controlling} onChange={change} onFocus={focus} onBlur={blur} onKeyDown={keys} onPointerDown={captureAddressPointer} onMouseDown={selectAddress} onMouseUp={vim.select} aria-label="Address" placeholder="Enter URL" spellCheck={false} /><VimCursor input={input} mode={vim.mode} value={address} /></div>
         <span className={css.paneId} title={`Pane ID: ${remote?.pane ?? paneId}`}>{remote?.pane ?? paneId}</span>
       </div>

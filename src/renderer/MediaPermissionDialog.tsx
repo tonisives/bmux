@@ -10,12 +10,14 @@ import mediaCss from './MediaDeviceTest.module.css'
 type MediaPermissionDialogProps = {
   origin: string
   devices: MediaDevice[]
+  pending: boolean
+  saved?: boolean
   prepare: (device: MediaDevice) => Promise<boolean>
   respond: (allow: boolean) => Promise<unknown>
   defer: () => void
 }
 
-export let MediaPermissionDialog = ({ origin, devices, prepare, respond, defer }: MediaPermissionDialogProps) => {
+export let MediaPermissionDialog = ({ origin, devices, pending, saved, prepare, respond, defer }: MediaPermissionDialogProps) => {
   let dialog = useRef<HTMLDialogElement>(null)
   let title = useId()
   let [busy, setBusy] = useState(false)
@@ -39,9 +41,9 @@ export let MediaPermissionDialog = ({ origin, devices, prepare, respond, defer }
   return <dialog ref={dialog} className={`${css.prompt} ${mediaCss.permission}`} aria-labelledby={title} aria-describedby={`${title}-origin`} onCancel={cancel}>
     <div className={mediaCss.permissionHeader}>
       <h2 id={title}>Allow {mediaDeviceLabel(devices)} access?</h2>
-      <CloseButton label="Review later" onClick={defer} disabled={busy} />
+      <CloseButton label={pending ? 'Review later' : 'Close'} onClick={defer} disabled={busy} />
     </div>
-    <p id={`${title}-origin`}>{origin}</p>
+    <p id={`${title}-origin`}>{origin}{saved !== undefined && <><br />{saved ? 'Allowed for this site.' : 'Blocked for this site.'}</>}</p>
     {!busy && <MediaDeviceTest devices={devices} prepare={prepare} buttonClassName={mediaCss.testButton} />}
     {error && <p className={mediaCss.permissionError} role="alert">{error}</p>}
     <div className={css.actions}>
