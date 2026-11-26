@@ -74,6 +74,7 @@ test('official Bitwarden saves a new passkey in the chosen login and completes W
         throw new Error('Original window is gone');
       };
       chrome.runtime.onMessage.addListener(fido2.handleExtensionMessage);
+      chrome.runtime.onConnect.addListener(fido2.handleInjectedScriptPortConnection);
     ` + source.slice(source.indexOf(bootstrap) + bootstrap.length))
     let manifest = path.join(extension, 'manifest.json')
     let data = JSON.parse(await fs.readFile(manifest, 'utf8'))
