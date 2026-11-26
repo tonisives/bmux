@@ -19,6 +19,9 @@ let passkeyPatch = 'bmux-passkey-unlock-preflight'
 let passkeyNeedle = 'try{return yield i(n,t,e)}finally{null!=t.id&&(yield YO.focusTab(t.id)),null!=t.windowId&&(yield YO.focusWindow(t.windowId))}'
 let unlockNeedle = 'openUnlock:tab=>aN.openPopout("popup/index.html#/login",{singleActionKey:oN,senderWindowId:tab.windowId})'
 let unlockSource = 'openUnlock:tab=>{if(!this.bmuxPasskeyUnlock)this.bmuxPasskeyUnlock=aN.openPopout("popup/index.html#/login",{singleActionKey:oN,senderWindowId:tab.windowId}).finally(()=>{this.bmuxPasskeyUnlock=void 0});return this.bmuxPasskeyUnlock}'
+let vaultSyncPatch = 'bmux-vault-refresh'
+let vaultSyncCommand = 'bmuxRefreshVault'
+let popupBundleTag = '<script defer="defer" src="../popup/main.js"></script>'
 
 // These symbols are tied to checksum-pinned official bundles, not arbitrary builds.
 let targets = (release: string) => {
@@ -84,6 +87,38 @@ export let patchBitwardenConditionalAutofill = (source: string) => {
   // Electron's native conditional path can request a USB touch on page load.
   // Keep silent autofill in Bitwarden; explicit native fallback stays available.
   return source.replace(race, `const response = yield bitwardenResponse(internalAbortControllers[0]);/* ${marker} */`)
+}
+
+// Serialized into the worker. Bitwarden checks the server's revision before
+// downloading the vault. Share automatic calls from startup, alarms and popup.
+export let bitwardenRefreshVault = async function (this: {
+  bmuxVaultRefresh?: Promise<unknown>
+  authService: { getAuthStatus: () => Promise<number> }
+  syncService: { getLastSync: () => Promise<Date | null>; fullSync: (force: boolean) => Promise<unknown>; syncInProgress: boolean }
+}, unlockedStatus: number, force: boolean, minAge: number) {
+  if (this.bmuxVaultRefresh) return this.bmuxVaultRefresh
+  let refresh = async () => {
+    if (this.syncService.syncInProgress) return
+    if (!force) {
+      let lastSync = await this.syncService.getLastSync()
+      if (lastSync && Date.now() - lastSync.getTime() < minAge) return
+      if (await this.authService.getAuthStatus() !== unlockedStatus || this.syncService.syncInProgress) return
+    }
+    return this.syncService.fullSync(force)
+  }
+  this.bmuxVaultRefresh = refresh()
+  try { return await this.bmuxVaultRefresh }
+  finally { this.bmuxVaultRefresh = undefined }
+}
+
+export let patchBitwardenVaultSync = (source: string, release = version) => {
+  let target = targets(release)
+  if (source.includes(vaultSyncPatch)) return source
+  let register = 'this.backgroundSyncService.register(()=>this.fullSync())'
+  let sync = 'function*(e=!1){const t=yield this.syncService.getLastSync();let i=21600001;null!=t&&(i=(new Date).getTime()-t.getTime()),(e||i>=216e5)&&(yield this.syncService.fullSync(e))'
+  if (!source.includes(register) || !source.includes(sync)) throw new Error('Bitwarden vault sync compatibility target was not found')
+  let listener = `chrome.runtime.onMessage.addListener((message,sender,respond)=>{if(message?.command!==${JSON.stringify(vaultSyncCommand)}||sender.url?.split("#")[0]!==chrome.runtime.getURL("popup/index.html"))return;this.fullSync(false,30000).then(()=>respond(),()=>respond());return true})`
+  return source.replace(register, `${register},${listener}`).replace(sync, `function*(e=!1,minAge=300000){return yield (${bitwardenRefreshVault.toString()}).call(this,${target.unlocked},e,minAge);/* ${vaultSyncPatch} */`)
 }
 
 export let patchBitwardenInlineNewItem = (source: string, release = version) => {
@@ -179,8 +214,20 @@ export let patchBitwardenPackage = async (directory: string, release = version) 
   if (fidoPatched !== fidoSource) await fs.writeFile(fido, fidoPatched)
   let background = path.join(directory, 'background.js')
   let source = await fs.readFile(background, 'utf8')
-  let patched = patchBitwardenSuggestions(patchBitwardenLockedInline(patchBitwardenPasskeys(patchBitwardenInlineNewItem(source, release), release), release), release)
+  let patched = patchBitwardenInlineNewItem(source, release)
+  patched = patchBitwardenPasskeys(patched, release)
+  patched = patchBitwardenLockedInline(patched, release)
+  patched = patchBitwardenSuggestions(patched, release)
+  patched = patchBitwardenVaultSync(patched, release)
   if (patched !== source) await fs.writeFile(background, patched)
+  let popupHtml = path.join(directory, 'popup', 'index.html')
+  let html = await fs.readFile(popupHtml, 'utf8')
+  if (!html.includes(`${vaultSyncPatch}.js`)) {
+    if (!html.includes(popupBundleTag)) throw new Error('Bitwarden vault popup compatibility target was not found')
+    let refreshScript = `if (!new URL(location.href).searchParams.has("uilocation")) void chrome.runtime.sendMessage({command:${JSON.stringify(vaultSyncCommand)}}).catch(() => {})\n`
+    await fs.writeFile(path.join(directory, 'popup', `${vaultSyncPatch}.js`), refreshScript)
+    await fs.writeFile(popupHtml, html.replace(popupBundleTag, `${popupBundleTag}<script defer src="${vaultSyncPatch}.js"></script>`))
+  }
   let popup = path.join(directory, 'popup', 'main.js')
   let popupSource = await fs.readFile(popup, 'utf8')
   let popupPatched = patchBitwardenMemoryPort(popupSource, release)
