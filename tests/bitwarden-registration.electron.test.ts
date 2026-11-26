@@ -46,16 +46,19 @@ test('official Bitwarden saves a new passkey in the chosen login and completes W
     await fs.writeFile(background, source.slice(0, main) + `
       let auth = { getAuthStatus: async () => ad.Unlocked };
       let cipher = { reprompt: 0, login: { username: 'fixture@example.test' } };
+      let writes = 0;
       let vault = {
         ciphers$: () => Se({ 'fixture-login': { type: 1 } }),
         decrypt: async () => cipher,
         updateWithServer: async (item, userId) => {
+          if (++writes === 2) return { login: { fido2Credentials: [] } };
           let credentials = item.login.fido2Credentials;
           let saved = credentials.length === 1 && credentials[0].rpId === 'localhost' && userId === 'fixture-user';
           await chrome.storage.local.set({ fixturePasskeySaved: saved });
+          return item;
         }
       };
-      let log = { info() {}, warning() {}, error() {} };
+      let log = { info: console.info, warning: console.warn, error: console.error };
       let account = { activeAccount$: Se({ id: 'fixture-user' }) };
       let sync = { activeUserLastSync$: () => Se(new Date()) };
       let tasks = { registerTaskHandler() {}, setTimeout() { return { unsubscribe() {} } } };
@@ -66,10 +69,15 @@ test('official Bitwarden saves a new passkey in the chosen login and completes W
       let authenticator = new ES(vault, new mU(auth), sync, account, log);
       let client = new RS(authenticator, config, auth, settings, domains, tasks, manager, log);
       let fido2 = new lU(log, manager, client, settings, null, auth);
+      YO.focusWindow = async () => {
+        await chrome.storage.local.set({ fixtureFocusAttempted: true });
+        throw new Error('Original window is gone');
+      };
       chrome.runtime.onMessage.addListener(fido2.handleExtensionMessage);
     ` + source.slice(source.indexOf(bootstrap) + bootstrap.length))
     let manifest = path.join(extension, 'manifest.json')
     let data = JSON.parse(await fs.readFile(manifest, 'utf8'))
+    data.name = 'Bitwarden registration fixture'
     data.action = { default_popup: 'probe.html' }
     data.content_scripts = [
       { matches: ['http://localhost/*'], js: ['content/fido2-page-script.js'], run_at: 'document_start', world: 'MAIN' },
@@ -99,22 +107,28 @@ test('official Bitwarden saves a new passkey in the chosen login and completes W
     await expect.poll(() => browser.context().pages().some(page => page.url().endsWith('/renderer/index.html'))).toBe(true)
     let chrome = browser.context().pages().find(page => page.url().endsWith('/renderer/index.html'))!
     let descriptor = await chrome.evaluate(location => (window as any).bmux.command({ method: 'extension.load', args: { profile: 'profile_default', path: location } }), fixture)
+    expect(descriptor.name).toBe(data.name)
     await chrome.getByRole('button', { name: 'Address', exact: true }).click()
     let address = chrome.getByRole('textbox', { name: 'URL or search', exact: true })
     await address.fill(url)
     await address.press('Enter')
     await expect.poll(() => browser.context().pages().some(page => page.url() === url)).toBe(true)
     let page = browser.context().pages().find(page => page.url() === url)!
-    await page.getByRole('button', { name: 'Create passkey' }).click()
-    await expect.poll(() => browser.context().pages().some(page => page.url().includes('#/fido2?'))).toBe(true)
-    let popup = browser.context().pages().find(page => page.url().includes('#/fido2?'))!
-    await popup.getByRole('button', { name: 'Fixture login' }).click()
-    await expect(page.locator('#result')).toHaveText('Registered')
-    await expect.poll(() => popup.isClosed()).toBe(true)
+    await expect.poll(() => page.evaluate(() => navigator.credentials.create.name)).toBe('createWebAuthnCredential')
+    let register = async (result: string | RegExp) => {
+      await page.getByRole('button', { name: 'Create passkey' }).click()
+      await expect.poll(() => browser.context().pages().some(page => page.url().includes('#/fido2?')) ? 'Prompt opened' : page.locator('#result').textContent()).toBe('Prompt opened')
+      let popup = browser.context().pages().find(page => page.url().includes('#/fido2?'))!
+      await popup.getByRole('button', { name: 'Fixture login' }).click()
+      await expect(page.locator('#result')).toHaveText(result)
+      await expect.poll(() => popup.isClosed()).toBe(true)
+    }
+    await register('Registered')
+    await register(/^NotAllowedError:/)
     await chrome.evaluate(id => (window as any).bmux.command({ method: 'extension.open', args: { profile: 'profile_default', id } }), descriptor.id)
     await expect.poll(() => browser.context().pages().some(page => page.url().endsWith('/probe.html'))).toBe(true)
     let vault = browser.context().pages().find(page => page.url().endsWith('/probe.html'))!
-    expect(await vault.evaluate(async () => (await (window as any).chrome.storage.local.get('fixturePasskeySaved')).fixturePasskeySaved)).toBe(true)
+    await expect.poll(() => vault.evaluate(() => (window as any).chrome.storage.local.get(['fixturePasskeySaved', 'fixtureFocusAttempted']))).toEqual({ fixturePasskeySaved: true, fixtureFocusAttempted: true })
   } finally {
     await closeTestApplication(application)
     server.closeAllConnections()
