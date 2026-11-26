@@ -59,6 +59,7 @@ test('official Bitwarden saves a new passkey in the chosen login and completes W
         }
       };
       let log = { info: console.info, warning: console.warn, error: console.error };
+      void new AF(log).loadAndInit();
       let account = { activeAccount$: Se({ id: 'fixture-user' }) };
       let sync = { activeUserLastSync$: () => Se(new Date()) };
       let tasks = { registerTaskHandler() {}, setTimeout() { return { unsubscribe() {} } } };

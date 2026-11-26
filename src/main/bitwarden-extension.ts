@@ -22,7 +22,6 @@ let unlockNeedle = 'openUnlock:tab=>aN.openPopout("popup/index.html#/login",{sin
 let unlockSource = 'openUnlock:tab=>{if(!this.bmuxPasskeyUnlock)this.bmuxPasskeyUnlock=aN.openPopout("popup/index.html#/login",{singleActionKey:oN,senderWindowId:tab.windowId}).finally(()=>{this.bmuxPasskeyUnlock=void 0});return this.bmuxPasskeyUnlock}'
 let vaultSyncPatch = 'bmux-vault-refresh'
 let vaultSyncCommand = 'bmuxRefreshVault'
-let popupBundleTag = '<script defer="defer" src="../popup/main.js"></script>'
 let passkeySavePatch = 'bmux-confirm-passkey-save'
 
 // These symbols are tied to checksum-pinned official bundles, not arbitrary builds.
@@ -123,7 +122,7 @@ export let bitwardenRefreshVault = async function (this: {
   finally { this.bmuxVaultRefresh = undefined }
 }
 
-export let patchBitwardenVaultSync = (source: string, release = version) => {
+let patchBitwardenVaultSync = (source: string, release: string) => {
   let target = targets(release)
   if (source.includes(vaultSyncPatch)) return source
   let register = 'this.backgroundSyncService.register(()=>this.fullSync())'
@@ -133,7 +132,7 @@ export let patchBitwardenVaultSync = (source: string, release = version) => {
   return source.replace(register, `${register},${listener}`).replace(sync, `function*(e=!1,minAge=300000){return yield (${bitwardenRefreshVault.toString()}).call(this,${target.unlocked},e,minAge);/* ${vaultSyncPatch} */`)
 }
 
-export let patchBitwardenPasskeySave = (source: string) => {
+let patchBitwardenPasskeySave = (source: string) => {
   if (source.includes(passkeySavePatch)) return source
   let save = /,yield this\.cipherService\.updateWithServer\((\w+),t\),(\w+)=(\w+)\.credentialId\}catch\(e\)\{throw (.{0,200}?\[Fido2Authenticator\] Aborting because of unknown error when creating credential:)/
   let errorReply = 'Promise.resolve(n).then(e=>i(e),e=>i({error:Object.assign(Object.assign({},e),{message:e.message})})).catch(this.logService.error)'
@@ -250,17 +249,12 @@ export let patchBitwardenPackage = async (directory: string, release = version) 
   patched = patchBitwardenVaultSync(patched, release)
   patched = patchBitwardenPasskeySave(patched)
   if (patched !== source) await fs.writeFile(background, patched)
-  let popupHtml = path.join(directory, 'popup', 'index.html')
-  let html = await fs.readFile(popupHtml, 'utf8')
-  if (!html.includes(`${vaultSyncPatch}.js`)) {
-    if (!html.includes(popupBundleTag)) throw new Error('Bitwarden vault popup compatibility target was not found')
-    let refreshScript = `if (!new URL(location.href).searchParams.has("uilocation")) void chrome.runtime.sendMessage({command:${JSON.stringify(vaultSyncCommand)}}).catch(() => {})\n`
-    await fs.writeFile(path.join(directory, 'popup', `${vaultSyncPatch}.js`), refreshScript)
-    await fs.writeFile(popupHtml, html.replace(popupBundleTag, `${popupBundleTag}<script defer src="${vaultSyncPatch}.js"></script>`))
-  }
   let popup = path.join(directory, 'popup', 'main.js')
   let popupSource = await fs.readFile(popup, 'utf8')
   let popupPatched = filterPasskeyItems(patchBitwardenMemoryPort(popupSource, release))
+  if (!popupPatched.includes(vaultSyncPatch)) {
+    popupPatched += `\n/* ${vaultSyncPatch} */\nif(!new URL(location.href).searchParams.has("uilocation"))void chrome.runtime.sendMessage({command:${JSON.stringify(vaultSyncCommand)}}).catch(()=>{});\n`
+  }
   if (popupPatched !== popupSource) await fs.writeFile(popup, popupPatched)
   if (release === '2026.10.0') {
     // The intro guard runs before the login route. Dismiss it through the
@@ -276,11 +270,22 @@ export let patchBitwardenPackage = async (directory: string, release = version) 
   }
 }
 
+let preparingPackages = new Map<string, Promise<void>>()
+
 export let prepareBitwardenPackage = async (directory: string, location: string) => {
   // Only upgrade packages managed by bmux; leave unpacked user extensions alone.
-  if (path.dirname(path.resolve(location)) !== path.resolve(directory, 'extension-packages') || !/^bitwarden(?:-|$)/.test(path.basename(location))) return
-  let manifest = await fs.readFile(path.join(location, 'manifest.json'), 'utf8').then(JSON.parse)
-  if (Object.hasOwn(releases, manifest.version) && manifest.name === '__MSG_extName__') await patchBitwardenPackage(location, manifest.version)
+  let canonical = path.resolve(location)
+  if (path.dirname(canonical) !== path.resolve(directory, 'extension-packages') || !/^bitwarden(?:-|$)/.test(path.basename(canonical))) return
+  let existing = preparingPackages.get(canonical)
+  if (existing) return existing
+  let preparation = fs.readFile(path.join(canonical, 'manifest.json'), 'utf8').then(async text => {
+    let manifest = JSON.parse(text)
+    if (Object.hasOwn(releases, manifest.version) && manifest.name === '__MSG_extName__') await patchBitwardenPackage(canonical, manifest.version)
+  })
+  // Profiles can start together and share the same installed files.
+  preparingPackages.set(canonical, preparation)
+  try { await preparation }
+  finally { preparingPackages.delete(canonical) }
 }
 
 export let installBitwardenExtension = async (directory: string, installedPath?: string, release = version) => {
