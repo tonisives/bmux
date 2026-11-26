@@ -198,7 +198,7 @@ describe('Bitwarden 2026.10.0 preview compatibility', () => {
     expect(patchBitwardenInlineNewItem(patched, release)).toBe(patched)
     let startup = patchBitwardenPasskeys(passkey, release)
     expect(startup).toContain('unlockedStatus:Hu.Unlocked')
-    expect(startup).toContain('yield PU.focusTab')
+    expect(startup).toContain('await PU.focusTab')
     expect(startup).toContain('singleActionKey:KU')
     expect(startup).toContain('$U.openPopout')
     expect(patchBitwardenPasskeys(startup, release)).toBe(startup)

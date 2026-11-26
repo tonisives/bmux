@@ -106,15 +106,17 @@ export let bitwardenRefreshVault = async function (this: {
   authService: { getAuthStatus: () => Promise<number> }
   syncService: { getLastSync: () => Promise<Date | null>; fullSync: (force: boolean) => Promise<unknown>; syncInProgress: boolean }
 }, unlockedStatus: number, force: boolean, minAge: number) {
+  if (force) return this.syncService.fullSync(true)
   if (this.bmuxVaultRefresh) return this.bmuxVaultRefresh
   let refresh = async () => {
     if (this.syncService.syncInProgress) return
-    if (!force) {
-      let lastSync = await this.syncService.getLastSync()
-      if (lastSync && Date.now() - lastSync.getTime() < minAge) return
-      if (await this.authService.getAuthStatus() !== unlockedStatus || this.syncService.syncInProgress) return
-    }
-    return this.syncService.fullSync(force)
+    let lastSync = await this.syncService.getLastSync()
+    let age = lastSync ? Date.now() - lastSync.getTime() : Infinity
+    if (age < minAge) return
+    // Keep Bitwarden's six-hour fallback for locked vaults.
+    if (age < 21_600_000 && await this.authService.getAuthStatus() !== unlockedStatus) return
+    if (this.syncService.syncInProgress) return
+    return this.syncService.fullSync(false)
   }
   this.bmuxVaultRefresh = refresh()
   try { return await this.bmuxVaultRefresh }
@@ -127,16 +129,16 @@ export let patchBitwardenVaultSync = (source: string, release = version) => {
   let register = 'this.backgroundSyncService.register(()=>this.fullSync())'
   let sync = 'function*(e=!1){const t=yield this.syncService.getLastSync();let i=21600001;null!=t&&(i=(new Date).getTime()-t.getTime()),(e||i>=216e5)&&(yield this.syncService.fullSync(e))'
   if (!source.includes(register) || !source.includes(sync)) throw new Error('Bitwarden vault sync compatibility target was not found')
-  let listener = `chrome.runtime.onMessage.addListener((message,sender,respond)=>{if(message?.command!==${JSON.stringify(vaultSyncCommand)}||sender.url?.split("#")[0]!==chrome.runtime.getURL("popup/index.html"))return;this.fullSync(false,30000).then(()=>respond(),()=>respond());return true})`
+  let listener = `chrome.runtime.onMessage.addListener((message,sender,respond)=>{if(message?.command!==${JSON.stringify(vaultSyncCommand)}||sender.url?.split("#")[0]!==chrome.runtime.getURL("popup/index.html"))return;this.fullSync(false,30000).then(()=>respond(true),()=>respond(false));return true})`
   return source.replace(register, `${register},${listener}`).replace(sync, `function*(e=!1,minAge=300000){return yield (${bitwardenRefreshVault.toString()}).call(this,${target.unlocked},e,minAge);/* ${vaultSyncPatch} */`)
 }
 
 export let patchBitwardenPasskeySave = (source: string) => {
   if (source.includes(passkeySavePatch)) return source
-  let save = /yield this\.cipherService\.updateWithServer\((\w+),t\),(\w+)=(\w+)\.credentialId\}catch\(e\)\{throw (.{0,200}?\[Fido2Authenticator\] Aborting because of unknown error when creating credential:)/
+  let save = /,yield this\.cipherService\.updateWithServer\((\w+),t\),(\w+)=(\w+)\.credentialId\}catch\(e\)\{throw (.{0,200}?\[Fido2Authenticator\] Aborting because of unknown error when creating credential:)/
   let errorReply = 'Promise.resolve(n).then(e=>i(e),e=>i({error:Object.assign(Object.assign({},e),{message:e.message})})).catch(this.logService.error)'
   if (!save.test(source) || !source.includes(errorReply)) throw new Error('Bitwarden passkey save compatibility target was not found')
-  return source.replace(save, 'const saved=yield this.cipherService.updateWithServer($1,t);$2=$3.credentialId;if(!saved?.login?.fido2Credentials?.some(passkey=>passkey.credentialId===$2))throw new Error("Bitwarden did not store the passkey.");/* bmux-confirm-passkey-save */}catch(e){throw $4')
+  return source.replace(save, ';const saved=yield this.cipherService.updateWithServer($1,t);$2=$3.credentialId;if(!saved?.login?.fido2Credentials?.some(passkey=>passkey.credentialId===$2))throw new Error("Bitwarden did not store the passkey.");/* bmux-confirm-passkey-save */}catch(e){throw $4')
     .replace(errorReply, errorReply.replace('{message:e.message}', '{name:e.name,message:e.message}'))
 }
 

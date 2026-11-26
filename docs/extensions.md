@@ -72,14 +72,14 @@ patching fails if its expected code changes. Keep 2026.6.1 as the default until
 manual vault verification succeeds. Hammerspoon automatic unlock also needs the
 preview's separate extension ID to be explicitly trusted before it can fill it.
 
-After installation, reload existing login pages so the extension can inject its
-content scripts. Bitwarden provides the passkey UI; this does not add Chrome's
-phone QR chooser to Electron. Vault authentication and passkey signing require
-a manual check with your account; the automated smoke test stops at Bitwarden's
-email login screen and does not access a real vault.
-Bitwarden registers its passkey scripts only after an account is signed in.
-For the first manual check, sign in with email and master password, unlock the
-vault, reload the website, and choose that website's passkey sign-in option.
+Unlock Bitwarden and reload the website to enable its passkey prompts. When
+the site asks you to create a passkey, select an editable login item or choose
+**New item** in Bitwarden. bmux checks that Bitwarden saved the passkey before
+returning it to the website.
+
+The unlocked vault checks for changes when you open Bitwarden and about every
+five minutes in the background. Use **Settings → Vault options → Sync vault now**
+to refresh immediately.
 
 If the vault locks while a website still has Bitwarden's passkey hook, clicking
 passkey sign-in opens Bitwarden's unlock window. The current request rejects
