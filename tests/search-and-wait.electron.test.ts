@@ -34,13 +34,21 @@ let open = async (command: string) => {
 }
 let openFind = async () => {
   await activate(); await rpc('focus-page', { client: (await state()).clientId })
-  await application.evaluate(({ webContents }) => {
+  await application.evaluate(async ({ webContents }) => {
+    // The inspector can interrupt Electron while it is creating the input lock
+    // view. Enumerate focused contents after that native construction returns.
+    await new Promise<void>(resolve => setImmediate(resolve))
     let contents = webContents.getFocusedWebContents()!
     contents.sendInputEvent({ type: 'keyDown', keyCode: 'f', modifiers: ['meta'] })
     contents.sendInputEvent({ type: 'keyUp', keyCode: 'f', modifiers: ['meta'] })
   })
   await expect(chrome.getByRole('textbox', { name: 'Find in page', exact: true })).toBeFocused()
 }
+let focusedFindContents = () => application.evaluate(async ({ webContents }) => {
+  await new Promise<void>(resolve => setImmediate(resolve))
+  let contents = webContents.getFocusedWebContents()
+  return { title: contents?.getTitle(), url: contents?.getURL() }
+})
 let flattenBookmarks = (bookmarks: any[]): any[] => bookmarks.flatMap(bookmark => [bookmark, ...flattenBookmarks(bookmark.children ?? [])])
 let holdPageLayout = () => application.evaluate(({ ipcMain }) => {
   let listener = ipcMain.listeners('bounds')[0] as (...args: unknown[]) => void
@@ -2121,11 +2129,11 @@ test('find reports counts, moves in both directions, and stays responsive during
     await input.press('Escape'); await expect(input).toHaveCount(0)
     await expect.poll(async () => (await state()).findResults[original]).toBeUndefined()
     await expect.poll(async () => (await state()).lockedAgentPanes).toContain(pane.id)
-    await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getTitle())).toBe('Agent input lock')
+    await expect.poll(async () => (await focusedFindContents()).title).toBe('Agent input lock')
   } finally { await page.evaluate(() => { (window as any).waitReady = true }); await result }
   expect(await result).toEqual({ value: { matched: true } })
   await expect.poll(async () => (await state()).lockedAgentPanes, { timeout: 25000 }).not.toContain(pane.id)
-  await expect.poll(() => application.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL())).toBe(`${url}/fixture`)
+  await expect.poll(async () => (await focusedFindContents()).url).toBe(`${url}/fixture`)
 })
 
 test('find results stay scoped to each tab and refresh after navigation', async () => {
