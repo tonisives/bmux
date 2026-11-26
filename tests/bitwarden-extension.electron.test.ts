@@ -61,6 +61,7 @@ for (let release of ['2026.6.1', '2026.10.0']) test(`official Bitwarden ${releas
             new Promise(resolve => setTimeout(() => resolve({ error: 'targeting rules stalled' }), 3000)),
           ])
         })).toEqual({ result: null })
+        expect(await popup.evaluate(() => (window as any).chrome.runtime.sendMessage({ command: 'bmuxRefreshVault' }))).toBe(true)
         await popup.screenshot({ path: test.info().outputPath(`bitwarden-${profile}-login.png`) })
         if (profile === other.id) {
           await popup.evaluate(() => {

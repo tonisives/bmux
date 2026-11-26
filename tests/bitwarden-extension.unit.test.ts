@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { bitwardenPasskeyPreflight, bitwardenPublishSuggestions, bitwardenTargetingRules, installBitwardenExtension, patchBitwardenConditionalAutofill, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, patchBitwardenSuggestions, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
+import { bitwardenPasskeyPreflight, bitwardenPublishSuggestions, bitwardenRefreshVault, bitwardenTargetingRules, installBitwardenExtension, patchBitwardenConditionalAutofill, patchBitwardenInlineNewItem, patchBitwardenLockedInline, patchBitwardenPasskeys, patchBitwardenSuggestions, prepareBitwardenPackage } from '../src/main/bitwarden-extension'
 
 let source = 'before;const d=chrome.runtime.getURL("popup/index.html"),h=(yield YO.tabsQuery({url:`${d}*`})).find(e=>{var t;return null===(t=e.url)||void 0===t?void 0:t.includes(`singleActionPopout=${o}`)});try{yield chrome.runtime.sendMessage({command:"reloadAddEditCipherData",data:{cipherId:i,cipherType:r}}),yield YO.updateWindowProperties(h.windowId,{focused:!0})}catch(e){yield aN.openPopout(l,{singleActionKey:o,senderWindowId:s})};after'
 
@@ -85,17 +85,21 @@ describe('Bitwarden passkey startup', () => {
         await fs.writeFile(path.join(location, 'manifest.json'), JSON.stringify({ name: '__MSG_extName__', version: '2026.6.1' }))
         await fs.writeFile(path.join(location, 'background.js'), `/* bmux-recovering-suggestion-updates */${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
         await fs.mkdir(path.join(location, 'popup'))
-        await fs.writeFile(path.join(location, 'popup', 'main.js'), '/* bmux-reconnecting-memory-port-v2 */')
+        await fs.writeFile(path.join(location, 'popup', 'main.js'), '/* bmux-reconnecting-memory-port-v2 */ /* bmux-editable-passkey-items */')
+        await fs.appendFile(path.join(location, 'background.js'), ';this.backgroundSyncService.register(()=>this.fullSync());function*(e=!1){const t=yield this.syncService.getLastSync();let i=21600001;null!=t&&(i=(new Date).getTime()-t.getTime()),(e||i>=216e5)&&(yield this.syncService.fullSync(e))} /* bmux-confirm-passkey-save */')
         await fs.mkdir(path.join(location, 'content'))
         await fs.writeFile(path.join(location, 'content', 'fido2-page-script.js'), conditionalSource)
         await prepareBitwardenPackage(directory, location)
       }
       let upgraded = await fs.readFile(path.join(managed, 'background.js'), 'utf8')
       expect(upgraded).toContain('bmux-passkey-unlock-preflight')
+      expect(upgraded).toContain('bmux-vault-refresh')
+      expect(await fs.readFile(path.join(managed, 'popup', 'main.js'), 'utf8')).toContain('bmuxRefreshVault')
       expect(await fs.readFile(path.join(managed, 'content', 'fido2-page-script.js'), 'utf8')).toContain('bmux-conditional-passkeys-no-native-probe')
       await prepareBitwardenPackage(directory, managed)
       expect(await fs.readFile(path.join(managed, 'background.js'), 'utf8')).toBe(upgraded)
-      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).toBe(`/* bmux-recovering-suggestion-updates */${source};${passkeySource};case"getUrlAutofillTargetingRules":return yield this.main.domainSettingsService.getTargetingRulesForUrl(null!==(i=t.url)&&void 0!==i?i:null===(r=t.tab)||void 0===r?void 0:r.url)`)
+      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).not.toContain('bmux-vault-refresh')
+      expect(await fs.readFile(path.join(unpacked, 'background.js'), 'utf8')).not.toContain('bmux-passkey-unlock-preflight')
       expect(await fs.readFile(path.join(unpacked, 'content', 'fido2-page-script.js'), 'utf8')).toBe(conditionalSource)
     } finally { await fs.rm(directory, { recursive: true, force: true }) }
   })
@@ -139,6 +143,25 @@ describe('Bitwarden passkey startup', () => {
   })
 })
 
+describe('automatic Bitwarden vault refresh', () => {
+  it('pulls external changes through a single revision check for an unlocked vault', async () => {
+    let getAuthStatus = vi.fn(async () => 2)
+    let getLastSync = vi.fn(async () => new Date(Date.now() - 60_000))
+    let fullSync = vi.fn(async () => true)
+    let background = { authService: { getAuthStatus }, syncService: { getLastSync, fullSync, syncInProgress: false } }
+    let refresh = (minAge: number) => bitwardenRefreshVault.call(background, 2, false, minAge)
+    await refresh(300_000)
+    expect(fullSync).not.toHaveBeenCalled()
+    await Promise.all([refresh(30_000), refresh(30_000)])
+    expect(fullSync).toHaveBeenCalledExactlyOnceWith(false)
+    getAuthStatus.mockResolvedValueOnce(1)
+    await refresh(30_000)
+    background.syncService.syncInProgress = true
+    await refresh(30_000)
+    expect(fullSync).toHaveBeenCalledOnce()
+  })
+})
+
 describe('conditional passkey autofill', () => {
   it.each([null, { id: 'vault-passkey' }])('keeps automatic requests in Bitwarden: %j', async result => {
     let bitwardenResponse = vi.fn(async () => result), browserResponse = vi.fn(async () => 'native-touch')
@@ -174,7 +197,7 @@ describe('Bitwarden 2026.10.0 preview compatibility', () => {
     expect(patchBitwardenInlineNewItem(patched, release)).toBe(patched)
     let startup = patchBitwardenPasskeys(passkey, release)
     expect(startup).toContain('unlockedStatus:Hu.Unlocked')
-    expect(startup).toContain('yield PU.focusTab')
+    expect(startup).toContain('await PU.focusTab')
     expect(startup).toContain('singleActionKey:KU')
     expect(startup).toContain('$U.openPopout')
     expect(patchBitwardenPasskeys(startup, release)).toBe(startup)
